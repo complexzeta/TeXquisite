@@ -19,6 +19,9 @@ import {panelPreferences,PanelPreferences} from './panel-layout';
 import {LocalPreview,LocalVerification} from './local-preview';
 import {nativeForward,nativeBackward,cancelNativeNavigation} from './native-navigation';
 import {inspectToolchain,toolEnvironment,ToolchainReport} from './toolchain';
+import {generateInstalledFormat,fingerprintFiles} from './format-cache';
+import {formatFingerprint,FORMAT_FINGERPRINT_POLICY} from './format-fingerprint';
+import {probe} from './toolchain';
 
 interface Doc {path:string;text:string;diskHash:string;dirty:boolean;eol:string;}
 interface State {texBin?:string;toolchainSeen?:boolean;projectSidebar?:boolean;docs:Doc[];active:string;root:string;engine:string;latexmk:string;onSave:boolean;backups?:boolean;liveVersion?:number;supportFolders?:string[];zoom?:number|'fit-width';statusBar?:boolean;panelLayout?:PanelPreferences;autoClose?:boolean;followPreview?:boolean;previewEditing?:boolean;continuousPreview?:boolean;lastCursor?:{file:string;at:number};}
@@ -41,8 +44,9 @@ let currentProblems:BuildDiagnostic[]=[];
 const initialEnvironment={...process.env};
 let toolchain:ToolchainReport|undefined;
 let acknowledgedToolchain:string|undefined;
+let preparingFormat=false;
 function toolchainSignature(report:ToolchainReport){return hash(JSON.stringify({selected:report.selected,ready:report.ready,tools:report.tools,fast:report.fast.reason}));}
-async function checkToolchain(selected=state.texBin,engine=state.engine,latexmk=state.latexmk){if(!['pdflatex','xelatex','lualatex','latex'].includes(engine))throw Error('Choose a supported TeX engine.');return inspectToolchain({selected,engine,latexmk,metadata:path.join(app.getAppPath(),'engine/resident/format.json'),env:initialEnvironment});}
+async function checkToolchain(selected=state.texBin,engine=state.engine,latexmk=state.latexmk){if(!['pdflatex','xelatex','lualatex','latex'].includes(engine))throw Error('Choose a supported TeX engine.');return inspectToolchain({selected,engine,latexmk,cache:path.join(data(),'formats'),metadata:path.join(app.getAppPath(),'engine/resident/format.json'),env:initialEnvironment});}
 function activateToolchain(report:ToolchainReport){toolchain=report;process.env.PATH=toolEnvironment(report.selected,initialEnvironment).PATH;if(report.fast.resources)process.env.TEXQUISITE_TEX_RESOURCES=JSON.stringify(report.fast.resources);else delete process.env.TEXQUISITE_TEX_RESOURCES;}
 const projectSearch=new ProjectSearch();let searchPreview:{id:string;generation:number;folders:string[];result:SearchResult}|undefined;
 const conflicts=new Set<string>();
@@ -320,6 +324,17 @@ async function handle(method:string,args:unknown[]) {
       return {...state,root:savedRoot,toolchain,showToolchainSetup:(!state.toolchainSeen&&!state.docs.length)||!!toolchain&&(!toolchain.ready||!toolchain.fast.available)&&acknowledgedToolchain!==toolchainSignature(toolchain)};
     }
     case 'toolchainCheck': return checkToolchain(typeof args[0]==='string'?args[0]:undefined,typeof args[1]==='string'?args[1]:state.engine,typeof args[2]==='string'?args[2]:state.latexmk);
+    case 'toolchainPrepare': {
+      if(preparingFormat)throw Error('A fast format is already being prepared.');preparingFormat=true;
+      try{
+        const checked=await checkToolchain(String(args[0]??''),String(args[1]??state.engine),String(args[2]??state.latexmk));
+        if(!checked.fast.preparable||!checked.selected)throw Error('Choose a working TeX Live installation with pdfLaTeX and the default latexmk command.');
+        const env=toolEnvironment(checked.selected,initialEnvironment),kpse=checked.tools.find(t=>t.name==='kpsewhich')!.path!,root=await probe(kpse,['-var-value=TEXMFDIST'],env),files:Record<string,string>={},fingerprints:Record<string,string>={};
+        for(const name of fingerprintFiles){files[name]=await probe(kpse,[name],env);fingerprints[name]=formatFingerprint(name,await fs.readFile(files[name]),FORMAT_FINGERPRINT_POLICY);}
+        await generateInstalledFormat({keep:toolchain?.fast.resources?.formatManifest?[toolchain.fast.resources.formatManifest]:[],assets:path.join(app.getAppPath(),'engine/resident'),cache:path.join(data(),'formats'),installation:checked.selected,root,files,fingerprints,env});
+        return checkToolchain(checked.selected,String(args[1]??state.engine),String(args[2]??state.latexmk));
+      }finally{preparingFormat=false;}
+    }
     case 'toolchainBrowse': {const choice=await dialog.showOpenDialog(window,{title:'Choose a TeX installation or its executable folder',properties:['openDirectory']});return choice.canceled?null:checkToolchain(choice.filePaths[0],typeof args[0]==='string'?args[0]:state.engine,typeof args[1]==='string'?args[1]:state.latexmk);}
     case 'projectSidebar': state.projectSidebar=!!args[0];await persist();return state.projectSidebar;
     case 'projectFolders': return {root:state.root,folders:projectFolders(state.root,state.supportFolders)};

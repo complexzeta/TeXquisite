@@ -7,6 +7,8 @@ import * as path from 'node:path';
 import * as vm from 'node:vm';
 import {execFileSync} from 'node:child_process';
 import {createHash,randomUUID} from 'node:crypto';
+import {formatFingerprint} from './format-fingerprint';
+import {preparedFormat} from './format-cache';
 import {deflateSync} from 'node:zlib';
 const supersession=workerData?.supersession?new Int32Array(workerData.supersession):undefined;
 let localEditRunning=false;
@@ -213,11 +215,13 @@ function restore(state:Checkpoint){
   restoreTiming={heapMs:heapAt-started,filesMs:filesAt-heapAt,streamsMs:performance.now()-filesAt,heapBytes:state.length,copiedBytes};
 }
 async function initialize(){
-  const metadata=JSON.parse(fs.readFileSync(path.join(assets,'format.json'),'utf8'));
+  let metadata=JSON.parse(fs.readFileSync(path.join(assets,'format.json'),'utf8'));
   const kpse=(args:string[])=>execFileSync('kpsewhich',args,{encoding:'utf8',windowsHide:true,timeout:10000}).trim();
   // These hints are generated from the selected installation at app startup,
   // never from paths baked into the developer's compiler metadata.
-  let selected:{root?:string;files?:Record<string,string>}|undefined;try{selected=JSON.parse(process.env.TEXQUISITE_TEX_RESOURCES??'null');}catch{}
+  let selected:{root?:string;files?:Record<string,string>;formatManifest?:string}|undefined;try{selected=JSON.parse(process.env.TEXQUISITE_TEX_RESOURCES??'null');}catch{}
+  let selectedFormatBytes:Buffer|undefined;
+  if(selected?.formatManifest){const cached=preparedFormat(selected.formatManifest,assets);if(!cached)throw new Unavailable('The prepared format or its TeX inputs changed. Prepare fast preview again in Build Settings.');metadata=cached;selectedFormatBytes=cached.formatBytes;}
   let root:string;try{root=selected?.root??kpse(['-var-value=TEXMFDIST']);if(!fs.existsSync(path.join(root,'ls-R')))throw Error('No TeX Live index.');}catch{throw new Unavailable('Fast preview requires a compatible TeX Live installation. Open Build Settings to check the selected installation.');}
   const index=new Map<string,string>();let directory='';
   for(const line of fs.readFileSync(path.join(root,'ls-R'),'utf8').split(/\r?\n/)){
@@ -227,7 +231,7 @@ async function initialize(){
     }
   }
   for(const [name,expected]of Object.entries(metadata.fingerprints)){
-    const file=selected?.files?.[name]??kpse([name]);if(!file||digest(fs.readFileSync(file))!==expected)throw new Unavailable('The bundled format does not match installed '+name+'. Using the selected native engine.');
+    const file=selected?.files?.[name]??kpse([name]);if(!file||formatFingerprint(name,fs.readFileSync(file),metadata.fingerprintPolicy)!==expected)throw new Unavailable('The bundled format does not match installed '+name+'. Using the selected native engine.');
     index.set(name,file);
   }
   for(const name of ['pdftex.map']){const file=selected?.files?.[name]??kpse([name]);if(file)index.set(name,file);}
@@ -242,6 +246,7 @@ async function initialize(){
       startupLookups.distribution++;
       const parts=new URL(this.url).pathname.split('/'),name=decodeURIComponent(parts.at(-1)!),format=parts.at(-2);
       if(!name||name==='.'||name==='..'||/[\\/\0:]/.test(name))return;
+      if(name==='swiftlatexpdftex.fmt'&&selectedFormatBytes){const bytes=selectedFormatBytes;this.status=200;this.headers={fileid:name};this.response=bytes.buffer.slice(bytes.byteOffset,bytes.byteOffset+bytes.byteLength) as ArrayBuffer;return;}
       const file=(name==='swiftlatexpdftex.fmt'?[path.join(assets,'pdflatex.fmt')]:[index.get(name),index.get(name+(format==='3'?'.tfm':'.tex'))]).find(candidate=>candidate&&fs.existsSync(candidate)&&fs.statSync(candidate).isFile());
       if(!file||!fs.existsSync(file))return;
       const bytes=fs.readFileSync(file);this.status=200;this.headers={fileid:name};this.response=bytes.buffer.slice(bytes.byteOffset,bytes.byteOffset+bytes.byteLength) as ArrayBuffer;

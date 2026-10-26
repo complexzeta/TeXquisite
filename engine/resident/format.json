@@ -6,7 +6,8 @@
     "expl3.ltx": "a814b0fc593cba5bee3ad3b645f77facb8e8322d178f84b4b9d124d4076c098a",
     "ltluatex.tex": "8c1d63be16a0c05507b2f28cb3f99d7aa625e026e6c7600c85e2a98607e49065",
     "pdftexconfig.tex": "ea8832fa010ffb77f6803cc151f31a793de44a68a487b5381a907abf493217f8",
-    "language.dat": "b02a3d32fc9da5a2909b2c0173d50c660ef40009ad472d8fc23944310b3b2f09",
+    "language.dat": "d01cb49a77e3ee44f2c03b01d65fd945fe8455449c434217830af75e7574221b",
     "hyphen.cfg": "f646844e8fab61d119f0cd9765e88b372be5fafa9fa5eedf58c6cbc7d303f591"
-  }
+  },
+  "fingerprintPolicy": "texlive-language-header-v1"
 }

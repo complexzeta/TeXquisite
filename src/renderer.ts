@@ -428,16 +428,19 @@ document.addEventListener('keydown',event=>{
 function renderToolchain(report:any,activeReport=false){
  if(!report)return;
  el('toolchainSummary').textContent=(report.ready?'Ready for compilation':'Installation needs attention')+' · '+report.distribution+'\n'+report.fast.reason;
+ el<HTMLButtonElement>('prepareFastFormat').disabled=!report.fast.preparable||report.fast.available;
  el('toolchainDetails').textContent=[...report.tools.map((t:any)=>(t.ok?'OK: ':'Missing/unusable: ')+t.name+' '+(t.path??'')+'\n'+t.detail),...report.packages.map((p:any)=>(p.found?'Found: ':'Missing: ')+p.name),...report.issues].join('\n\n');
  const choices=el('texInstallations');choices.replaceChildren();for(const installation of report.installations){const option=document.createElement('option');option.value=installation.bin;choices.append(option);}
  if(activeReport){const notice=el('toolchainNotice');notice.hidden=report.ready&&report.fast.available;
  el('toolchainNoticeText').textContent=report.ready?report.fast.reason:'TeX tools need attention. Open Build settings to select an installation and check missing tools.';}
 }
 async function refreshToolchain(detect=false){
+ el('formatPreparation').textContent='';
  const input=el<HTMLInputElement>('texBin');if(detect)input.value='';el('toolchainSummary').textContent='Checking installed TeX tools…';
  const report=await api.call('toolchainCheck',input.value,el<HTMLSelectElement>('engine').value,el<HTMLInputElement>('latexmk').value);if(report.selected)input.value=report.selected;renderToolchain(report);
 }
 el('settings').onclick=()=>{
+  el('formatPreparation').textContent='';
   el<HTMLSelectElement>('engine').value=model.engine;el<HTMLInputElement>('latexmk').value=model.latexmk;el<HTMLInputElement>('onSave').checked=model.onSave;
   el<HTMLInputElement>('texBin').value=model.texBin??model.toolchain?.selected??'';renderToolchain(model.toolchain);
   el<HTMLDialogElement>('settingsDialog').showModal();
@@ -453,6 +456,11 @@ el('applySettings').onclick=event=>{event.preventDefault();void command(async()=
 let current:any,prepared:any,pageNumber=1,scale=1,renderToken=0,loadToken=0;
 el('detectTeX').onclick=()=>void command(()=>refreshToolchain(true));
 el('checkTeX').onclick=()=>void command(()=>refreshToolchain());
+el('prepareFastFormat').onclick=()=>void command(async()=>{
+ const button=el<HTMLButtonElement>('prepareFastFormat');button.disabled=true;el('formatPreparation').textContent='Preparing and checking a local fast-preview format. This one-time setup may take a couple of minutes; your document is not changed.';
+ try{const report=await api.call('toolchainPrepare',el<HTMLInputElement>('texBin').value,el<HTMLSelectElement>('engine').value,el<HTMLInputElement>('latexmk').value);renderToolchain(report);el('formatPreparation').textContent=report.fast.available?'Prepared. Choose Apply to use this installation.':'Preparation finished, but fast preview is still unavailable. '+report.fast.reason;}
+ catch(error){el('formatPreparation').textContent=String(error)+'. Native compilation remains available.';button.disabled=false;}
+});
 el('browseTeX').onclick=()=>void command(async()=>{const report=await api.call('toolchainBrowse',el<HTMLSelectElement>('engine').value,el<HTMLInputElement>('latexmk').value);if(report){el<HTMLInputElement>('texBin').value=report.selected??report.requested??'';renderToolchain(report);}});
 el('toolchainNoticeSettings').onclick=()=>el('settings').click();
 const continuousView=new ContinuousView(el('pages'),el('pdfViewport'));
