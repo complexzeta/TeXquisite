@@ -1,0 +1,15 @@
+node_modules/
+dist/
+media/vendor/
+.test-output/
+*.vsix
+release/
+.research/
+media/renderer.js*
+media/pdf-worker.js*
+
+projects/
+.env
+.env.*
+*.log
+session.json

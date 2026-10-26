@@ -1,0 +1,60 @@
+# TeXquisite
+
+A standalone LaTeX editor with source and compiled preview side by side. It saves automatically, updates the preview while you type, and keeps the last successful output visible during incomplete edits.
+
+## Download and try it
+
+**Early Windows x64 test release:** [Download TeXquisite 0.84.0](https://github.com/complexzeta/TeXquisite/releases/download/v0.84.0/TeXquisite-0.84.0-Windows.exe).
+
+1. Install TeX Live separately, including latexmk. TeXquisite does not bundle a full TeX distribution.
+2. Run the portable executable; no VS Code, Node.js or account is required to use it.
+3. In the first-run Build Settings check, confirm the detected TeX installation, or choose its installation/executable folder. Apply the settings.
+4. Open a .tex file, or choose the built-in mathematical example.
+
+[First-run guide](FIRST-RUN.md) · [Releases and checksums](https://github.com/complexzeta/TeXquisite/releases) · [Report a problem](https://github.com/complexzeta/TeXquisite/issues)
+
+## Features
+
+- Automatic saving and live preview, with a retained last-good PDF.
+- Continuous scroll and paged views; source/PDF navigation and Follow typing.
+- Resizable source/output panels, horizontal or vertical arrangement, fit-width zoom.
+- Optional matching delimiters and environments, image paste, project search and source backups.
+- Persistent pdfTeX state and guarded local preview updates for supported edits.
+- Native compilation for XeLaTeX, LuaLaTeX, PostScript workflows and incompatible fast-preview formats.
+
+## Current limits
+
+This is a public test build, not a finished replacement for every TeX workflow. Windows with TeX Live is the initial supported setup. MiKTeX native compilation is experimental; macOS and Linux application packages are not provided.
+
+Fast preview requires LaTeX files compatible with the bundled format, which was generated with TeX Live 2025. A different installation can use native compilation with a visible explanation, but updates may be slower. Matching fast formats are not automatically generated for arbitrary TeX versions. First loads, changed preambles, page-layout changes and complicated TikZ diagrams can take longer than small warm edits. No universal per-keystroke latency is promised.
+
+The Windows executable is an unsigned test build. Use the release checksum to identify the published file.
+
+## Files and privacy
+
+Documents remain ordinary local TeX files. The app creates local drafts, previews and periodic source backups. No account is required and no source or diagnostic is uploaded automatically. Native builds disable shell escape and latexmk configuration files. Local compilation is not a security sandbox for untrusted TeX documents.
+
+## Build from source
+
+Windows development was tested with Node.js 24 and npm. Install TeX separately to run compilation/integration tests.
+
+~~~powershell
+npm ci
+npm run build
+npm start
+~~~
+
+The repository includes the prebuilt resident engine, its original upstream source archive, modifications and [engine build instructions](engine/resident/SOURCE-BUILD.md). Rebuilding that engine is optional for ordinary application development and requires the documented Emscripten toolchain.
+
+A small test set needs no installed TeX:
+
+~~~powershell
+npm run build
+node --test test/toolchain.test.cjs test/footer-navigation.test.cjs test/flow-navigation.test.cjs
+~~~
+
+Integration tests require installed TeX and write disposable artifacts. Set PERSISTENT_TEX_TEST_ARTIFACTS and process-local TEMP/TMP to a suitable directory when running a large campaign. Do not commit documents, profiles, generated PDFs, caches or test output.
+
+## License and source
+
+TeXquisite application code is licensed under [AGPL-3.0-only](LICENSE). Third-party components retain their respective licenses; see [THIRD-PARTY-NOTICES.txt](THIRD-PARTY-NOTICES.txt). The modified SwiftLaTeX/pdfTeX compiler is accompanied by its upstream source, patch/build scripts and license. Corresponding source for each downloadable version is available from the matching Git tag and the source archives on its release page.

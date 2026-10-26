@@ -1,0 +1,6 @@
+* text=auto eol=lf
+engine/resident/*.fmt -text
+engine/resident/*.wasm -text
+engine/resident/*.zip -text
+engine/resident/format-sources/** linguist-vendored
+engine/resident/pdftex.js linguist-vendored

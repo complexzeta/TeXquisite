@@ -1,0 +1,54 @@
+export const LOCAL_INK_BLEED_BP=1;
+export function inkFitsRaster(data:Uint8Array|Uint8ClampedArray,width:number,height:number,bounds:{left:number;top:number;right:number;bottom:number}){
+  if(!Number.isSafeInteger(width)||!Number.isSafeInteger(height)||width<1||height<1||data.length!==width*height*4||![bounds.left,bounds.top,bounds.right,bounds.bottom].every(Number.isFinite)||bounds.right<=bounds.left||bounds.bottom<=bounds.top)return false;
+  const left=Math.max(0,Math.min(width,Math.floor(bounds.left))),right=Math.max(0,Math.min(width,Math.ceil(bounds.right))),top=Math.floor(bounds.top),bottom=Math.ceil(bounds.bottom);
+  const clear=(from:number,to:number)=>{for(let at=from;at<to;at+=4)if(data[at]<250||data[at+1]<250||data[at+2]<250)return false;return true;};
+  for(let y=0;y<height;y++){const start=y*width*4;if(y<top||y>=bottom){if(!clear(start,start+width*4))return false;}else if(!clear(start,start+left*4)||!clear(start+right*4,start+width*4))return false;}
+  return true;
+}
+type RasterRect={x:number;y:number;width:number;height:number};
+export function matchLocalRaster(a:Uint8ClampedArray,b:Uint8ClampedArray,width:number,height:number,rect:RasterRect){return matchRaster(a,b,width,height,rect,false);}
+export function matchLocalPatchRaster(a:Uint8ClampedArray,b:Uint8ClampedArray,width:number,height:number,rect:RasterRect,calibratedGlyphs:RasterRect[]=[]){return matchRaster(a,b,width,height,rect,true,calibratedGlyphs);}
+function matchRaster(a:Uint8ClampedArray,b:Uint8ClampedArray,width:number,height:number,rect:RasterRect,patchOnly:boolean,calibratedGlyphs:RasterRect[]=[]){
+  const changed:number[]=[],limit=Math.max(64,Math.floor(width*height*.0001));let maxDifference=0,metricPixels=0;
+  if(!Number.isSafeInteger(width)||!Number.isSafeInteger(height)||width<1||height<1||!Object.values(rect).every(Number.isFinite)||rect.width<=0||rect.height<=0)return {ok:false,differingPixels:0,maxDifference};
+  if(a.length!==b.length||a.length!==width*height*4)return {ok:false,differingPixels:0,maxDifference};
+  const left=patchOnly?Math.max(0,Math.floor(rect.x)):0,right=patchOnly?Math.min(width,Math.ceil(rect.x+rect.width)):width,top=patchOnly?Math.max(0,Math.floor(rect.y)):0,bottom=patchOnly?Math.min(height,Math.ceil(rect.y+rect.height)):height;
+  const masks=patchOnly&&calibratedGlyphs.length<=4096?calibratedGlyphs.filter(g=>Object.values(g).every(Number.isFinite)&&g.width>0&&g.height>0&&g.width<=256&&g.height<=256):[];
+  const grayInk=(pixels:Uint8ClampedArray,p:number)=>{const i=p*4;return pixels[i+3]===255&&pixels[i]<250&&pixels[i]===pixels[i+1]&&pixels[i]===pixels[i+2];};
+  for(let y=top;y<bottom;y++)for(let x=left;x<right;x++){
+    const p=y*width+x;
+    // Only this integer crop is copied into the accepted canvas. PDF form
+    // serialization can change unrelated page pixels which are never shown.
+    let difference=0;for(let c=0;c<4;c++)difference=Math.max(difference,Math.abs(a[p*4+c]-b[p*4+c]));
+    if(!difference)continue;maxDifference=Math.max(maxDifference,difference);changed.push(p);
+    // Only independently matched PDF glyph geometry can authorize these
+    // eight opaque grayscale coverage pixels. Background, color, alpha and
+    // missing/added ink remain subject to the original checks.
+    const metric=difference>32&&difference<=80&&grayInk(a,p)&&grayInk(b,p)&&masks.some(g=>x>=Math.floor(g.x)-1&&x<=Math.ceil(g.x+g.width)+1&&y>=Math.floor(g.y)-1&&y<=Math.ceil(g.y+g.height)+1)&&++metricPixels<=8;
+    if(difference>32&&!metric||changed.length>limit||x<Math.floor(rect.x)-1||x>Math.ceil(rect.x+rect.width)+1||y<Math.floor(rect.y)-1||y>Math.ceil(rect.y+rect.height)+1)return {ok:false,differingPixels:changed.length,maxDifference,sample:[{x,y,a:[...a.slice(p*4,p*4+4)],b:[...b.slice(p*4,p*4+4)]}]};
+  }
+  // PDF form placement can change a handful of edge coverage values at high
+  // DPI even with equivalent coordinates. Permit only small changes adjacent
+  // to a dark/light stroke edge in BOTH images. Lost/added ink, background
+  // changes, changes outside the paragraph and broad differences are refused.
+  const edge=(pixels:Uint8ClampedArray,p:number)=>{const x=p%width,y=Math.floor(p/width);let dark=false,light=false;
+    for(let dy=-2;dy<=2;dy++)for(let dx=-2;dx<=2;dx++){const xx=x+dx,yy=y+dy;if(xx<0||xx>=width||yy<0||yy>=height)continue;const at=(yy*width+xx)*4,value=Math.min(pixels[at],pixels[at+1],pixels[at+2]);if(value<96)dark=true;if(value>224)light=true;}return dark&&light;};
+  const background=(pixels:Uint8ClampedArray,p:number)=>pixels[p*4]>=250&&pixels[p*4+1]>=250&&pixels[p*4+2]>=250&&pixels[p*4+3]===255;
+  // Use the same ink threshold as inkFitsRaster. Near-white coverage in both
+  // images is background; darker or newly missing ink still needs both edges.
+  const ok=changed.every(p=>background(a,p)&&background(b,p)||edge(a,p)&&edge(b,p));return {ok,differingPixels:changed.length,maxDifference,...(metricPixels?{metricPixels}:{}),...(!ok?{sample:changed.slice(0,4).map(p=>({x:p%width,y:Math.floor(p/width),a:[...a.slice(p*4,p*4+4)],b:[...b.slice(p*4,p*4+4)]}))}:{})};
+}
+
+// Glyph bounding boxes can contain a metric outlier even when the paragraph
+// origins agree. A strong geometric consensus may propose a tiny translation;
+// callers must still repeat the raster and ink proof afterwards.
+export function placementCorrection(offsets:{x:number;y:number}[],current:{x:number;y:number}){
+  if(offsets.length<3||![current.x,current.y,...offsets.flatMap(o=>[o.x,o.y])].every(Number.isFinite))return false;
+  const median=(values:number[])=>values.sort((a,b)=>a-b)[Math.floor(values.length/2)];
+  const x=median(offsets.map(o=>o.x)),y=median(offsets.map(o=>o.y)),inliers=offsets.filter(o=>Math.abs(o.x-x)<=.004&&Math.abs(o.y-y)<=.004);
+  if(inliers.length<Math.max(3,Math.ceil(offsets.length*.9)))return false;
+  const dx=median(inliers.map(o=>o.x))-current.x,dy=median(inliers.map(o=>o.y))-current.y;
+  if(Math.abs(dx)>.01||Math.abs(dy)>.01||Math.abs(dx)+Math.abs(dy)<.00001)return false;
+  return {dx,dy};
+}

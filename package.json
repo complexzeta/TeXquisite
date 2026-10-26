@@ -1,0 +1,74 @@
+{
+  "name": "texquisite",
+  "productName": "TeXquisite",
+  "version": "0.84.0",
+  "description": "Standalone LaTeX editor with a persistent compiled preview",
+  "author": "TeXquisite contributors",
+  "private": true,
+  "license": "AGPL-3.0-only",
+  "main": "dist/main.js",
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "start": "npm run build && electron .",
+    "test": "npm run build && node --test test/*.test.cjs",
+    "test:ui": "node scripts/auto-test.cjs",
+    "test:session": "node scripts/editing-session-test.cjs",
+    "test:close": "node scripts/close-test.cjs",
+    "test:conflict": "node scripts/conflict-test.cjs",
+    "package": "npm run build && electron-builder --win portable --publish never && powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/archive-builds.ps1"
+  },
+  "dependencies": {
+    "pdf-lib": "1.17.1"
+  },
+  "devDependencies": {
+    "@codemirror/language": "^6.0.0",
+    "@codemirror/legacy-modes": "^6.0.0",
+    "@codemirror/lint": "^6.9.7",
+    "@hyzyla/pdfium": "3.0.0",
+    "@types/node": "^22.0.0",
+    "codemirror": "^6.0.0",
+    "electron": "44.9.2",
+    "electron-builder": "^26.0.0",
+    "esbuild": "^0.25.0",
+    "playwright": "^1.56.0",
+    "typescript": "^5.9.0"
+  },
+  "build": {
+    "appId": "local.persistenttex",
+    "asar": true,
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "dist/**/*.js",
+      "media/**",
+      "!media/**/*.map",
+      "engine/resident/**",
+      "fixtures/article/**",
+      "package.json",
+      "README.md",
+      "FIRST-RUN.md",
+      "LICENSE",
+      "THIRD-PARTY-NOTICES.txt"
+    ],
+    "win": {
+      "target": "portable",
+      "signAndEditExecutable": false,
+      "icon": "media/texquisite-icon.ico"
+    },
+    "portable": {
+      "artifactName": "TeXquisite-${version}-Windows.exe"
+    },
+    "electronDist": "node_modules/electron/dist",
+    "compression": "normal",
+    "afterPack": "scripts/brand-executable.cjs"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/complexzeta/TeXquisite.git"
+  },
+  "bugs": {
+    "url": "https://github.com/complexzeta/TeXquisite/issues"
+  },
+  "homepage": "https://github.com/complexzeta/TeXquisite#readme"
+}

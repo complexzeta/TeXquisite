@@ -1,0 +1,17 @@
+const {_electron:electron}=require('playwright'),fs=require('node:fs/promises'),path=require('node:path'),assert=require('node:assert/strict'),{randomUUID,createHash}=require('node:crypto');
+const hash=x=>createHash('sha256').update(x).digest('hex');
+(async()=>{
+ const directory=path.resolve('.test-output','branding-'+randomUUID()),profile=path.join(directory,'profile'),project=path.join(directory,'source'),root=path.join(project,'main.tex');await fs.mkdir(profile,{recursive:true});await fs.mkdir(project);
+ const disk='\\documentclass{article}\n\\begin{document}Saved source.\\end{document}\n',draft=disk.replace('Saved source.','Recoverable draft.');await fs.writeFile(root,disk);
+ const state={docs:[{path:root,text:draft,diskHash:hash(disk),dirty:true,eol:'\n'}],root,active:root,onSave:false,backups:true,liveVersion:2,engine:'latex',latexmk:'latexmk',continuousPreview:true,statusBar:false,autoClose:false,followPreview:false,zoom:'fit-width',panelLayout:{mode:'output-top',sideFraction:.42,verticalFraction:.61},lastCursor:{file:root,at:35}};await fs.writeFile(path.join(profile,'session.json'),JSON.stringify(state));
+ const launch=()=>electron.launch({...(process.env.PERSISTENT_TEX_EXECUTABLE?{executablePath:process.env.PERSISTENT_TEX_EXECUTABLE,args:[]}:{args:['.']}),env:{...process.env,PERSISTENT_TEX_TEST_DATA:profile,PERSISTENT_TEX_TEST_HIDDEN:'1'}});
+ let app=await launch();try{
+  let page=await app.firstWindow();await page.waitForFunction(()=>document.querySelector('.cm-content')?.textContent.includes('Recoverable draft.'));
+  const version=require('../package.json').version;assert.ok((await page.title()).startsWith('TeXquisite '+version+' '));assert.equal(await app.evaluate(({app})=>app.getName()),'TeXquisite');assert.equal(await app.evaluate(({app})=>app.getPath('userData')),profile);
+  const image=await page.locator('.brand img').evaluate(i=>({complete:i.complete,width:i.naturalWidth,height:i.naturalHeight,alt:i.alt,header:i.closest('header').getBoundingClientRect().height}));assert.equal(image.complete,true);assert.ok(image.width>2000);assert.equal(image.alt,'TeXquisite');assert.ok(image.header<=36);
+  if(process.env.PERSISTENT_TEX_BRANDING_SCREENSHOT==='1')await page.screenshot({path:path.join(directory,'branding.png')});assert.equal(await page.locator('.brand img').isVisible(),true);assert.equal(await fs.readFile(root,'utf8'),disk);
+  await app.evaluate(({BrowserWindow,dialog})=>{dialog.showMessageBox=async()=>({response:0});BrowserWindow.getAllWindows()[0].close();});await app.close();app=await launch();page=await app.firstWindow();await page.waitForFunction(()=>document.querySelector('.cm-content')?.textContent.includes('Recoverable draft.'));
+  const saved=JSON.parse(await fs.readFile(path.join(profile,'session.json'),'utf8'));for(const key of ['engine','backups','onSave','continuousPreview','statusBar','autoClose','followPreview','zoom','lastCursor'])assert.deepEqual(saved[key],state[key],key);assert.equal(saved.docs[0].dirty,true);assert.equal(saved.docs[0].text,draft);assert.equal(await fs.readFile(root,'utf8'),disk);
+  console.log(JSON.stringify({passed:true,directory,logo:image,profileAndDraftPreserved:true}));
+ }finally{await app.evaluate(({BrowserWindow,dialog})=>{dialog.showMessageBox=async()=>({response:0});BrowserWindow.getAllWindows()[0].close();}).catch(()=>{});await app.close().catch(()=>{});}
+})().catch(e=>{console.error(e);process.exitCode=1;});

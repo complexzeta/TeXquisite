@@ -1,0 +1,20 @@
+const {_electron:electron}=require('playwright'),fs=require('node:fs/promises'),path=require('node:path'),os=require('node:os'),assert=require('node:assert/strict'),{randomUUID,createHash}=require('node:crypto'),{PDFDocument,rgb}=require('pdf-lib');
+const hash=s=>createHash('sha256').update(s).digest('hex');
+(async()=>{
+ const directory=path.resolve('.test-output','checked-flow-ink-'+randomUUID()),profile=await fs.mkdtemp(path.join(os.tmpdir(),'persistent-flow-ink-'));await fs.mkdir(directory,{recursive:true});
+ const root=path.join(directory,'main.tex'),source='\\documentclass{article}\n\\usepackage{amsmath}\n\\begin{document}\n\nBefore with $\\sqrt{\\pi}$.\n\nTarget text.\n\nFollowing stable material.\\newpage\nTail.\n\\end{document}\n',at=source.indexOf('Target text.')+7;
+ await fs.writeFile(root,source);await fs.writeFile(path.join(profile,'session.json'),JSON.stringify({docs:[{path:root,text:source,diskHash:hash(source),dirty:false,eol:'\n'}],root,active:root,onSave:true,liveVersion:2,engine:'pdflatex',latexmk:'latexmk',continuousPreview:true,previewEditing:false,followPreview:false,lastCursor:{file:root,at}}));
+ const app=await electron.launch({...(process.env.PERSISTENT_TEX_EXECUTABLE?{executablePath:process.env.PERSISTENT_TEX_EXECUTABLE,args:['--force-device-scale-factor=2.5']}:{args:['--force-device-scale-factor=2.5','.']}),env:{...process.env,PERSISTENT_TEX_TEST_DATA:profile,PERSISTENT_TEX_TEST_HIDDEN:'1'}}),page=await app.firstWindow(),errors=[];page.on('pageerror',e=>errors.push(String(e)));
+ try{
+  await page.waitForFunction(()=>document.querySelector('#previewState').dataset.localState==='ready',null,{timeout:60000});
+  await page.evaluate(()=>{window.unsafeFlowFrames=[];new MutationObserver(records=>{for(const r of records)if(r.target.dataset?.localSourceHash)window.unsafeFlowFrames.push(r.target.dataset.localSourceHash);}).observe(document.querySelector('#pages'),{subtree:true,attributes:true,attributeFilter:['data-local-source-hash']});document.querySelector('.cm-content').cmTile.root.view.focus();});
+  await app.evaluate(({BrowserWindow})=>{const wc=BrowserWindow.getAllWindows()[0].webContents,send=wc.send.bind(wc);globalThis.flowInkGate={wc,send};wc.send=(channel,...args)=>{if(args[0]?.type==='localPage'){wc.send=send;globalThis.flowInkGate.held=[channel,...args];return;}send(channel,...args);};});
+  await page.keyboard.type('x');const expected=source.slice(0,at)+'x'+source.slice(at);let held;
+  for(let i=0;i<500&&!held;i++){held=await app.evaluate(()=>{const m=globalThis.flowInkGate.held?.[1];return m?{flow:!!m.flowOutput,pdf:Array.from(m.pdf)}:undefined;});if(!held)await page.waitForTimeout(10);}assert.ok(held?.flow,'Fixture must exercise checked flow');
+  const bad=await PDFDocument.load(new Uint8Array(held.pdf));bad.getPages().at(-1).drawRectangle({x:0,y:0,width:4,height:4,color:rgb(0,0,0)});const bytes=Array.from(await bad.save());
+  await app.evaluate((_,bytes)=>{const g=globalThis.flowInkGate,[channel,m]=g.held;g.send(channel,{...m,pdf:new Uint8Array(bytes)});},bytes);
+  await page.waitForFunction(h=>document.querySelector('#pages canvas')?.dataset.sourceHash===h,hash(expected),{timeout:60000});assert.ok(!(await page.evaluate(()=>window.unsafeFlowFrames)).includes(hash(expected)),'Unchecked ink must never be displayed');assert.match(await page.locator('#log').textContent(),/Broader layout required/);assert.equal(await fs.readFile(root,'utf8'),expected);assert.deepEqual(errors,[]);
+  const result={passed:true,directory,unsafeCombinedFlowRejected:true,fullFallback:true,autosave:true};await fs.writeFile(path.join(directory,'result.json'),JSON.stringify(result,null,2));console.log(JSON.stringify(result));
+ }catch(e){await fs.writeFile(path.join(directory,'failure.log'),String(e)+'\n'+await page.locator('#log').textContent().catch(()=>''));throw e;}
+ finally{await app.evaluate(({BrowserWindow,dialog})=>{const g=globalThis.flowInkGate;if(g)g.wc.send=g.send;dialog.showMessageBox=async()=>({response:0});BrowserWindow.getAllWindows()[0].close();}).catch(()=>{});}
+})().catch(e=>{console.error(e);process.exitCode=1});

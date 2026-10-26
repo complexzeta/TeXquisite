@@ -1,0 +1,12 @@
+{
+  "upstream": "https://github.com/SwiftLaTeX/SwiftLaTeX",
+  "commit": "87dfb950eb9c8e9dcd4ee2a3ac97fbbbacfc618a",
+  "fingerprints": {
+    "latex.ltx": "0ad3f2726551c539a62f3cdbe6273c5f057f10be08c25d2678811b5c64a4820b",
+    "expl3.ltx": "a814b0fc593cba5bee3ad3b645f77facb8e8322d178f84b4b9d124d4076c098a",
+    "ltluatex.tex": "8c1d63be16a0c05507b2f28cb3f99d7aa625e026e6c7600c85e2a98607e49065",
+    "pdftexconfig.tex": "ea8832fa010ffb77f6803cc151f31a793de44a68a487b5381a907abf493217f8",
+    "language.dat": "b02a3d32fc9da5a2909b2c0173d50c660ef40009ad472d8fc23944310b3b2f09",
+    "hyphen.cfg": "f646844e8fab61d119f0cd9765e88b372be5fafa9fa5eedf58c6cbc7d303f591"
+  }
+}

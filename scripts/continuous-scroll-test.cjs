@@ -1,0 +1,70 @@
+const {_electron:electron}=require('playwright'),{build}=require('esbuild'),fs=require('node:fs/promises'),path=require('node:path'),assert=require('node:assert/strict');
+(async()=>{
+ const dir=path.resolve('.test-output/continuous-scroll');await fs.mkdir(dir,{recursive:true});
+ const entry=path.join(dir,'main.cjs');await fs.writeFile(entry,"const {app,BrowserWindow}=require('electron');app.whenReady().then(()=>new BrowserWindow({show:false,webPreferences:{contextIsolation:true}}).loadURL('about:blank'));");
+ const modulePath=process.env.CONTINUOUS_VIEW_SOURCE||'./src/continuous-view';
+ const bundle=await build({stdin:{contents:`import {ContinuousView} from ${JSON.stringify(modulePath)};window.ContinuousView=ContinuousView;`,resolveDir:process.cwd()},bundle:true,write:false,platform:'browser'});
+ const app=await electron.launch({args:[entry]});try{
+ const page=await app.firstWindow();await page.setContent('<style>body{margin:0}#viewport{width:450px;height:300px;overflow:auto;padding:20px}#host{overflow-anchor:none;width:600px}.flow-page{position:relative;overflow:hidden}.navigation-marker{position:absolute}canvas{display:block}</style><div id="viewport"><div id="host"></div></div>');await page.addScriptTag({content:bundle.outputFiles[0].text});
+ const result=await page.evaluate(async()=>{
+  const viewport=document.querySelector('#viewport'),host=document.querySelector('#host'),view=new window.ContinuousView(host,viewport),canvas=(h=800)=>{const c=document.createElement('canvas');c.width=600;c.height=h;c.style.height=h+'px';c.style.width='600px';return c;},sizes=Array.from({length:8},()=>({originalWidth:600,originalHeight:800})),pdf={sizes:async()=>sizes,render:async()=>canvas()};
+  const check=(ok,label)=>{if(!ok)throw Error(label+'; scrollTop='+viewport.scrollTop);};
+  await view.show('a',pdf,canvas(),1,1,1);viewport.scrollTop=2600;viewport.scrollLeft=75;const original=viewport.scrollTop,originalLeft=viewport.scrollLeft;check(originalLeft>0,'Horizontal test must start scrolled');
+  let resolve;const pending=view.show('b',{...pdf,sizes:()=>new Promise(r=>resolve=r)},canvas(),1,1,1);
+  check(viewport.scrollTop===original,'Pending replacement collapsed old layout');viewport.scrollTop=4200;resolve(sizes);await pending;check(viewport.scrollTop===4200&&viewport.scrollLeft===originalLeft,'Replacement ignored scroll during preparation');
+  const base=canvas(),flow={rect:{x:0,y:100,width:600,height:200},leading:0},tile=h=>({width:600,height:h,patchWidth:600,patchHeight:h,sourceX:0,sourceY:0,data:new Uint8Array(600*h*4)});
+  const offset=host.children[5].getBoundingClientRect().top;view.patch(1,base,tile(400),flow);check(Math.abs(host.children[5].getBoundingClientRect().top-offset)<=1,'Growth above viewport lost page anchor');
+  const strips=[host.children[0].firstChild,host.children[0].lastChild],live=host.children[0].children[1],moves=[];
+  const observer=new MutationObserver(rows=>moves.push(...rows));observer.observe(host.children[0],{childList:true});
+  const liveAgain=view.patch(1,base,tile(400),flow);await Promise.resolve();check(liveAgain===live&&moves.length===0,'Same-height update replaced its live canvas or moved unchanged strips');
+  const pixels=new Uint8ClampedArray(600*400*4);for(let at=0;at<pixels.length;at+=4){pixels[at+2]=255;pixels[at+3]=255;}
+  const bitmap=await createImageBitmap(new ImageData(pixels,600,400)),blue=view.patch(1,base,{...tile(400),image:bitmap},flow);check(blue===live&&blue.getContext('2d').getImageData(0,0,1,1).data.join(',')==='0,0,255,255'&&bitmap.width===0,'Bitmap reuse lost pixels or retained its image');
+  for(let at=0;at<pixels.length;at+=4){pixels[at]=255;pixels[at+2]=0;}const red=view.patch(1,base,{...tile(400),data:pixels},flow);check(red===live&&red.getContext('2d').getImageData(0,0,1,1).data.join(',')==='255,0,0,255','RGBA reuse retained stale pixels');
+  view.patch(1,base,tile(410),flow);await Promise.resolve();check(strips[0]===host.children[0].firstChild&&strips[1]===host.children[0].lastChild&&moves.every(row=>[...row.removedNodes,...row.addedNodes].every(node=>!strips.includes(node))),'Height change detached an unchanged strip');observer.disconnect();view.patch(1,base,tile(400),flow);
+  viewport.scrollTop=viewport.scrollHeight;const bottom=viewport.scrollTop;view.patch(1,base,tile(400),flow);check(viewport.scrollTop===bottom,'Repeated patch clamped bottom scroll');
+  viewport.scrollTop=150;view.patch(1,base,tile(450),flow);check(viewport.scrollTop===150,'Patch moved view within edited page');
+  let staleResolve;const stale=view.show('stale',{...pdf,sizes:()=>new Promise(r=>staleResolve=r)},canvas(),1,1,1);await view.show('latest',pdf,canvas(),1,1,1);staleResolve(sizes);await stale;check(view.id==='latest','Stale replacement overwrote latest');
+  await view.show('pages',pdf,canvas(),1,1,1);viewport.scrollTop=4200;
+  const untouched=host.children[5],pageOffset=untouched.getBoundingClientRect().top,a=canvas(),b=canvas();
+  view.patchPages(1,[a,b]);check(host.children[5]===untouched&&Math.abs(untouched.getBoundingClientRect().top-pageOffset)<=1,'Page patch changed untouched wrappers or scroll');
+  await view.ensure(8);check(a.width===600&&b.width===600,'Lazy eviction erased affected pages');
+  const bad=canvas(900);let rejected=false;try{view.patchPages(1,[canvas(),bad]);}catch{rejected=true;}
+  check(rejected&&host.children[0].firstChild===a&&host.children[1].firstChild===b,'Invalid page geometry partially applied');
+  let finishOld;await view.show('race',{...pdf,render:()=>new Promise(r=>finishOld=r)},canvas(),1,1,1);
+  const late=view.ensure(2);const patched=canvas();view.patchPages(2,[patched]);const obsolete=canvas();finishOld(obsolete);await late;
+  check(host.children[1].firstChild===patched&&patched.width===600&&obsolete.width===0,'Late baseline image overwrote affected page');
+  await view.show('band',pdf,canvas(),1,1,1);viewport.scrollTop=4200;
+  const bandAnchor=host.children[5],bandOffset=bandAnchor.getBoundingClientRect().top;
+  view.patchBand({first:1,last:2},[canvas()]);check(host.children[1].hidden,'Shrinking band left duplicate original content');check(Math.abs(bandAnchor.getBoundingClientRect().top-bandOffset)<=1,'Shrinking band lost following anchor');
+  const bandCanvases=[canvas(),canvas(),canvas()];view.patchBand({first:1,last:2},bandCanvases);check(host.children[0].children.length===3&&host.children[1].hidden,'Growing band did not replace its original range');check(Math.abs(bandAnchor.getBoundingClientRect().top-bandOffset)<=1,'Growing band lost following anchor');
+  await view.ensure(8);check(bandCanvases.every(c=>c.width===600),'Eviction erased a page band');
+  let badBand=false;try{view.patchBand({first:1,last:2},[canvas(900)]);}catch{badBand=true;}check(badBand&&host.children[0].firstChild===bandCanvases[0],'Invalid band partially changed the display');
+  const settledOffset=host.children[5].getBoundingClientRect().top;
+  await view.show('band-full',{...pdf,sizes:async()=>[...sizes,sizes[0]]},canvas(),1,1,1,true);
+  check(Math.abs(host.children[6].getBoundingClientRect().top-settledOffset)<=1,'Full verification lost following content after a resized band');
+  await view.show('band-normalize',pdf,canvas(),1,1,1);viewport.scrollTop=4200;
+  const normalizeAnchor=host.children[5],normalizeOffset=normalizeAnchor.getBoundingClientRect().top,expanded=[canvas(),canvas(),canvas()];view.patchBand({first:1,last:2},expanded);
+  const restored=[canvas(),canvas()];view.patchBand({first:1,last:2},restored);
+  check(!host.children[1].hidden&&host.children[0].firstChild===restored[0]&&host.children[1].firstChild===restored[1],'Unchanged page count did not restore separate page wrappers');
+  check(expanded.every(c=>c.width===0)&&Math.abs(normalizeAnchor.getBoundingClientRect().top-normalizeOffset)<=1,'Band normalization retained old pixels or lost the following anchor');
+  const suffix=canvas();view.patchPages(2,[suffix]);check(host.children[1].firstChild===suffix&&!host.children[1].hidden&&restored[0].width===600,'A later suffix update hid or erased an unchanged leading page');
+  await view.show('band-inside',pdf,canvas(),1,1,1);view.patchBand({first:1,last:2},[canvas(),canvas(),canvas()]);viewport.scrollTop=950;
+  const insideOffset=host.children[0].getBoundingClientRect().top+800;
+  await view.show('band-inside-full',{...pdf,sizes:async()=>[...sizes,sizes[0]]},canvas(),1,1,1,true);
+  check(Math.abs(host.children[1].getBoundingClientRect().top-insideOffset)<=1,'Full verification lost the position inside a resized band');
+  await view.show('rescale',pdf,canvas(),1,1,1);view.patch(1,base,tile(400),flow);
+  const rescaledLive=host.children[0].children[1],liveWidth=rescaledLive.width,liveHeight=rescaledLive.height;
+  view.rescale(.6);check(host.children[0].children[1]===rescaledLive&&rescaledLive.width===liveWidth&&rescaledLive.height===liveHeight,'Rescaling replaced live pixels');
+  check(Math.abs(parseFloat(rescaledLive.style.width)-360)<.01&&view.matchesScale(.6,1/.6),'Rescaling lost bitmap/display scale relation');
+  check(view.mark(1,{x:20,y:15,width:5,height:8},true),'Rescaled live mapping unavailable');
+  check(Math.abs(host.querySelector('.navigation-marker').getBoundingClientRect().top-rescaledLive.getBoundingClientRect().top-9)<1,'Rescaled live caret used bitmap coordinates as display coordinates');
+  view.rescale(1);check(view.matchesScale(1,1)&&host.children[0].children[1]===rescaledLive,'Returning to native zoom replaced the live block');
+  viewport.scrollTop=0;let finishFirst;const visiblePage=canvas();
+  await view.show('late-offscreen',{...pdf,render:async page=>page===1?await new Promise(resolve=>finishFirst=resolve):canvas()},visiblePage,5,1,1);
+  const delayedFirst=view.ensure(1);check(view.mark(5,{x:20,y:100,width:5,height:8}),'Later-page mark unavailable');
+  const visibleMarker=host.querySelector('.navigation-marker');finishFirst(canvas());await delayedFirst;
+  check(visiblePage.width===600&&visibleMarker.isConnected&&host.children[4].contains(visiblePage),'A late offscreen raster evicted the followed page or marker');
+  return {lateOffscreenNavigation:true,rescaleRetainsLivePixels:true,rescaleNavigation:true,livePixelsReplace:true,liveCanvasReuse:true,unchangedStripsStayAttached:true,bandFullReconciliation:true,variableBand:true,bandAnchor:true,bandGeometryAtomic:true,affectedPages:true,pagePatchAtomicity:true,patchedPageEviction:true,lateRasterProtected:true,passed:true,delayedReplacement:true,userScrollWhileWaiting:true,horizontalScroll:true,growthAboveViewport:true,bottomPatch:true,withinEditedPage:true,staleReplacement:true};
+ });assert.equal(result.passed,true);await fs.writeFile(path.join(dir,'result.json'),JSON.stringify(result,null,2));console.log(JSON.stringify(result));
+ }finally{await app.close();}
+})().catch(e=>{console.error(e);process.exitCode=1});

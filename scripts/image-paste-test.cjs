@@ -1,0 +1,40 @@
+const {_electron:electron}=require('playwright'),fs=require('node:fs/promises'),path=require('node:path'),assert=require('node:assert/strict'),{randomUUID,createHash}=require('node:crypto'),{PDFDocument,PDFDict,PDFName}=require('pdf-lib');
+const hash=s=>createHash('sha256').update(s).digest('hex');
+(async()=>{
+ const directory=path.resolve('.test-output','image-paste-'+randomUUID()),profile=path.join(directory,'profile'),project=path.join(directory,'project');await fs.mkdir(profile,{recursive:true});await fs.mkdir(project);
+ const included=process.env.PERSISTENT_TEX_IMAGE_INCLUDED==='1';
+ const root=path.join(project,'main.tex'),activeFile=included?path.join(project,'chapters','part.tex'):root,original='\\documentclass{article}\n\\begin{document}\nPasteHere\n\\end{document}\n';const activeOriginal=included?'PasteHere\n':original,rootOriginal=included?original.replace('PasteHere','\\input{chapters/part.tex}'):original;await fs.mkdir(path.dirname(activeFile),{recursive:true});await fs.writeFile(root,rootOriginal);if(included)await fs.writeFile(activeFile,activeOriginal);
+ await fs.writeFile(path.join(profile,'session.json'),JSON.stringify({docs:[{path:root,text:rootOriginal,diskHash:hash(rootOriginal),dirty:false,eol:'\n'},...(included?[{path:activeFile,text:activeOriginal,diskHash:hash(activeOriginal),dirty:false,eol:'\n'}]:[])],root,active:activeFile,onSave:false,liveVersion:2,engine:'pdflatex',latexmk:'latexmk',continuousPreview:true}));
+ const app=await electron.launch({...(process.env.PERSISTENT_TEX_EXECUTABLE?{executablePath:process.env.PERSISTENT_TEX_EXECUTABLE,args:[]}:{args:['.']}),env:{...process.env,PERSISTENT_TEX_TEST_DATA:profile,PERSISTENT_TEX_TEST_HIDDEN:'1'}}),page=await app.firstWindow(),errors=[];page.on('pageerror',e=>errors.push(String(e)));
+ const source=()=>page.locator('.cm-content').evaluate(n=>[...n.querySelectorAll('.cm-line')].map(l=>l.textContent).join('\n'));
+ const selectMarker=async()=>{await page.locator('.cm-line').filter({hasText:/^PasteHere$/}).click();await page.keyboard.press('Home');await page.keyboard.press('Shift+End');};
+ try{
+  await page.locator('.cm-content').waitFor();
+  const png=await app.evaluate(({dialog,nativeImage})=>{globalThis.imageTest={dialogs:[],response:1,hold:true};dialog.showMessageBox=async(_window,options)=>{globalThis.imageTest.dialogs.push({title:options.title,message:options.message,detail:options.detail,buttons:options.buttons,icon:options.icon?.getSize()});if(globalThis.imageTest.hold)return new Promise(resolve=>globalThis.imageTest.resolve=resolve);return {response:globalThis.imageTest.response};};const pixels=Buffer.alloc(40*20*4);for(let i=0;i<pixels.length;i+=4){pixels[i]=200;pixels[i+1]=70;pixels[i+2]=10;pixels[i+3]=i%8?128:255;}return [...nativeImage.createFromBitmap(pixels,{width:40,height:20}).toPNG()];});
+  const paste=()=>page.locator('.cm-content').evaluate((node,bytes)=>{const data=new DataTransfer();data.items.add(new File([new Uint8Array(bytes)],'clipboard.png',{type:'image/png'}));node.dispatchEvent(new ClipboardEvent('paste',{bubbles:true,cancelable:true,clipboardData:data}));},png);
+  await selectMarker();await paste();
+  for(let i=0;i<100;i++){if(await app.evaluate(()=>globalThis.imageTest.dialogs.length))break;await page.waitForTimeout(20);}
+  assert.equal(await source(),activeOriginal);await assert.rejects(fs.access(path.join(project,'images')));
+  const first=await app.evaluate(()=>globalThis.imageTest.dialogs[0]);assert.equal(first.message,'Save and insert this image?');assert.deepEqual(first.buttons,['Insert image','Cancel']);assert.match(first.detail,/40 × 20 pixels/);assert.match(first.detail,/usepackage/);assert.ok(first.icon.width>0);
+  await app.evaluate(()=>globalThis.imageTest.resolve({response:1}));await page.waitForTimeout(100);assert.equal(await source(),activeOriginal);await assert.rejects(fs.access(path.join(project,'images')));
+  await app.evaluate(()=>{globalThis.imageTest.hold=false;globalThis.imageTest.response=0;});await paste();
+  await page.waitForFunction(()=>document.querySelector('.cm-content').textContent.includes('includegraphics'));
+  const inserted=await source();assert.equal((inserted.match(/\\usepackage\{graphicx\}/g)||[]).length,included?0:1);assert.ok(!inserted.includes('PasteHere'));const name=/\{(images\/pasted-image-[^}]+\.png)\}/.exec(inserted)[1],bytes=await fs.readFile(path.join(project,name));assert.equal(bytes.subarray(0,8).toString('hex'),'89504e470d0a1a0a');assert.deepEqual([...bytes],png);
+  await page.keyboard.press('Control+z');assert.equal(await source(),activeOriginal);await page.keyboard.press('Control+y');assert.equal(await source(),inserted);assert.deepEqual(await fs.readFile(path.join(project,name)),bytes);
+  await page.keyboard.press('ArrowRight');
+  // Edit > Paste image uses the native clipboard API without modifying the real clipboard.
+  await app.evaluate(({clipboard})=>{globalThis.imageTest.hold=false;globalThis.imageTest.response=0;clipboard.read=async()=>[{types:['image/png'],getType:async()=>new Blob([new Uint8Array(globalThis.testPng)],{type:'image/png'})}];});
+  await app.evaluate((_e,bytes)=>{globalThis.testPng=bytes;},png);
+  await app.evaluate(({Menu,BrowserWindow})=>{const item=Menu.getApplicationMenu().getMenuItemById('pasteImage');item.click(item,BrowserWindow.getAllWindows()[0],{});});
+  await page.waitForFunction(()=>[...document.querySelector('.cm-content').textContent.matchAll(/includegraphics/g)].length===2);const twice=await source();assert.equal((twice.match(/\\usepackage\{graphicx\}/g)||[]).length,included?0:1);assert.equal((await fs.readdir(path.join(project,'images'))).length,2);
+  // Plain text paste stays literal and never opens an image confirmation.
+  const dialogCount=await app.evaluate(()=>globalThis.imageTest.dialogs.length);await page.locator('.cm-content').evaluate(node=>{const data=new DataTransfer();data.setData('text/plain','PlainPaste');node.dispatchEvent(new ClipboardEvent('paste',{bubbles:true,cancelable:true,clipboardData:data}));});await page.waitForFunction(()=>document.querySelector('.cm-content').textContent.includes('PlainPaste'));assert.equal(await app.evaluate(()=>globalThis.imageTest.dialogs.length),dialogCount);
+  await page.locator('#live').click();const final=await source();
+  await page.waitForFunction(h=>[...document.querySelectorAll('#pages canvas')].some(c=>c.dataset.sourceHash===h),hash(included?rootOriginal.replace('\\begin{document}','\\usepackage{graphicx}\n\\begin{document}'):final),{timeout:90000});
+  assert.equal(await fs.readFile(activeFile,'utf8'),final);if(included){const rootText=await fs.readFile(root,'utf8');assert.equal((rootText.match(/\\usepackage\{graphicx\}/g)||[]).length,1);assert.ok(!rootText.includes('includegraphics'));}
+  const folder=path.join(profile,'projects',hash(root.toLowerCase()).slice(0,32)),commits=(await fs.readdir(path.join(folder,'commits'))).filter(n=>n.endsWith('.json')).sort(),record=JSON.parse(await fs.readFile(path.join(folder,'commits',commits.at(-1)),'utf8')),pdf=await PDFDocument.load(await fs.readFile(path.join(folder,'bundles',record.id,'document.pdf')));
+  assert.ok(pdf.getPages().some(page=>{const objects=page.node.Resources()?.lookup(PDFName.of('XObject'),PDFDict);return objects&&objects.entries().some(([,ref])=>{const obj=pdf.context.lookup(ref);return obj?.dict?.get(PDFName.of('Subtype'))?.toString()==='/Image';});}),'The verified PDF must embed the pasted image');assert.deepEqual(errors,[]);
+  const result={passed:true,directory,includedChapter:included,confirmation:true,cancelLeavesNoFiles:true,png:true,selectionReplaced:true,graphicxAddedOnce:true,undoRedo:true,nativePasteMenu:true,ordinaryTextPaste:true,autosave:true,compiledImage:true};await fs.writeFile(path.join(directory,'result.json'),JSON.stringify(result,null,2));console.log(JSON.stringify(result));
+ }catch(e){console.error(directory,await page.locator('#status').textContent().catch(()=>''),await page.locator('#log').textContent().catch(()=>''));throw e;}finally{await app.evaluate(({app})=>app.exit(0)).catch(()=>{});}
+})().catch(e=>{console.error(e);process.exitCode=1;});
+

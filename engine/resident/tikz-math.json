@@ -1,0 +1,25 @@
+{
+  "schema": 1,
+  "files": [
+    {
+      "name": "pgfmathutil.code.tex",
+      "sha256": "cda208d98bdc556a06f5915571c6ce4d98c18aa639c4782a56c6d32a6ba68055"
+    },
+    {
+      "name": "pgfmathparser.code.tex",
+      "sha256": "317b4a8059ee9afd04b052dd2974c1c9a059d1b8e301f9578efa9ac0b9984990"
+    },
+    {
+      "name": "pgfmathfunctions.code.tex",
+      "sha256": "9758185623cce6b2a8d4a504d10dfd0a01ef6d3480794fa4c466384f4c08540c"
+    },
+    {
+      "name": "pgfmathfunctions.basic.code.tex",
+      "sha256": "c94abbd89ad0556546d9e5053af16b58ce7f38d19c379b27309e5fefd23908f8"
+    },
+    {
+      "name": "pgfmathfunctions.trigonometric.code.tex",
+      "sha256": "1c8834abe00807467a52d31ef96032d5084b2560eea45995018084d13a3cde3c"
+    }
+  ]
+}

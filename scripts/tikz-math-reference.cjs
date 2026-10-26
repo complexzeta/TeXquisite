@@ -1,0 +1,18 @@
+// Builds conservative stock-PGF token-definition guards from fingerprinted local sources.
+// Generated reference definitions remain in memory; installed PGF licenses apply to their source.
+function buildMathReference(sources){
+const defs=new Map(),operators=[];
+function texTokens(s){const tokens=[];for(let at=0;at<s.length;){const start=at,c=s[at++];if(c==='%'){while(at<s.length&&s[at]!=='\n')at++;if(at<s.length)at++;continue;}if(c==='\\'){const m=/^[A-Za-z@]+/.exec(s.slice(at));if(m)at+=m[0].length;else at++;tokens.push({text:s.slice(start,at),kind:'cs'});}else tokens.push({text:c,kind:c==='{'?'open':c==='}'?'close':'char'});}return tokens;}
+function collect(source){source=source.replace(/\r\n/g,'\n').split('\n').map(line=>line.replace(/^[ \t]+|[ \t]+$/g,'')).join('\n');const t=texTokens(source);let depth=0;const skip=i=>{while(i<t.length&&/^\s+$/.test(t[i].text))i++;return i;};function group(i){i=skip(i);if(t[i]?.kind!=='open')return;let d=1,j=i+1;for(;j<t.length&&d;j++)d+=t[j].kind==='open'?1:t[j].kind==='close'?-1:0;return {body:t.slice(i+1,j-1).map((x,i,a)=>x.text+(x.kind==='cs'&&/^\\[A-Za-z@]+$/.test(x.text)&&/^[A-Za-z@]/.test(a[i+1]?.text??'')?' ':'')).join(''),end:j};}
+for(let i=0;i<t.length;i++){const x=t[i];if(x.kind==='open')depth++;if(x.kind==='close')depth--;if(depth!==0)continue;
+if(['\\def','\\gdef'].includes(x.text)){let n=skip(i+1);if(t[n]?.kind!=='cs')continue;const name=t[n].text.slice(1);let j=n+1;while(j<t.length&&t[j].kind!=='open')j++;const g=group(j);if(!g)continue;if(name.startsWith('pgfmath'))defs.set(name,{params:t.slice(n+1,j).map(x=>x.text).join(''),body:g.body});i=g.end-1;}
+else if(x.text==='\\pgfmathdeclarefunction'){let at=i+1,groups=[];for(let k=0;k<3;k++){const g=group(at);if(!g)break;groups.push(g.body);at=g.end;}if(groups.length===3&&/^\w+$/.test(groups[0])&&/^\d$/.test(groups[1])){const [name,arity,body]=groups;defs.set('pgfmath'+name+'@',{params:Array.from({length:Number(arity)},(_,i)=>'#'+(i+1)).join(''),body});for(const [key,value]of Object.entries({['pgfmath@function@'+name]:name,['pgfmath@operation@'+name+'@type']:'function',['pgfmath@operation@'+name+'@arity']:arity,['pgfmath@operation@'+name+'@infix']:name,['pgfmath@operation@'+name+'@precedence']:'1000'}))defs.set(key,{params:'',body:value});i=at-1;}}
+else if(x.text==='\\pgfmathdeclareoperator'){let at=i+1,gs=[];for(let k=0;k<5;k++){const g=group(at);if(!g)break;gs.push(g.body);at=g.end;}if(gs.length===5){operators.push(gs[0]);if(gs[0].includes('\\')){i=at-1;continue;}const [op,name,arity,type,p]=gs;for(const [key,value]of Object.entries({['pgfmath@operator@'+op]:op,['pgfmath@operation@'+op+'@name']:name,['pgfmath@operation@'+op+'@arity']:arity,['pgfmath@operation@'+op+'@'+type]:op,['pgfmath@operation@'+op+'@precedence']:p}))defs.set(key,{params:'',body:value});i=at-1;}}
+else if(x.text==='\\pgfmath@def'){let at=i+1,gs=[];for(let k=0;k<3;k++){const g=group(at);if(!g)break;gs.push(g.body);at=g.end;}if(gs.length===3&&gs[0]==='cos'){defs.set('pgfmath@cos@'+gs[1],{params:'',body:gs[2]});i=at-1;}}
+else if(x.text==='\\pgfmath@tokens@make'){const cls=group(i+1),data=cls&&group(cls.end);if(cls&&data&&['numeric','number','functional','exponent','group','specials'].includes(cls.body)){const items=texTokens(data.body);for(let j=0;j<items.length;j++){let value=items[j].text;if(items[j].kind==='open'){let d=1,k=j+1;for(;k<items.length&&d;k++)d+=items[k].kind==='open'?1:items[k].kind==='close'?-1:0;value=items.slice(j+1,k-1).map(x=>x.text).join('');j=k-1;}if(!value.includes('\\'))defs.set('pgfmath@token@'+cls.body+'@'+value,{params:'',body:value});}i=data.end-1;}}
+}}
+
+for(const source of sources)collect(source);
+return {definitions:[...defs],operators};
+}
+module.exports={buildMathReference};
