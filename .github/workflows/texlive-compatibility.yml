@@ -1,0 +1,76 @@
+name: TeX Live compatibility
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: texlive-compatibility-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  windows:
+    name: ${{ matrix.os }} / TeX Live ${{ matrix.year }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      max-parallel: 2
+      matrix:
+        os: [windows-2022, windows-2025]
+        year: ['2024', '2025', '2026']
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '24'
+      - name: Choose ephemeral storage
+        shell: pwsh
+        run: |
+          $root=Join-Path $env:RUNNER_TEMP 'texquisite-compatibility'
+          New-Item -ItemType Directory -Path "$root/temporary","$root/artifacts" -Force | Out-Null
+          "COMPATIBILITY_ROOT=$root" >> $env:GITHUB_ENV
+          "PERSISTENT_TEX_TEST_ARTIFACTS=$root/artifacts" >> $env:GITHUB_ENV
+          "TEMP=$root/temporary" >> $env:GITHUB_ENV
+          "TMP=$root/temporary" >> $env:GITHUB_ENV
+          "npm_config_cache=$root/npm-cache" >> $env:GITHUB_ENV
+      - name: Install application dependencies
+        run: npm ci --no-audit --no-fund
+      - name: Build and run focused guards
+        shell: pwsh
+        run: |
+          npm run build
+          if($LASTEXITCODE -ne 0){exit $LASTEXITCODE}
+          node --test --test-concurrency=1 test/format-fingerprint.test.cjs test/format-cache.test.cjs test/format-preparation.test.cjs test/toolchain.test.cjs
+          exit $LASTEXITCODE
+      - name: Install isolated TeX Live
+        id: install
+        shell: pwsh
+        run: |
+          & scripts/install-test-texlive.ps1 -Year '${{ matrix.year }}' -WorkRoot "$env:COMPATIBILITY_ROOT/installation"
+          if($LASTEXITCODE -ne 0){exit $LASTEXITCODE}
+          "TEXQUISITE_TEST_TEX_BIN=$env:COMPATIBILITY_ROOT/installation/texlive/bin/windows" >> $env:GITHUB_ENV
+          "TEXQUISITE_TEST_TEX_YEAR=${{ matrix.year }}" >> $env:GITHUB_ENV
+      - name: Compare native and resident output
+        run: node scripts/texlive-compatibility-test.cjs
+      - name: Verify and extract the published portable
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
+        shell: pwsh
+        run: |
+          $exe=& scripts/prepare-portable-test.ps1 -WorkRoot "$env:COMPATIBILITY_ROOT/published-package"
+          "PERSISTENT_TEX_EXECUTABLE=$exe" >> $env:GITHUB_ENV
+      - name: Check editing, saving and restart
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
+        run: node scripts/texlive-compatibility-ui-test.cjs
+      - name: Upload bounded diagnostic results
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: compatibility-${{ matrix.os }}-${{ matrix.year }}
+          retention-days: 7
+          if-no-files-found: warn
+          path: |
+            ${{ env.PERSISTENT_TEX_TEST_ARTIFACTS }}/**/result.json
+            ${{ env.PERSISTENT_TEX_TEST_ARTIFACTS }}/**/failure.log
+            ${{ env.COMPATIBILITY_ROOT }}/installation/installation.json
+            ${{ env.COMPATIBILITY_ROOT }}/published-package/portable-package.json
