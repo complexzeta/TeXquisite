@@ -28,6 +28,8 @@ This is a public test build, not a finished replacement for every TeX workflow. 
 
 Fast preview uses either the bundled TeX Live 2025 format or a matching format prepared locally from an indexed TeX Live installation. Settings offers **Prepare matching fast preview** when needed. Preparation is optional, can take a couple of minutes once, and is cached across restarts with compiler/input integrity checks. Unsupported kernels can continue using native compilation with a visible explanation; updates may be slower. First loads, changed preambles, page-layout changes and complicated TikZ diagrams can take longer than small warm edits. No universal per-keystroke latency is promised.
 
+The 0.85.0 portable passed clean Windows Server 2022/2025 smoke tests with TeX Live 2024, 2025 and 2026. See the [compatibility results and limits](https://github.com/complexzeta/TeXquisite/blob/main/COMPATIBILITY-RESULTS.md).
+
 The Windows executable is an unsigned test build. Use the release checksum to identify the published file.
 
 ## Files and privacy
