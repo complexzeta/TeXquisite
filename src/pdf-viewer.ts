@@ -51,7 +51,7 @@ export function loadPdf(bytes:Uint8Array,interactive=false){
     return {
       glyphs(page:number):Promise<PdfCharacter[]>{if(closed)return Promise.reject(new Error('PDF was closed.'));let result=glyphCache.get(page);if(!result){result=call('glyphs',{documentId,page});glyphCache.set(page,result);}return result;},
       numPages:result.numPages,
-      sizes(){if(closed)return Promise.reject(new Error('PDF was closed.'));return pageSizes??(pageSizes=call('sizes',{documentId}));},
+      sizes(interactive=false){if(closed)return Promise.reject(new Error('PDF was closed.'));return pageSizes??(pageSizes=call('sizes',{documentId,interactive}));},
       async inkFits(page:number,bounds:{left:number;top:number;right:number;bottom:number},scale:number,ratio:number){
         if(closed)throw new Error('PDF was closed.');return call('inkFits',{documentId,page,bounds,scale:scale*ratio});
       },

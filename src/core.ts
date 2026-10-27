@@ -123,7 +123,7 @@ export class ArtifactStore {
 
 export interface BuildOptions { focus?:{line:number;column:number}; root: string; engine: string; executable: string; timeoutMs: number; sourceRevision?:number; sourceText?:string; characterMapping?:boolean; sourceFiles?:Record<string,string>; supportFolders?:string[]; editId?:string; automatic?:boolean; }
 export interface DisplayTiming {editId?:string;backend:string;requestToCommitMs:number;}
-export interface LocalBasis {bundle:Bundle;options:BuildOptions;source:string;compilerSource:string;project:ResidentContext;pdf:Uint8Array;canBuildAlongside?:()=>boolean;takeCompiler?:()=>ResidentCompiler|undefined;replaceCompiler?:(previous:ResidentCompiler)=>ResidentCompiler|undefined;returnCompiler?:(compiler:ResidentCompiler)=>boolean;}
+export interface LocalBasis {bundle:Bundle;options:BuildOptions;source:string;compilerSource:string;project:ResidentContext;pdf:Uint8Array;canBuildAlongside?:()=>boolean;takeCompiler?:()=>ResidentCompiler|undefined;replaceCompiler?:(previous:ResidentCompiler)=>ResidentCompiler|undefined;returnCompiler?:(compiler:ResidentCompiler)=>boolean;claimAutomatic?:(editId:string,source:string,previous?:ResidentCompiler)=>ResidentCompiler|undefined;}
 export interface Viewer { prepare(bundle: Bundle,pdf?:Uint8Array,navigation?:Navigation): Promise<void>; commit(bundle: Bundle,timing?:DisplayTiming): void; discard(bundle: Bundle): void; diagnostic?(issue:BuildDiagnostic):void; problems?(issues:BuildDiagnostic[],editId?:string):void; localBasis?(basis:LocalBasis):void; performance?(report:Record<string,unknown>):void; }
 export class BuildController {
   private static protectedDirectories=new Set<string>();
@@ -400,7 +400,7 @@ export class BuildController {
       this.current=bundle;
       this.viewer.commit(bundle,{editId:options.editId,backend,requestToCommitMs:committedAt-requestedAt});
       this.viewer.problems?.(warnings,options.editId);
-      const acceptedBundle=bundle;
+      const acceptedBundle=bundle;let localHandoff=false;
       if(backend.startsWith('Preamble'))try{this.viewer.localBasis?.({bundle,options,source,compilerSource,project,pdf,canBuildAlongside:()=>this.independentLocalOwner,takeCompiler:()=>{
         // Transfer ownership only after publication and only while idle. Future
         // full verification gets its own worker; local edits cannot race it.
@@ -415,6 +415,14 @@ export class BuildController {
         // publication. Preserve the ordinary one-time transfer guard.
         if(this.transferredCompiler!==previous||previous.busy||!previous.initialized||this.current!==bundle||this.retired||this.pending||this.active&&this.active!==abort||this.residentTask||this.resident.busy||!this.resident.initialized||abort.signal.aborted||generation!==this.generation)return;
         const compiler=this.resident;this.resident=new ResidentCompiler();this.transferredCompiler=compiler;this.localCompilerTransferred=true;previous.stop();this.prepareStandby(acceptedBundle,compilerSource,project);return compiler;
+      },claimAutomatic:(editId,nextSource,previous)=>{
+        // An explicit local handoff may consume only the exact compatible
+        // automatic revision. Ordinary ownership offers never consume work.
+        const pending=this.pending;
+        if(!pending?.automatic||pending.editId!==editId||pending.sourceText!==nextSource||pending.root!==options.root||pending.engine!==options.engine||pending.executable!==options.executable||!!pending.characterMapping!==!!options.characterMapping||JSON.stringify(pending.sourceFiles)!==JSON.stringify(options.sourceFiles)||JSON.stringify(pending.supportFolders)!==JSON.stringify(options.supportFolders))return;
+        if(this.current!==bundle||this.retired||this.active&&this.active!==abort||this.residentTask||this.resident.busy||!this.resident.initialized||abort.signal.aborted||generation!==this.generation)return;
+        if(previous?this.transferredCompiler!==previous||previous.busy||!previous.initialized:this.localCompilerTransferred&&this.transferredCompiler?.initialized)return;
+        const compiler=this.resident;this.pending=undefined;localHandoff=true;this.resident=new ResidentCompiler();this.transferredCompiler=compiler;this.localCompilerTransferred=true;previous?.stop();this.prepareStandby(acceptedBundle,compilerSource,project);return compiler;
       },returnCompiler:compiler=>{
         // An unsupported block must not strand the only warm engine locally.
         // Reclaim it only before a replacement worker has begun any request.
@@ -427,7 +435,7 @@ export class BuildController {
       this.log(`Accepted ${bundle.pages} pages ${Math.ceil(committedAt-requestedAt)} ms after the build request; ${Math.ceil(began-requestedAt)} ms queued, ${Math.ceil(committedAt-began)} ms processing.\n`);
       // This is request-to-publication timing. The renderer measures the full
       // input-to-display interval on its own clock, including IPC and painting.
-      this.status(`Preview updated. ${Math.ceil(committedAt-requestedAt)} ms from build request to publication. ${backend}${this.pending?' Newer edits are queued.':''}`);
+      this.status(`Preview updated. ${Math.ceil(committedAt-requestedAt)} ms from build request to publication. ${backend}${this.pending||localHandoff?' Newer edits are queued.':''}`);
       this.schedulePrune();
     } catch(error) {
       if(bundle) this.viewer.discard(bundle);

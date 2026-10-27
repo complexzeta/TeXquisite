@@ -11,6 +11,19 @@ type CalibrationGlyph={x:number;y:number;width:number;height:number};
 export type LocalVerification=boolean|{dx:number;dy:number;calibratedGlyphs?:CalibrationGlyph[]};
 export interface LocalCalibration {x:number;y:number;anchors:ParagraphAnchor[];calibratedGlyphs?:CalibrationGlyph[];}
 const hash=(s:string)=>createHash('sha256').update(s).digest('hex');
+export function plainTextChange(before:string,after:string){
+  if(before===after)return false;
+  let from=0,endBefore=before.length,endAfter=after.length;
+  while(from<endBefore&&from<endAfter&&before[from]===after[from])from++;
+  while(endBefore>from&&endAfter>from&&before[endBefore-1]===after[endAfter-1]){endBefore--;endAfter--;}
+  const ordinary=/^[\p{L}\p{N}\p{M}\t .,:;!?'’\-]*$/u;
+  if(!ordinary.test(before.slice(from,endBefore))||!ordinary.test(after.slice(from,endAfter)))return false;
+  const prefix=before.slice(0,from);let depth=0;
+  for(let i=0;i<prefix.length;i++){if(prefix[i]==='\\'&&'\\{}'.includes(prefix[i+1]??'')){i++;continue;}if(prefix[i]==='{')depth++;else if(prefix[i]==='}')depth--;}
+  if(depth!==0)return false;
+  // Keep command names and unbraced arguments on the full-build path.
+  const slash=prefix.lastIndexOf('\\');return slash<0||/[}\n$]/.test(prefix.slice(slash));
+}
 export function paragraphAt(source:string,at:number):RegionRange|undefined{
   if(at<0||at>source.length)return;
   // Treat a run of blank lines as one terminator. A caret within that run
@@ -193,6 +206,17 @@ export class LocalPreview{
     const cached=this.parked.find(value=>(value.file??value.basis.options.root)===file&&at>=value.range.from&&at<value.range.to);
     if(cached){this.parked=this.parked.filter(value=>value!==cached);cached.epoch=this.epoch;cached.cancelled=false;this.slot=cached;this.warmCompiler=undefined;cached.compiler.useRegion(cached.regionKey);this.state('ready');this.log('Local prepared-region cache hit.\n');if(!cached.compiler.busy)cached.compiler.prepareNextRegionEdit();this.scheduleIdle();return;}
     this.schedule();
+  }
+  resumeAutomatic(file:string,source:string,editId:string){
+    const basis=this.basis,cursor=this.cursor;
+    if(!this.continuous||this.slot||this.running||this.pending||this.inflight||this.speculation||!basis?.claimAutomatic||!cursor||cursor.file!==file||file!==basis.options.root||basis.source!==basis.compilerSource||source===basis.source)return false;
+    const current=flowWindowAt(source,cursor.at),range=current&&flowWindowAt(basis.source,current.from),begin=basis.source.indexOf('\\begin{document}');
+    if(!range||!current||range.from!==current.from||begin<0||range.from<begin+'\\begin{document}'.length)return false;
+    const text=this.regionText({basis,range,sourceText:basis.source},source);
+    if(text===undefined||!plainTextChange(basis.source.slice(range.from,range.to),text))return false;
+    const compiler=basis.claimAutomatic(editId,source,this.warmCompiler?.initialized?this.warmCompiler:undefined);if(!compiler)return false;
+    this.warmCompiler=compiler;this.publishedCompiler=compiler;this.verifyingWithOwner=false;this.pending={source,editId,at:cursor.at};this.schedule();
+    this.log('Queued automatic edit handed to local preparation.\n');return true;
   }
   private disarm(keepWarm=false){
     this.cancelIdle();

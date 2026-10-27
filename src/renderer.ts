@@ -918,25 +918,33 @@ api.on(async message=>{
     el('pages').replaceChildren();el('empty').hidden=false;el('pageLabel').textContent='No document';
   }
   if(message.type==='prepare'){
-    let pdf:any,task:any;const token=++loadToken;
+    let pdf:any,task:any;const token=++loadToken,arrivedAt=performance.now();
     try{
       message.navigation=decodeNavigation(message.navigation);
+      const decodedAt=performance.now();
       task=loadPdf(message.pdf);
       pdf=await task.promise;
+      const loadedAt=performance.now();
+      // Resolve continuous page geometry before acknowledging the frame, so
+      // newly queued local proofs cannot postpone attaching its canvas.
+      if(model.continuousPreview)await pdf.sizes(true);
       const target=model.followPreview&&message.navigation?await cursorLocation(message.navigation,pageNumber):undefined;
       const visible=model.continuousPreview?continuousView.visiblePage:undefined;
       const page=model.followPreview&&target?target[2]:Math.min(visible??pageNumber,pdf.numPages);
       adoptZoom(await desiredZoom(pdf));
+      const locatedAt=performance.now();
       let canvas=await render(pdf,page,true);
       while(Number(canvas.dataset.renderScale)!==scale&&token===loadToken){canvas.width=canvas.height=0;canvas=await render(pdf,page,true);}
       if(token!==loadToken)throw new Error('Project or preview changed while loading.');
       canvas.dataset.sourceHash=message.bundle.sourceHash??'';
+      const renderedAt=performance.now();
       if(message.navigation){
         const text=model.docs.find((d:any)=>d.path===model.root)?.text;
         const texts:Record<string,string>={};for(const doc of model.docs)if(await matchesSource(message.navigation,doc.path,doc.text))texts[doc.path]=doc.text;
         continuousBases.set(message.bundle.id,{id:message.bundle.id,navigation:message.navigation,text:typeof text==='string'&&await matchesSource(message.navigation,model.root,text)?text:undefined,texts});
         if(continuousBases.size>4){const oldest=[...continuousBases.keys()].find(id=>id!==continuousBasis?.id&&id!==message.bundle.id);if(oldest)continuousBases.delete(oldest);}
       }
+      if(message.profile)console.debug('Full preview preparation',JSON.stringify({id:message.bundle.id,encodeMs:message.profile.encodeMs,transportMs:performance.timeOrigin+arrivedAt-message.profile.sentAt,decodeMs:decodedAt-arrivedAt,loadMs:loadedAt-decodedAt,locationMs:locatedAt-loadedAt,renderMs:renderedAt-locatedAt,sourceMapMs:performance.now()-renderedAt}));
       prepared={id:message.bundle.id,pdf,task,page,canvas,navigation:message.navigation,target};await api.call('ack',message.bundle.id,null);
     }catch(e){void task?.destroy();await api.call('ack',message.bundle.id,String(e));}
   }

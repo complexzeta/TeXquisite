@@ -168,7 +168,8 @@ async function prepare(bundle:Bundle,store:ArtifactStore,preparedPdf?:Uint8Array
   return new Promise<void>((resolve,reject)=>{
     const timer=setTimeout(()=>{waiting.delete(bundle.id);reject(new Error('PDF viewer did not finish loading.'));},30000);
     waiting.set(bundle.id,{resolve,reject,timer});
-    send({type:'prepare',bundle,pdf:new Uint8Array(pdf),navigation:encodeNavigation(navigation)});
+    const encodingAt=performance.now(),encoded=encodeNavigation(navigation),encodedAt=performance.now();
+    send({type:'prepare',bundle,pdf:new Uint8Array(pdf),navigation:encoded,...(process.env.PERSISTENT_TEX_PROFILE?{profile:{sentAt:performance.timeOrigin+performance.now(),encodeMs:encodedAt-encodingAt}}:{})});
   });
 }
 function rememberDocumentRoot(file:string,root=state.root){if(root)(state.documentRoots??={})[file]=root;}
@@ -189,7 +190,10 @@ async function selectRoot(root:string,automaticBuild=true) {
     prepare:async(bundle,pdf,map)=>{if(generation!==rootGeneration)throw new Error('Project changed.');await prepare(bundle,store,pdf,map);},
     problems:(issues,editId)=>{if(generation===rootGeneration&&editId===latestEditId){currentProblems=issues;send({type:"problems",root,editId,issues});}},
     diagnostic:issue=>{if(generation===rootGeneration&&issue.editId===latestEditId){currentDiagnostic=issue;send({type:'diagnostic',issue});}},
-    localBasis:basis=>{if(generation===rootGeneration&&state.onSave&&!state.previewEditing&&process.env.PERSISTENT_TEX_DISABLE_LOCAL!=='1')localPreview.setBasis(basis);},
+    localBasis:basis=>{if(generation===rootGeneration&&state.onSave&&!state.previewEditing&&process.env.PERSISTENT_TEX_DISABLE_LOCAL!=='1'){
+      localPreview.setBasis(basis);const doc=state.docs.find(doc=>doc.path===state.root);
+      if(process.env.PERSISTENT_TEX_DISABLE_AUTOMATIC_HANDOFF!=='1'&&doc&&latestEditId&&localPreview.resumeAutomatic(doc.path,doc.text,latestEditId))scheduleFullVerification(latestEditId);
+    }},
     commit:(bundle,timing)=>{if(generation===rootGeneration){currentDiagnostic=undefined;displayed=bundle;send({type:'commit',id:bundle.id,timing,visible:window.isVisible()&&!window.isMinimized()});}},
     discard:bundle=>send({type:'discard',id:bundle.id})
   },s=>{if(generation===rootGeneration)setStatus(s);},appendLog);
