@@ -2,12 +2,12 @@ const {test}=require('node:test');
 const assert=require('node:assert/strict');
 const fs=require('node:fs/promises');
 const path=require('node:path');
-const {randomUUID}=require('node:crypto');
+const {testDirectory}=require('../scripts/test-artifacts.cjs');
 const {ResidentCompiler,splitResidentArticle}=require('../dist/resident');
 const {runProcess,hash,validatePdf}=require('../dist/core');
 const {PDFDocument,rgb}=require('pdf-lib');
 test('Resident checkpoints preserve edits, reject errors, and match native TeX pixels and text',async t=>{
- const directory=path.resolve('.test-output','resident-'+randomUUID());await fs.mkdir(directory,{recursive:true});
+ const directory=testDirectory('resident');
  const compiler=new ResidentCompiler();t.after(()=>compiler.stop());
  const original=await fs.readFile('fixtures/article/main.tex','utf8'),signal=new AbortController().signal;
  const compile=async source=>{const bytes=await compiler.compile(source,signal,30000,()=>{});assert.ok(bytes,'Resident engine must be available for this test');return bytes;};
@@ -54,7 +54,7 @@ test('Resident dispatch accepts arbitrary classes and packages without a whiteli
 });
 
 test('Custom classes, TikZ, recursive inputs, dynamic preamble dependencies and references retain native output',async t=>{
- const directory=path.resolve('.test-output','general-resident-'+randomUUID()),support=path.join(directory,'support');await fs.mkdir(support,{recursive:true});
+ const directory=testDirectory('general-resident'),support=path.join(directory,'support');await fs.mkdir(support,{recursive:true});
  const compiler=new ResidentCompiler();t.after(()=>compiler.stop());const logs=[];
  const graphic=await PDFDocument.create();graphic.addPage([16,16]).drawRectangle({x:0,y:0,width:16,height:16,color:rgb(0.8,0.1,0.2)});
  const files=[['custom.cls',Buffer.from('\\NeedsTeXFormat{LaTeX2e}\n\\ProvidesClass{custom}\n\\LoadClass{article}\n\\RequirePackage{tikz,hyperref,graphicx,fancyvrb,currfile}\n')],['sections/part.tex',Buffer.from('\\section{A section}\\label{sec:test}\nAn included section.\n')],['figures/box.pdf',await graphic.save({useObjectStreams:false})]];

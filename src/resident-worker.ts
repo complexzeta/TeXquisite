@@ -73,6 +73,20 @@ const dynamicResourceData=new Map<string,Uint8Array>();
 class Unavailable extends Error{}
 class SourceError extends Error{}
 type Checkpoint={pages:Buffer[];length:number;streams:any[];files:Map<string,Uint8Array>;prefix:Buffer;offset:number;page?:number;reusedBytes?:number};
+type AuxiliaryCheckpoint={state:Checkpoint;inputs:Set<string>;auxiliary:Map<string,Uint8Array>;mathEnabled:boolean};
+let auxiliaryCheckpoint:AuxiliaryCheckpoint|undefined;
+// Exact-byte sharing only, never an execution state. Retained for one aux pass.
+let auxiliaryPages:{pages:Buffer[]}|undefined;
+let auxiliaryCheckpointSupported=process.env.PERSISTENT_TEX_DISABLE_AUX_CHECKPOINT!=='1';
+const auxiliaryMarker='TXQ'+randomUUID().replaceAll('-','');
+function auxiliaryInputsMatch(saved:AuxiliaryCheckpoint){
+ for(const name of new Set([...saved.auxiliary.keys(),...auxiliary.keys()])){
+  if(!saved.inputs.has(name))continue;
+  const old=saved.auxiliary.get(name),next=auxiliary.get(name);
+  if(!old||!next||!Buffer.from(old).equals(Buffer.from(next)))return false;
+ }
+ return true;
+}
 // Bounded same-page pairs from the converged full build. The post-picture state is
 // only a shortcut for producing its unchanged baseline; edited source must
 // resume before the picture, and the ordinary raster proof still authorizes it.
@@ -354,29 +368,65 @@ async function compilePass(nextPreamble:string,body:string,resources:[string,Uin
   // Pictures may expand from a package command or inline \tikz. The TeX
   // installer checks actual PGF availability and guarded definitions; literal
   // picture syntax in the root source is not evidence of runtime eligibility.
-  const startup=(withMath:boolean)=>(withMath?'\\input{".persistent-tex/bootstrap/'+jobName+'.tex"}':'')+'\\AddToHook{begindocument/end}{\\pdfmapline{+}\\let\\PersistentTeXCheckpoint\\relax'+(withMath?'\\TxqMathIfVMode\\TxqMathIfnum\\TxqMathGlobalDefs=0 \\TxqMathBeginGroup\\TxqMathEveryEOF{}\\TxqMathEndlineChar=13 \\TxqMathInput \".persistent-tex/math-install.tex\" \\TxqMathEndGroup\\TxqMathFi\\TxqMathFi':'')+'\\PersistentTeXCheckpoint}\\input{"'+jobName+'.tex"}';
+  const mathInstall='\\TxqMathIfVMode\\TxqMathIfnum\\TxqMathGlobalDefs=0 \\TxqMathBeginGroup\\TxqMathEveryEOF{}\\TxqMathEndlineChar=13 \\TxqMathInput \".persistent-tex/math-install.tex\" \\TxqMathEndGroup\\TxqMathFi\\TxqMathFi';
+  const earlyEnabled=auxiliaryCheckpointSupported&&bytes.length<=2*1024*1024&&context.HEAPU8.byteLength<=192*1024*1024&&resources.reduce((size,[,data])=>size+data.byteLength,0)<=16*1024*1024;
+  const startup=(withMath:boolean)=>earlyEnabled?'\\input{".persistent-tex/bootstrap/'+jobName+'.tex"}\\input{"'+jobName+'.tex"}':(withMath?'\\input{".persistent-tex/bootstrap/'+jobName+'.tex"}':'')+'\\AddToHook{begindocument/end}{\\pdfmapline{+}\\let\\PersistentTeXCheckpoint\\relax'+(withMath?mathInstall:'')+'\\PersistentTeXCheckpoint}\\input{"'+jobName+'.tex"}';
   const mathEnabled=!!mathCache&&bytes.length<=2*1024*1024&&Buffer.byteLength(startup(true))<512;
   const preambleRebuilt=!initial||initialMathEnabled!==mathEnabled||bytes.length<initial.offset||!bytes.subarray(0,initial.offset).equals(initial.prefix);
+  let auxiliaryCheckpointReused=false;
+  let preambleRestoreMs=0,preambleSetupMs=0,preambleReplayMs=0,preambleCaptureMs=0;
   if(preambleRebuilt){
+    const donor=auxiliaryPages;auxiliaryPages=undefined;
     pageContinuation=undefined;continuationPages=undefined;
     initial=bodyState=undefined;boundaries=[];previousBody=Buffer.alloc(0);preamble=nextPreamble;
-    context.prepareExecutionContext();context.cleanDir('/work');
-    FS.mkdirTree('/work/.persistent-tex');
+    auxiliaryCheckpointReused=!!earlyEnabled&&!!auxiliaryCheckpoint&&auxiliaryCheckpoint.mathEnabled===mathEnabled&&bytes.length>=auxiliaryCheckpoint.state.offset&&bytes.subarray(0,auxiliaryCheckpoint.state.offset).equals(auxiliaryCheckpoint.state.prefix)&&auxiliaryInputsMatch(auxiliaryCheckpoint);
+    if(auxiliaryCheckpointReused){
+      const saved=auxiliaryCheckpoint!;restore(saved.state);preambleInputs=new Set(saved.inputs);
+      for(const name of saved.auxiliary.keys())if(!auxiliary.has(name))try{FS.unlink('/work/'+name);}catch{}
+    }else{
+      auxiliaryCheckpoint=undefined;context.prepareExecutionContext();context.cleanDir('/work');
+      FS.mkdirTree('/work/.persistent-tex');preambleInputs=new Set();
+    }
+    const preambleRestoredAt=performance.now();preambleRestoreMs=preambleRestoredAt-initializedAt;
     for(const [name,bytes]of resources)writeWork(name,bytes);
+    for(const name of removedResources)try{FS.unlink('/work/'+name);}catch{}
     for(const [name,bytes]of auxiliary)writeWork(name,bytes);
     writeWork(jobName+'.tex',bytes);
-    if(mathEnabled){const version=Module._persistentMathGuardVersion?.()??0;writeWork('.persistent-tex/bootstrap/'+jobName+'.tex',mathCache!.primitives());writeWork('.persistent-tex/math-install.tex',mathCache!.install(version>=1,version>=2,version>=3&&process.env.PERSISTENT_TEX_DISABLE_MATH_PLANS!=='1'));}
+    if(!auxiliaryCheckpointReused){
+      const stage=(phase:string)=>'\\let\\PersistentTeXCheckpoint\\relax\\TxqCheckpointImmediate\\TxqCheckpointWrite16{'+auxiliaryMarker+phase+'}\\PersistentTeXCheckpoint';
+      const hooks=earlyEnabled?'\n\\let\\TxqCheckpointWrite\\write\\let\\TxqCheckpointImmediate\\immediate\\AddToHook{begindocument/before}[texquisite]{'+stage('A')+'}\\AddToHook{begindocument/end}[texquisite]{\\pdfmapline{+}'+(mathEnabled?mathInstall:'')+stage('B')+'}\n':'';
+      if(mathEnabled||earlyEnabled)writeWork('.persistent-tex/bootstrap/'+jobName+'.tex',(mathEnabled?mathCache!.primitives():'')+hooks);
+    }
+    if(mathEnabled){const version=Module._persistentMathGuardVersion?.()??0;writeWork('.persistent-tex/math-install.tex',mathCache!.install(version>=1,version>=2,version>=3&&process.env.PERSISTENT_TEX_DISABLE_MATH_PLANS!=='1'));}
     initialMathEnabled=mathEnabled;initialMathEntries=mathEnabled?mathCache!.size:0;
     const bootstrap=startup(mathEnabled);
     if(Buffer.byteLength(bootstrap)>=512)throw new Error('The document filename requires the native startup path.');
-    Module.cwrap('setMainEntry','number',['string'])(bootstrap);Module._persistentEnableCheckpoint(1);
-    preambleInputs=new Set();trackingPreamble=true;
-    let result:number;try{result=Module._compileLaTeX();}finally{trackingPreamble=false;}
+    if(!auxiliaryCheckpointReused)Module.cwrap('setMainEntry','number',['string'])(bootstrap);Module._persistentEnableCheckpoint(1);
+    const advance=(resume:boolean)=>{trackingPreamble=true;try{return resume?Module._persistentResume():Module._compileLaTeX();}finally{trackingPreamble=false;}};
+    const preambleSetupAt=performance.now();preambleSetupMs=preambleSetupAt-preambleRestoredAt;
+    let result:number=advance(auxiliaryCheckpointReused),stops=0;
+    if(earlyEnabled)while(result===100){
+      ++stops;
+      const before=context.memlog.lastIndexOf(auxiliaryMarker+'A'),after=context.memlog.lastIndexOf(auxiliaryMarker+'B'),kind=Module._persistentCheckpointKind();
+      if(kind===0&&after>=0&&after>before)break;
+      if(stops>256){auxiliaryCheckpointSupported=false;auxiliaryCheckpoint=undefined;initial=undefined;return compilePass(nextPreamble,body,resources,key,jobName,anchor);}
+      if(kind===0&&before>=0&&before>after){
+        const stream=FS.streams.find((stream:any)=>stream?.path==='/work/'+jobName+'.tex');
+        if(stream&&!auxiliaryCheckpointReused)auxiliaryCheckpoint={inputs:new Set(preambleInputs),auxiliary:new Map(auxiliary),mathEnabled,state:capture(bytes,stream.position)};
+      }else if(kind===0){
+        // Custom logging/hooks may hide phase markers. Fall back to the former
+        // single checkpoint rather than guessing where auxiliary input began.
+        auxiliaryCheckpointSupported=false;auxiliaryCheckpoint=undefined;initial=undefined;
+        return compilePass(nextPreamble,body,resources,key,jobName,anchor);
+      }
+      result=advance(true);
+    }
     if(result!==100)throw new Error('Build failed or the document bypassed the resident preamble checkpoint.\n'+context.memlog);
     const sourceStream=FS.streams.find((stream:any)=>stream?.path==='/work/'+jobName+'.tex');
     if(!sourceStream)throw new Error('The document closed its source before the preamble checkpoint. A native build is required.');
     initialMathActive=mathEnabled&&(Module._persistentMathGuardCount?.()??0)>0;if(!initialMathActive)initialMathEntries=0;
-    initial=capture(bytes,sourceStream.position);
+    const preambleReplayedAt=performance.now();preambleReplayMs=preambleReplayedAt-preambleSetupAt;
+    initial=capture(bytes,sourceStream.position,auxiliaryCheckpoint?.state,auxiliaryCheckpointReused?donor:undefined);preambleCaptureMs=performance.now()-preambleReplayedAt;
   }
   const preambleAt=performance.now();
   let unchanged=0;
@@ -479,7 +529,7 @@ async function compilePass(nextPreamble:string,body:string,resources:[string,Uin
     code=Module._persistentResume();
   }
   const math=mathCache?.collect(context.memlog,code===0);
-  const log=math?.log??context.memlog;
+  const log=(math?.log??context.memlog).replace(new RegExp('^'+auxiliaryMarker+'[AB]\\r?\\n','gm'),'');
   if(code!==0){
     const message='Build failed in the resident TeX engine. See build log.\n'+log;
     // A previously successful checkpoint plus an ordinary TeX diagnostic is a
@@ -504,10 +554,10 @@ async function compilePass(nextPreamble:string,body:string,resources:[string,Uin
   }
   const typesetAt=performance.now();
   const pdf=new Uint8Array(FS.readFile('/work/'+jobName+'.pdf'));
-  const snapshots=new Set<Buffer>([...initial.pages,...(bodyState?.pages??[]),...prefixPoints.flatMap(c=>c.pages)]);
+  const snapshots=new Set<Buffer>([...(auxiliaryCheckpoint?.state.pages??[]),...initial.pages,...(bodyState?.pages??[]),...prefixPoints.flatMap(c=>c.pages)]);
   const checkpointBytes=Array.from(snapshots).reduce((size,page)=>size+page.length,0);
   const navigation=FS.analyzePath('/work/.persistent-tex/navigation.jsonl').exists?FS.readFile('/work/.persistent-tex/navigation.jsonl',{encoding:'utf8'}):'';
-  return {pdf,navigation,log,timing:{totalMs:performance.now()-started,initializationMs:initializedAt-started,preambleMs:preambleAt-initializedAt,resumeMs:performance.now()-restoredAt,restoreMs:heapRestoredAt-restoredAt,inputsMs:inputsAt-heapRestoredAt,typesetMs:typesetAt-inputsAt,outputMs:performance.now()-typesetAt,checkpointOffset:candidate.offset,preambleOffset:initial.offset,preambleRebuilt,expensivePrefixReused,prefixCaptures,prefixCaptureMs,expensivePrefixEntries:prefixPoints.length,expensivePrefixBytes:witnessExtraBytes(initial,...prefixPoints),fullWitnessReused,localContinuationReused,localPrefixReused,checkpointBytes,bytes:pdf.length,tikzMathPlans:mathPlans,tikzMathEntries:initialMathEntries,tikzMathLearned:math?.records,tikzMathHits:math?.hits,tikzMathProvisionalHits:math?.provisionalHits,tikzMathIntermediateHits:math?.intermediateHits,tikzMathIntermediateLearned:math?.intermediateLearned,tikzMathIntermediateEntries:math?.intermediateEntries,pageWitnessCaptured:passPageWitnesses.length>0,pageWitnessCount:passPageWitnesses.length,witnessCaptureMs,witnessCaptureReused}};
+  return {pdf,navigation,log,timing:{totalMs:performance.now()-started,initializationMs:initializedAt-started,preambleMs:preambleAt-initializedAt,preambleStages:{restoreMs:preambleRestoreMs,setupMs:preambleSetupMs,replayMs:preambleReplayMs,captureMs:preambleCaptureMs},resumeMs:performance.now()-restoredAt,restoreMs:heapRestoredAt-restoredAt,inputsMs:inputsAt-heapRestoredAt,typesetMs:typesetAt-inputsAt,outputMs:performance.now()-typesetAt,checkpointOffset:candidate.offset,preambleOffset:initial.offset,preambleRebuilt:preambleRebuilt&&!auxiliaryCheckpointReused,auxiliaryCheckpointReused,bodyCheckpointRebuilt:preambleRebuilt,expensivePrefixReused,prefixCaptures,prefixCaptureMs,expensivePrefixEntries:prefixPoints.length,expensivePrefixBytes:witnessExtraBytes(initial,...prefixPoints),fullWitnessReused,localContinuationReused,localPrefixReused,checkpointBytes,bytes:pdf.length,tikzMathPlans:mathPlans,tikzMathEntries:initialMathEntries,tikzMathLearned:math?.records,tikzMathHits:math?.hits,tikzMathProvisionalHits:math?.provisionalHits,tikzMathIntermediateHits:math?.intermediateHits,tikzMathIntermediateLearned:math?.intermediateLearned,tikzMathIntermediateEntries:math?.intermediateEntries,pageWitnessCaptured:passPageWitnesses.length>0,pageWitnessCount:passPageWitnesses.length,witnessCaptureMs,witnessCaptureReused}};
 }
 const auxSignature=(files:Map<string,Uint8Array>)=>digest(Buffer.concat([...files].sort(([a],[b])=>a.localeCompare(b)).flatMap(([name,bytes])=>[Buffer.from(name+'\0'),Buffer.from(bytes)])));
 let removedResources:string[]=[];
@@ -561,7 +611,7 @@ async function compile(nextPreamble:string,body:string,resources:[string,Uint8Ar
   removedResources=[...priorResources.keys()].filter(name=>!nextResources.has(name));
   const preambleChanged=environmentKey!==environment||dependencyChanged||[...changed].some(name=>preambleInputs.has(name));
   if(preambleChanged){
-    mathCache?.reset();auxiliary.clear();initial=bodyState=undefined;dynamicFiles.clear();dynamicDirectories.clear();dynamicResourceData.clear();
+    mathCache?.reset();auxiliary.clear();auxiliaryCheckpoint=undefined;auxiliaryPages=undefined;initial=bodyState=undefined;dynamicFiles.clear();dynamicDirectories.clear();dynamicResourceData.clear();
     if(context){context.closeFSStreams();try{context.cleanDir('/project-resources');}catch{}vm.runInContext('texlive404_cache={};pk404_cache={};',context);}
   }
   // A body checkpoint can already have consumed a changed chapter. Keep only
@@ -570,7 +620,7 @@ async function compile(nextPreamble:string,body:string,resources:[string,Uint8Ar
   priorResources=nextResources;environmentKey=environment;
   const cacheKey=auxiliaryCacheKey(nextPreamble+body,baselineKey,baselineEnvironment,jobName);
   let diskAuxiliaryReused=!initial&&!auxiliary.size&&readAuxiliaryCache(cacheKey),diskAuxiliaryRejected=false;
-  let log='',mathWarmed=false;
+  let log='',mathWarmed=false,preambleInitialized=false;
   for(let pass=1;pass<=5;pass++){
     const before=auxSignature(auxiliary);let result:Awaited<ReturnType<typeof compilePass>>;
     try{result=await compilePass(nextPreamble,body,resources,key,jobName);}
@@ -578,24 +628,25 @@ async function compile(nextPreamble:string,body:string,resources:[string,Uint8Ar
       if(!diskAuxiliaryReused||diskAuxiliaryRejected)throw error;
       // A syntactically valid but obsolete/damaged .aux can itself fail TeX.
       // Retry once without disk state before reporting a document error.
-      auxiliary.clear();initial=bodyState=undefined;previousBody=Buffer.alloc(0);boundaries=[];
+      auxiliary.clear();auxiliaryCheckpoint=undefined;auxiliaryPages=undefined;initial=bodyState=undefined;previousBody=Buffer.alloc(0);boundaries=[];
       diskAuxiliaryReused=false;diskAuxiliaryRejected=true;pass=0;
       log+='Cached auxiliary inputs were rejected; retrying a cold build.\n';continue;
     }
-    log+=result.log;passTimings.push(result.timing);
+    log+=result.log;passTimings.push(result.timing);preambleInitialized||=result.timing.preambleRebuilt;
     const inputs=new Map(resources);
     auxiliary=new Map([...workFiles()].filter(([name,bytes])=>name!==jobName+'.tex'&&name!==jobName+'.pdf'&&!name.startsWith('.persistent-tex/')&&!/\.(log|fls|fdb_latexmk|synctex(?:\.gz)?)$/i.test(name)&&(!inputs.has(name)||!Buffer.from(bytes).equals(Buffer.from(inputs.get(name)!)))));
     const after=auxSignature(auxiliary);
     if(before===after&&! /undefined references|undefined citations|Please .*run Biber|No file .*\.(?:bbl|ind|gls|acr|nls)|No pages of output/i.test(result.log)){
-      if(!mathWarmed&&initialMathActive&&initialMathEntries===0&&(mathCache?.size??0)>=16){mathWarmed=true;initial=bodyState=undefined;pass--;continue;}
+      if(!mathWarmed&&initialMathActive&&initialMathEntries===0&&(mathCache?.size??0)>=16){mathWarmed=true;auxiliaryCheckpoint=undefined;initial=bodyState=undefined;pass--;continue;}
       // Keep exactly this converged document available for local preparation.
       // Its PDF response is transferred, so the immutable baseline owns a copy.
       preparedBaseline={pageWitnesses:passPageWitnesses,source:Buffer.from(body),environment:baselineEnvironment,resources:resourceSignature(resources),key:baselineKey,pdf:new Uint8Array(result.pdf),navigation:result.navigation,initial,boundaries:[...boundaries],dependencies:new Map([...dynamicFiles].map(([file,stat])=>[file,{...stat}])),directories:new Map([...dynamicDirectories].map(([file,stat])=>[file,{...stat}]))};
       saveAuxiliaryCache(cacheKey);
-      return {...result,log,diagnosticLog:result.log,timing:{...result.timing,totalMs:performance.now()-started,passes:pass,diskAuxiliaryReused,diskAuxiliaryRejected,nativeZipMs,nativeZipStreams,lookupCounts:{...startupLookups},passTimings}};
+      return {...result,log,diagnosticLog:result.log,timing:{...result.timing,preambleRebuilt:preambleInitialized,totalMs:performance.now()-started,passes:pass,diskAuxiliaryReused,diskAuxiliaryRejected,nativeZipMs,nativeZipStreams,lookupCounts:{...startupLookups},passTimings}};
     }
-    // Labels and bookmarks are read before the begin-document checkpoint. An
-    // auxiliary change invalidates that snapshot before the next pass.
+    // Labels/bookmarks invalidate the post-aux execution state. Its immutable
+    // pages can still share exact bytes with the next freshly executed state.
+    auxiliaryPages=auxiliaryCheckpoint&&witnessExtraBytes(auxiliaryCheckpoint.state,initial)<=32*1024*1024?{pages:initial.pages}:undefined;
     initial=bodyState=undefined;passPageWitnesses=[];pageContinuation=undefined;continuationPages=undefined;
     if(/Please .*run Biber|No file .*\.(?:bbl|ind|gls|acr|nls)/i.test(result.log))return {log,reason:'External bibliography or index processing is required.'};
   }

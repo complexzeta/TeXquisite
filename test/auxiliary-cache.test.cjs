@@ -1,7 +1,7 @@
-const {test}=require('node:test'),assert=require('node:assert/strict'),fs=require('node:fs/promises'),path=require('node:path'),{randomUUID}=require('node:crypto');
+const {test}=require('node:test'),assert=require('node:assert/strict'),fs=require('node:fs/promises'),path=require('node:path'),{testDirectory}=require('../scripts/test-artifacts.cjs');
 const {ResidentCompiler}=require('../dist/resident'),{runProcess,hash}=require('../dist/core');
 test('Cold compiler reuses converged auxiliary inputs only for the exact document and validated dependencies',{timeout:120000},async()=>{
- const directory=path.resolve('.test-output','auxiliary-cache-'+randomUUID()),support=path.join(directory,'support'),cache=path.join(directory,'cache','resident.json');await fs.mkdir(support,{recursive:true});
+ const directory=testDirectory('auxiliary-cache'),support=path.join(directory,'support'),cache=path.join(directory,'cache','resident.json');await fs.mkdir(support,{recursive:true});
  const helper=path.join(support,'helper.tex');await fs.writeFile(helper,'\\def\\HelperWord{Original}\n');
  const source='\\documentclass{article}\n\\input{helper.tex}\n\\begin{document}\n\\section{Title}\\label{title}\nReference \\ref{title}, \\HelperWord.\n\\end{document}\n',project={auxiliaryCache:cache,supportFolders:[support],characterMapping:true};
  async function cold(text=source){const c=new ResidentCompiler();try{const pdf=await c.compile(text,new AbortController().signal,60000,()=>{},project);assert.ok(pdf);return {pdf,timing:c.lastTiming};}finally{c.stop();}}
@@ -17,7 +17,7 @@ test('Cold compiler reuses converged auxiliary inputs only for the exact documen
 });
 test('Application restart finds its converged cache and cleanup respects overlapping controller lifetimes',{timeout:90000},async()=>{
  const {BuildController,ArtifactStore}=require('../dist/core'),{cleanCaches}=require('../dist/cache-cleanup');
- const directory=path.resolve('.test-output','auxiliary-restart-'+randomUUID()),storeDir=path.join(directory,'projects','a'.repeat(32)),root=path.join(directory,'source','main.tex'),source='\\documentclass{article}\n\\begin{document}\n\\section{Title}\\label{title}Reference \\ref{title}.\n\\end{document}\n';await fs.mkdir(path.dirname(root),{recursive:true});await fs.writeFile(root,source);
+ const directory=testDirectory('auxiliary-restart'),storeDir=path.join(directory,'projects','a'.repeat(32)),root=path.join(directory,'source','main.tex'),source='\\documentclass{article}\n\\begin{document}\n\\section{Title}\\label{title}Reference \\ref{title}.\n\\end{document}\n';await fs.mkdir(path.dirname(root),{recursive:true});await fs.writeFile(root,source);
  const create=()=>new BuildController(new ArtifactStore(storeDir),{prepare:async()=>{},commit:()=>{},discard:()=>{}},()=>{},()=>{}),options={root,sourceText:source,engine:'pdflatex',executable:'latexmk',timeoutMs:60000};
  const first=create();try{await first.request(options);assert.ok(first.current);assert.equal(first.resident.lastTiming.diskAuxiliaryReused,false);}finally{await first.dispose();}
  const reopened=create(),overlapping=create();try{await reopened.request(options);assert.ok(reopened.current);assert.equal(reopened.resident.lastTiming.diskAuxiliaryReused,true);assert.equal(reopened.resident.lastTiming.passes,1);await reopened.dispose();await reopened.dispose();
