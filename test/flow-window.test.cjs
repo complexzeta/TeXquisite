@@ -93,7 +93,9 @@ test('Refresh and a new verified basis invalidate parked raster proofs',{timeout
  const p=await lane(t);p.local.move('main.tex',p.source.indexOf('Delta')+3);await until(()=>p.local.ready);assert.ok(p.local.parked.length);p.local.refresh();assert.equal(p.local.parked.length,0);await until(()=>p.local.ready);p.local.move('main.tex',p.source.indexOf('Alpha')+3);await until(()=>p.local.ready);assert.ok(p.local.parked.length);p.local.setBasis({...p.local.basis,bundle:{id:'next-baseline'}});assert.equal(p.local.parked.length,0);
 });
 
-test('Idle rebasing adopts only the new verified compiler and retires the obsolete local worker',{timeout:30000},async t=>{
+// These handoff checks initialize two independent engines. Their setup deadline
+// is separate from the warm edit-to-preview measurements in lecture-mode-test.
+test('Idle rebasing adopts only the new verified compiler and retires the obsolete local worker',{timeout:60000},async t=>{
  const p=await lane(t),fresh=new ResidentCompiler();t.after(()=>fresh.stop());const next=p.source.replace('Alpha paragraph','Alpha verified paragraph'),base=await fresh.prepareRegion(next,paragraphAt(next,next.indexOf('Alpha')),new AbortController().signal,30000,()=>{},{characterMapping:true});let taken=false;
  p.local.setBasis({...p.local.basis,source:next,compilerSource:next,pdf:base.pdf,bundle:{id:'verified-revision'},takeCompiler:()=>taken?undefined:(taken=true,fresh)});await until(()=>p.local.ready&&p.local.slot.compiler===fresh);
  assert.equal(p.compiler.initialized,false);assert.equal(p.local.slot.basis.bundle.id,'verified-revision');assert.ok(p.messages.includes('Local preparation adopted the verified revision.\n'));assert.deepEqual(p.fallbacks,[]);
@@ -110,7 +112,7 @@ test('Moving during speculative native work retains the already proved active pa
 });
 
 
-test('Recently visited distant paragraphs are re-proved on the verified revision before returning',{timeout:30000},async t=>{
+test('Recently visited distant paragraphs are re-proved on the verified revision before returning',{timeout:60000},async t=>{
  const p=await lane(t);p.local.move('main.tex',p.source.indexOf('Delta')+3);await until(()=>p.local.ready);p.local.move('main.tex',p.source.indexOf('Alpha')+3);await until(()=>p.local.ready);
  const next=p.source.replace('Alpha paragraph','Alpha revised paragraph');p.local.request('main.tex',next,'revise');await until(()=>p.frames.some(f=>f.editId==='revise'));
  const fresh=new ResidentCompiler();t.after(()=>fresh.stop());const base=await fresh.prepareRegion(next,paragraphAt(next,next.indexOf('Alpha')),new AbortController().signal,30000,()=>{},{characterMapping:true});let taken=false;

@@ -25,7 +25,7 @@ import {probe} from './toolchain';
 import {standaloneTex,previewRootForDocument} from './document-root';
 
 interface Doc {path:string;text:string;diskHash:string;dirty:boolean;eol:string;}
-interface State {documentRoots?:Record<string,string>;texBin?:string;toolchainSeen?:boolean;projectSidebar?:boolean;docs:Doc[];active:string;root:string;engine:string;latexmk:string;onSave:boolean;backups?:boolean;liveVersion?:number;supportFolders?:string[];zoom?:number|'fit-width';statusBar?:boolean;panelLayout?:PanelPreferences;autoClose?:boolean;followPreview?:boolean;previewEditing?:boolean;continuousPreview?:boolean;lastCursor?:{file:string;at:number};}
+interface State {previewMode?:'lecture'|'document';documentRoots?:Record<string,string>;texBin?:string;toolchainSeen?:boolean;projectSidebar?:boolean;docs:Doc[];active:string;root:string;engine:string;latexmk:string;onSave:boolean;backups?:boolean;liveVersion?:number;supportFolders?:string[];zoom?:number|'fit-width';statusBar?:boolean;panelLayout?:PanelPreferences;autoClose?:boolean;followPreview?:boolean;previewEditing?:boolean;continuousPreview?:boolean;lastCursor?:{file:string;at:number};}
 const testData=process.env.PERSISTENT_TEX_TEST_DATA;
 // Retain the established profile location across the TeXquisite rename.
 app.setPath('userData',testData?path.resolve(testData):path.join(app.getPath('appData'),'Persistent TeX'));
@@ -89,13 +89,17 @@ let fullVerification:NodeJS.Timeout|undefined;
 // next ordinary character wait for a full build and another raster proof.
 // Only background whole-document verification waits; local edits and saving
 // continue immediately, and unsupported edits still request a zero-delay build.
-function scheduleFullVerification(editId:string,delay=2500){
+function scheduleFullVerification(editId:string,delay=2500,required=delay===0){
   clearTimeout(fullVerification);
+  fullVerification=undefined;
+  // Retain the interactive compiler in lecture mode. Unsupported edits still
+  // need a full build; preserve that distinction when retrying a busy worker.
+  if(state.previewMode==='lecture'&&!required)return;
   fullVerification=setTimeout(()=>{
-    fullVerification=undefined;if(!state.onSave||editId!==latestEditId)return;
+    fullVerification=undefined;if(!state.onSave||editId!==latestEditId||state.previewMode==='lecture'&&!required)return;
     // Automatic verification must not compete with a queued/unfinished local
     // frame. Explicit builds bypass this idle scheduler.
-    if(localPreview.busy||!localPreview.prepareFullVerification()){scheduleFullVerification(editId,50);return;}
+    if(localPreview.busy||!localPreview.prepareFullVerification()){scheduleFullVerification(editId,50,required);return;}
     void build(undefined,true).catch(e=>setStatus(String(e)));
   },delay);fullVerification.unref();
 }
@@ -273,6 +277,13 @@ async function handle(method:string,args:unknown[]) {
     case 'localRefresh': localPreview.refresh();return true;
     case 'localWarm': {if(typeof args[0]==='string'&&typeof args[1]==='string'&&args[0]===state.root&&args[2]===latestEditId){localPreview.prepareNextEdit(args[0],args[1]);if(typeof args[3]==='number'&&Number.isFinite(args[3]))tracePreview({event:'local-displayed',editId:args[2],elapsedMs:args[3],layout:args[4]});}return true;}
     case 'previewTiming': {if(args[0]===latestEditId&&typeof args[1]==='number'&&Number.isFinite(args[1]))tracePreview({event:'full-displayed',editId:args[0],elapsedMs:args[1]});return true;}
+    case 'previewMode': {
+      const mode=args[0];if(mode!=='lecture'&&mode!=='document')throw Error('Choose Lecture or Document mode.');
+      clearTimeout(fullVerification);fullVerification=undefined;state.previewMode=mode;
+      await persist();tracePreview({event:'preview-mode',mode});
+      if(mode==='document'&&state.onSave&&latestEditId&&controller)scheduleFullVerification(latestEditId,0);
+      return state;
+    }
     case 'cleanCaches': {
       const result=await cleanupCaches(true),mb=(bytes:number)=>(bytes/1048576).toFixed(1);
       const text=result.deferred?'Cleanup deferred until typing and builds pause.':`Freed ${mb(result.freedBytes)} MB from unused caches. ${mb(result.retainedBytes)} MB retained; active projects and preview navigation are protected.`;
@@ -511,12 +522,17 @@ async function handle(method:string,args:unknown[]) {
       if(pending){clearTimeout(pending.timer);waiting.delete(String(id));error?pending.reject(new Error(String(error))):pending.resolve();}return true;
     }
     case 'export': {
-      if(!displayed||!controller)throw new Error('No displayed PDF to export.');
+      if(!controller)throw new Error('Open a document to export.');
+      const owner=controller,root=state.root,before=displayed?.id;
+      await sourceWrites;
+      const sources=JSON.stringify(state.docs.map(doc=>[doc.path,doc.text]));
+      localPreview.prepareFullVerification();await build(undefined,false);
+      if(controller!==owner||state.root!==root||!displayed||displayed.id===before||owner.current?.id!==displayed.id||currentDiagnostic||displayed.sourceHash!==hash(state.docs.find(doc=>doc.path===root)?.text??'')||sources!==JSON.stringify(state.docs.map(doc=>[doc.path,doc.text])))throw Error('A current full PDF could not be verified. Resolve build errors or changed source, then export again.');
       const bundle=displayed,store=controller.store;
       const release=store.pin(bundle);
       try{
         const choice=await dialog.showSaveDialog(window,{defaultPath:path.basename(bundle.root,'.tex')+'.pdf',filters:[{name:'PDF',extensions:['pdf']}]});
-        if(!choice.canceled&&choice.filePath){await store.export(bundle,choice.filePath);setStatus('Exported the last verified full PDF. It may represent earlier source.');}return true;
+        if(!choice.canceled&&choice.filePath){await store.export(bundle,choice.filePath);setStatus('Exported the current verified full PDF.');}return true;
       }finally{release();}
     }
     case 'previous': {
@@ -545,6 +561,7 @@ async function closeWindow() {
 }
 app.whenReady().then(async()=>{
   try{const saved=JSON.parse(await fs.readFile(path.join(data(),'session.json'),'utf8'));if(Array.isArray(saved.docs))state=saved;}catch{}
+  state.previewMode=state.previewMode==='lecture'?'lecture':'document';
   // A clean restored buffer has no unsaved edits to protect. Refresh its disk
   // baseline now, rather than raising a conflict when the user next pastes.
   for(const doc of state.docs){
@@ -588,7 +605,7 @@ app.whenReady().then(async()=>{
   });
   ipcMain.handle('desktop',async(event,method,...args)=>{
     if(event.sender!==window.webContents||event.senderFrame?.url!=='texapp://local/index.html')throw new Error('Untrusted sender.');
-    try{const result=await handle(method,args);if(['initialize','projectSidebar','automaticBackups','statusBar','zoom','panels','autoClose','follow','previewEditing','continuous','live','settings'].includes(method))updateAppMenu();return result;}catch(error){if(!['projectSearch','searchLocation','applyProjectReplace','navigateSource','navigateDiagnostic','nativeNavigation','follow'].includes(method))setStatus(error instanceof Error?error.message:String(error));throw error;}
+    try{const result=await handle(method,args);if(['initialize','projectSidebar','automaticBackups','statusBar','zoom','panels','autoClose','follow','previewEditing','continuous','previewMode','live','settings'].includes(method))updateAppMenu();return result;}catch(error){if(!['projectSearch','searchLocation','applyProjectReplace','navigateSource','navigateDiagnostic','nativeNavigation','follow'].includes(method))setStatus(error instanceof Error?error.message:String(error));throw error;}
   });
   updateAppMenu();window.setAutoHideMenuBar(false);window.setMenuBarVisibility(true);
   await window.loadURL('texapp://local/index.html');

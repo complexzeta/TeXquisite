@@ -11,6 +11,7 @@ import {runWithPreviewCompatibility} from './postscript-compat';
 import {WarmCompiler} from './warm';
 import {ResidentCompiler,ResidentSourceError,splitResidentArticle,ResidentContext} from './resident';
 import {makeNavigation,Navigation,sourceIdentities} from './navigation';
+import {emptyDocumentPreview} from './empty-document';
 
 export const hash = (bytes: Uint8Array | string) => createHash('sha256').update(bytes).digest('hex');
 const legacyTkzLoader=/^[\t ]*\\usetkzobj\{all\}[\t ]*(?:%[^\r\n]*)?\r?$/m;
@@ -173,7 +174,7 @@ export class BuildController {
       project={...context,resources,resourceKey:hash(JSON.stringify([path.resolve(options.root),resourceIdentity(resources),options.supportFolders]))};
     }
     project={...project,focus:options.focus};
-    this.startResident(this.legacyTkzCompatible?withoutLegacyTkz(options.sourceText):options.sourceText,options.timeoutMs,project);
+    this.startResident(emptyDocumentPreview(this.legacyTkzCompatible?withoutLegacyTkz(options.sourceText):options.sourceText),options.timeoutMs,project);
     this.residentTask!.prefetched={options:{...options},requestedAt:this.pendingAt};
   }
   private pruneTimer?:NodeJS.Timeout;
@@ -243,7 +244,7 @@ export class BuildController {
       const engineFlag: Record<string,string> = {pdflatex:'-pdf',xelatex:'-xelatex',lualatex:'-lualatex',latex:'-pdfps'};
       if (!engineFlag[options.engine]) throw new Error('Unsupported engine.');
       const base=path.basename(options.root,'.tex');
-      let compilerSource=this.legacyTkzCompatible?withoutLegacyTkz(source):source;
+      let compilerSource=emptyDocumentPreview(this.legacyTkzCompatible?withoutLegacyTkz(source):source);
       let mirrored=false;
       let project:ResidentContext={focus:options.focus,characterMapping:!!options.characterMapping,jobName:base,supportFolders:options.supportFolders,environmentKey:hash(JSON.stringify([path.resolve(options.root),options.supportFolders])),resourceKey:hash(path.resolve(options.root))};
       let captured;
@@ -283,7 +284,7 @@ export class BuildController {
           capabilityRetry=true;
           if(/I can't find file [`']tkz-obj-[^\r\n]+\.tex/.test(message)&&legacyTkzLoader.test(source)&&hasEuclide(source)){
             this.log('Compatibility: modern tkz-euclide loads its objects automatically; the editor source remains unchanged.\n');
-            compilerSource=withoutLegacyTkz(source);
+            compilerSource=emptyDocumentPreview(withoutLegacyTkz(source));
             try{pdf=await this.resident.compile(compilerSource,abort.signal,options.timeoutMs,this.log,project);capabilityRetry=false;if(pdf)this.legacyTkzCompatible=true;}
             catch(retry){check();this.log('Resident capability check failed; checking the native engine. '+String(retry)+'\n');}
           }else this.log('Resident capability check failed; checking the native engine. '+message+'\n');
@@ -328,7 +329,7 @@ export class BuildController {
           if(!/I can't find file [`']tkz-obj-[^\r\n]+\.tex/.test(transcript)||!legacyTkzLoader.test(source)||!hasEuclide(source))throw error;
           check();
           this.log('Compatibility: modern tkz-euclide loads its objects automatically. Retrying without the obsolete \\usetkzobj{all} line in the build copy; editor source is unchanged.\n');
-          await fs.writeFile(path.join(input,path.basename(options.root)),withoutLegacyTkz(source));mirror.reset();
+          await fs.writeFile(path.join(input,path.basename(options.root)),emptyDocumentPreview(withoutLegacyTkz(source)));mirror.reset();
           await runWithPreviewCompatibility(runProcess,options.executable,args,input,options.timeoutMs,abort.signal,nativeLog);
           this.legacyTkzCompatible=true;
         }

@@ -5,7 +5,7 @@ const path=require('node:path');
 const {randomUUID}=require('node:crypto');
 const {PDFDocument}=require('pdf-lib');
 const {ArtifactStore,BuildController,runProcess,validatePdf,hash}=require('../dist/core');
-const base=path.resolve('.test-output');
+const base=require('../scripts/test-artifacts.cjs').testDirectory('core');
 async function store(){return new ArtifactStore(path.join(base,randomUUID()));}
 async function pdf(text='one'){const d=await PDFDocument.create();d.addPage().drawText(text);return d.save();}
 const details={revision:1,root:'main.tex',engine:'pdflatex'};

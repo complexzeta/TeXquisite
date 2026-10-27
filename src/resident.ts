@@ -1,4 +1,5 @@
 import type {IncludedInput} from './included-source';
+import {emptyDocumentPreview} from './empty-document';
 import {Worker} from 'node:worker_threads';
 import * as path from 'node:path';
 export function splitResidentArticle(source:string){
@@ -6,7 +7,7 @@ export function splitResidentArticle(source:string){
   if(/\\PersistentTeXCheckpoint\b/.test(source))return;
   // The engine reaches a begin-document hook itself. Preambles can construct
   // class names, input packages, or invoke document start through macros.
-  return {preamble:'',body:source};
+  return {preamble:'',body:emptyDocumentPreview(source)};
 }
 export interface ResidentContext {focus?:{line:number;column:number};characterMapping?:boolean;origins?:Record<string,string>;resources?:[string,Uint8Array][];resourceKey?:string;environmentKey?:string;jobName?:string;supportFolders?:string[];auxiliaryCache?:string;}
 export class ResidentSourceError extends Error{}

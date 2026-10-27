@@ -154,7 +154,7 @@ for(const button of el('mathTools').querySelectorAll<HTMLButtonElement>('button'
 }
 function refreshPreviewStatus(){
   if(localCanvas?.dataset.localLayout==='flow'&&localCanvas.dataset.localEditId===latestEdit?.id&&current?.timing?.editId===latestEdit?.id){el('previewState').textContent='Continuous scroll · paginated PDF verified';el('status').textContent=localStatus.replace('Paginated PDF verification pending.','Paginated PDF verified.')+sourceWarning;previewUpdating=false;return;}
-  if(localCanvas){const newer=localCanvas.dataset.localEditId!==latestEdit?.id;el('previewState').textContent='Local paragraph preview · '+(newer?'newer edits pending':'full document verification pending');el('status').textContent=localStatus+(newer?' Newer edits pending.':'')+sourceWarning;return;}
+  if(localCanvas){const newer=localCanvas.dataset.localEditId!==latestEdit?.id,lecture=model.previewMode==='lecture';el('previewState').textContent=(lecture?'Lecture preview · ':'Local paragraph preview · ')+(newer?'newer edits pending':lecture?'full PDF updates on Build or Export':'full document verification pending');el('status').textContent=(lecture?localStatus.replace(/(?:Paginated PDF|Full document) verification pending\./g,'Full PDF updates on Build or Export.'):localStatus)+(newer?' Newer edits pending.':'')+sourceWarning;return;}
   const pending=!previewKnownCurrent||!!latestEdit&&current?.timing?.editId!==latestEdit.id;
   if(pending||!current?.displayReady){
     const elapsed=latestEdit?` (${Math.ceil(performance.now()-latestEdit.startedAt)} ms since latest edit)`:'';
@@ -319,6 +319,9 @@ function activateDocumentTab(file:string){
 }
 function renderTabs(){
   projectSidebar.update(model);
+  el<HTMLSelectElement>('previewMode').value=model.previewMode==='lecture'?'lecture':'document';
+  document.body.dataset.previewMode=model.previewMode==='lecture'?'lecture':'document';
+  toolbarSelect('previewMode',model.previewMode==='lecture'?'lecture':'pages',model.previewMode==='lecture'?'Lecture mode: keep live editing ready; full PDF updates on Build or Export. Continuous scroll is recommended.':'Document mode: verify the full document after typing pauses.');
   toolbarButton('autoClose','braces',model.autoClose!==false?'Match pairs: on. Match delimiters, wrap selections and synchronize environment names':'Match pairs: off. Enable delimiter matching and linked environment names');el('autoClose').setAttribute('aria-pressed',String(model.autoClose!==false));
   updateMathTools();
   toolbarButton('editPreview','edit',model.previewEditing?'Edit preview: on':'Edit verified text and math in preview');el('editPreview').setAttribute('aria-pressed',String(!!model.previewEditing));
@@ -650,6 +653,7 @@ async function navigate(delta:number){
 el('prevPage').onclick=()=>void navigate(-1);el('nextPage').onclick=()=>void navigate(1);
 el<HTMLSelectElement>('zoom').onchange=()=>{const value=el<HTMLSelectElement>('zoom').value;zoomChoice=value==='fit-width'?value:Number(value);model.zoom=zoomChoice;zoomLabel();void api.call('zoom',zoomChoice).catch(report);void applyZoom().catch(report);};
 el<HTMLSelectElement>('layoutMode').onchange=()=>void command(async()=>{await flush();model.continuousPreview=await api.call('continuous',el<HTMLSelectElement>('layoutMode').value==='continuous');if(model.continuousPreview){model.previewEditing=false;endPreview();}localRenderToken++;if(current){const canvas=await render(current.pdf,current.page);copyCanvasMetadata(canvas,current.canvas);current={...current,canvas};show(current);}renderTabs();});
+el<HTMLSelectElement>('previewMode').onchange=()=>{const mode=el<HTMLSelectElement>('previewMode').value;void command(async()=>{await flush();model=await api.call('previewMode',mode);renderTabs();refreshPreviewStatus();});};
 const proofKey=(message:any)=>[message.baseId,message.proofPage??message.page,scale,window.devicePixelRatio||1].join(':');
 // Different regions can start on the same page but have distinct proved page
 // spans and continuations. Parking one must not overwrite another's proof.
@@ -847,7 +851,7 @@ api.on(async message=>{
     return;
   }
   if(message.type==='backupStatus'){el('backupStatus').textContent=message.text;el('backupWarning').hidden=!message.error;el('backupWarning').querySelector('span')!.textContent=message.text;return;}
-  if(message.type==='menuAction'){const {action,value}=message;if(action==='browseBackups'){void command(showBackups);return;}if(action==='backupNow'){void command(backupNow);return;}if(action==='automaticBackups'){void command(async()=>{model.backups=await api.call('automaticBackups',model.backups===false);el<HTMLInputElement>('automaticBackups').checked=model.backups;});return;}if(action==='pasteImage'){void command(()=>pasteImage());return;}if(['zoom','panelLayout','layoutMode'].includes(action)){const select=el<HTMLSelectElement>(action);if(select.value===value)return;select.value=value;select.dispatchEvent(new Event('change',{bubbles:true}));}else if(action.startsWith('math-'))document.querySelector<HTMLButtonElement>(`[data-math="${action.slice(5)}"]`)?.click();else document.getElementById(action)?.click();return;}
+  if(message.type==='menuAction'){const {action,value}=message;if(action==='browseBackups'){void command(showBackups);return;}if(action==='backupNow'){void command(backupNow);return;}if(action==='automaticBackups'){void command(async()=>{model.backups=await api.call('automaticBackups',model.backups===false);el<HTMLInputElement>('automaticBackups').checked=model.backups;});return;}if(action==='pasteImage'){void command(()=>pasteImage());return;}if(['zoom','panelLayout','layoutMode','previewMode'].includes(action)){const select=el<HTMLSelectElement>(action);if(select.value===value)return;select.value=value;select.dispatchEvent(new Event('change',{bubbles:true}));}else if(action.startsWith('math-'))document.querySelector<HTMLButtonElement>(`[data-math="${action.slice(5)}"]`)?.click();else document.getElementById(action)?.click();return;}
   if(message.type==='cacheCleanup')el('cacheStatus').textContent=message.text;
   if(message.type==='root'){model.root=message.root;renderTabs();}
   if(message.type==='saved'){

@@ -4,7 +4,7 @@ A standalone LaTeX editor with source and compiled preview side by side. It save
 
 ## Download and try it
 
-**Early Windows x64 test release:** [Download TeXquisite 0.87.0](https://github.com/complexzeta/TeXquisite/releases/download/v0.87.0/TeXquisite-0.87.0-Windows.exe).
+**Early Windows x64 test release:** [Download TeXquisite 0.88.0](https://github.com/complexzeta/TeXquisite/releases/download/v0.88.0/TeXquisite-0.88.0-Windows.exe).
 
 1. Install TeX Live separately, including latexmk. TeXquisite does not bundle a full TeX distribution.
 2. Run the portable executable; no VS Code, Node.js or account is required to use it.
@@ -16,6 +16,7 @@ A standalone LaTeX editor with source and compiled preview side by side. It save
 ## Features
 
 - Automatic saving and live preview, with a retained last-good PDF.
+- Lecture mode keeps local editing ready across pauses; Document mode automatically verifies the full document while idle.
 - Continuous scroll and paged views; source/PDF navigation and Follow typing.
 - Resizable source/output panels, horizontal or vertical arrangement, fit-width zoom.
 - Optional matching delimiters and environments, image paste, project search and source backups.
@@ -32,6 +33,10 @@ Fast preview uses either the bundled TeX Live 2025 format or a matching format p
 The 0.85.0 portable passed clean Windows Server 2022/2025 smoke tests with TeX Live 2024, 2025 and 2026. See the [compatibility results and limits](https://github.com/complexzeta/TeXquisite/blob/main/COMPATIBILITY-RESULTS.md).
 
 The Windows executable is an unsigned test build. Use the release checksum to identify the published file.
+
+Choose **Build → Working mode** or the small mode selector in the preview toolbar. Lecture mode defers idle full-document verification after successful local edits, preserving the interactive formatter for the next edit. Continuous scroll is recommended for lectures. Edits requiring a broader build still compile automatically; first loads, preamble changes and complex diagrams can remain slower. Build explicitly verifies the full document, and Export PDF builds and verifies current source before exporting in either mode. A successful local preview is not a promise that pagination or references throughout the document are current. Document mode is the default and resumes automatic full-document checks after a pause. Both modes keep the same saving and backup behavior.
+
+An empty literal document body, including a comments-only body, produces one blank page. The placeholder is added only to the compilation copy; it never changes the editor or saved source.
 
 ## Files and privacy
 
