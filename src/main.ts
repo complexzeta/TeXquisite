@@ -10,6 +10,7 @@ import {BuildDiagnostic} from './diagnostics';
 import {projectFolders,listProjectFiles,projectPath} from './project-navigation';
 import {ProjectSearch,SearchResult,searchHash,replacementPlan} from './project-search';
 import {Navigation,textHash} from './navigation';
+import type {PreviewFocus} from './navigation-query';
 import {encodeNavigation} from './navigation-codec';
 import {cleanCaches,CacheCleanupResult} from './cache-cleanup';
 import {appMenu} from './app-menu';
@@ -161,7 +162,7 @@ async function saveAllAndBuild(force=false,previewRequested=false) {
     if(failures.length)throw failures[0].error;
   });
 }
-async function prepare(bundle:Bundle,store:ArtifactStore,preparedPdf?:Uint8Array,navigation?:Navigation) {
+async function prepare(bundle:Bundle,store:ArtifactStore,preparedPdf?:Uint8Array,navigation?:Navigation,displayFocus?:PreviewFocus) {
   const pdf=preparedPdf??await fs.readFile(store.pdf(bundle));
   navigation??=await store.navigation(bundle);
   if(bundle.root===state.root&&navigation)for(const doc of state.docs)if(navigation.sources[doc.path])rememberDocumentRoot(doc.path,bundle.root);
@@ -169,7 +170,7 @@ async function prepare(bundle:Bundle,store:ArtifactStore,preparedPdf?:Uint8Array
     const timer=setTimeout(()=>{waiting.delete(bundle.id);reject(new Error('PDF viewer did not finish loading.'));},30000);
     waiting.set(bundle.id,{resolve,reject,timer});
     const encodingAt=performance.now(),encoded=encodeNavigation(navigation),encodedAt=performance.now();
-    send({type:'prepare',bundle,pdf:new Uint8Array(pdf),navigation:encoded,...(process.env.PERSISTENT_TEX_PROFILE?{profile:{sentAt:performance.timeOrigin+performance.now(),encodeMs:encodedAt-encodingAt}}:{})});
+    send({type:'prepare',bundle,pdf:new Uint8Array(pdf),navigation:encoded,displayFocus:process.env.PERSISTENT_TEX_DISABLE_DISPLAY_FOCUS==='1'?undefined:displayFocus,...(process.env.PERSISTENT_TEX_PROFILE?{profile:{sentAt:performance.timeOrigin+performance.now(),encodeMs:encodedAt-encodingAt}}:{})});
   });
 }
 function rememberDocumentRoot(file:string,root=state.root){if(root)(state.documentRoots??={})[file]=root;}
@@ -187,7 +188,7 @@ async function selectRoot(root:string,automaticBuild=true) {
   const store=new ArtifactStore(path.join(data(),'projects',hash(path.resolve(root).toLowerCase()).slice(0,32)));
   const next=new BuildController(store,{
     performance:report=>{if(generation===rootGeneration&&!closing)tracePreview({event:'standby',...report});},
-    prepare:async(bundle,pdf,map)=>{if(generation!==rootGeneration)throw new Error('Project changed.');await prepare(bundle,store,pdf,map);},
+    prepare:async(bundle,pdf,map,focus)=>{if(generation!==rootGeneration)throw new Error('Project changed.');await prepare(bundle,store,pdf,map,focus);},
     problems:(issues,editId)=>{if(generation===rootGeneration&&editId===latestEditId){currentProblems=issues;send({type:"problems",root,editId,issues});}},
     diagnostic:issue=>{if(generation===rootGeneration&&issue.editId===latestEditId){currentDiagnostic=issue;send({type:'diagnostic',issue});}},
     localBasis:basis=>{if(generation===rootGeneration&&state.onSave&&!state.previewEditing&&process.env.PERSISTENT_TEX_DISABLE_LOCAL!=='1'){
@@ -281,7 +282,6 @@ async function handle(method:string,args:unknown[]) {
     case 'previewPerformance': return {standby:controller?.standbyReport,localReady:localPreview.ready,localBusy:localPreview.busy};
     case 'localAck': {const entry=localWaiting.get(String(args[0]));if(entry){clearTimeout(entry.timer);localWaiting.delete(String(args[0]));const reply=args[1] as LocalVerification;entry.resolve(reply===true?true:reply&&typeof reply==='object'&&Number.isFinite(reply.dx)&&Number.isFinite(reply.dy)&&Math.abs(reply.dx)<=.01&&Math.abs(reply.dy)<=.01?reply:false);}return true;}
     case 'localCursor': {if(typeof args[0]==='string'&&typeof args[1]==='number'&&Number.isSafeInteger(args[1])&&args[1]>=0&&state.docs.some(doc=>doc.path===args[0])){controller?.noteActivity('cursor');state.lastCursor={file:args[0],at:args[1]};localPreview.move(args[0],args[1]);}return true;}
-    case 'localRefresh': localPreview.refresh();return true;
     case 'localWarm': {if(typeof args[0]==='string'&&typeof args[1]==='string'&&args[0]===state.root&&args[2]===latestEditId){localPreview.prepareNextEdit(args[0],args[1]);if(typeof args[3]==='number'&&Number.isFinite(args[3]))tracePreview({event:'local-displayed',editId:args[2],elapsedMs:args[3],layout:args[4]});}return true;}
     case 'previewTiming': {if(args[0]===latestEditId&&typeof args[1]==='number'&&Number.isFinite(args[1]))tracePreview({event:'full-displayed',editId:args[0],elapsedMs:args[1]});return true;}
     case 'previewMode': {

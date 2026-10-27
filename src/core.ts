@@ -12,6 +12,8 @@ import {runWithPreviewCompatibility} from './postscript-compat';
 import {WarmCompiler} from './warm';
 import {ResidentCompiler,ResidentSourceError,splitResidentArticle,ResidentContext} from './resident';
 import {makeNavigation,Navigation,sourceIdentities} from './navigation';
+import {capturePreviewFocus,PreviewFocus} from './navigation-query';
+import {textHash} from './navigation';
 import {emptyDocumentPreview} from './empty-document';
 
 export const hash = (bytes: Uint8Array | string) => createHash('sha256').update(bytes).digest('hex');
@@ -124,7 +126,7 @@ export class ArtifactStore {
 export interface BuildOptions { focus?:{line:number;column:number}; root: string; engine: string; executable: string; timeoutMs: number; sourceRevision?:number; sourceText?:string; characterMapping?:boolean; sourceFiles?:Record<string,string>; supportFolders?:string[]; editId?:string; automatic?:boolean; }
 export interface DisplayTiming {editId?:string;backend:string;requestToCommitMs:number;}
 export interface LocalBasis {bundle:Bundle;options:BuildOptions;source:string;compilerSource:string;project:ResidentContext;pdf:Uint8Array;canBuildAlongside?:()=>boolean;takeCompiler?:()=>ResidentCompiler|undefined;replaceCompiler?:(previous:ResidentCompiler)=>ResidentCompiler|undefined;returnCompiler?:(compiler:ResidentCompiler)=>boolean;claimAutomatic?:(editId:string,source:string,previous?:ResidentCompiler)=>ResidentCompiler|undefined;}
-export interface Viewer { prepare(bundle: Bundle,pdf?:Uint8Array,navigation?:Navigation): Promise<void>; commit(bundle: Bundle,timing?:DisplayTiming): void; discard(bundle: Bundle): void; diagnostic?(issue:BuildDiagnostic):void; problems?(issues:BuildDiagnostic[],editId?:string):void; localBasis?(basis:LocalBasis):void; performance?(report:Record<string,unknown>):void; }
+export interface Viewer { prepare(bundle: Bundle,pdf?:Uint8Array,navigation?:Navigation,displayFocus?:PreviewFocus): Promise<void>; commit(bundle: Bundle,timing?:DisplayTiming): void; discard(bundle: Bundle): void; diagnostic?(issue:BuildDiagnostic):void; problems?(issues:BuildDiagnostic[],editId?:string):void; localBasis?(basis:LocalBasis):void; performance?(report:Record<string,unknown>):void; }
 export class BuildController {
   private static protectedDirectories=new Set<string>();
   private static auxiliaryUsers=new Map<string,number>();
@@ -388,7 +390,7 @@ export class BuildController {
       const validatedAt=Date.now();
       let viewerMs=0;
       bundle=await this.store.stage(pdf,{revision,root:options.root,engine:options.engine,sourceHash:hash(source)},sync,async(candidate,bytes,map)=>{
-        bundle=candidate;check();const began=performance.now();await this.viewer.prepare(candidate,bytes,map);viewerMs=performance.now()-began;
+        bundle=candidate;check();const began=performance.now();await this.viewer.prepare(candidate,bytes,map,capturePreviewFocus(map,options.root,source,options.focus,textHash));viewerMs=performance.now()-began;
       },navigation);
       const stagedAt=performance.now();
       const storedAt=Date.now();

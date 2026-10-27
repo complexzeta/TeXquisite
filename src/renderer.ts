@@ -18,7 +18,7 @@ import {imageTex} from './image-paste';
 import {loadPdf,renderCheckedPdfRegion,copyPdfRaster} from './pdf-viewer';
 import {BaselineCache} from './baseline-cache';
 import {ContinuousView} from './continuous-view';
-import {forwardPosition,backward,sourceLineHasOutput} from './navigation-query';
+import {forwardPosition,backward,sourceLineHasOutput,previewFocusTarget,previewFocusPrefix,PreviewFocus} from './navigation-query';
 import type {BuildDiagnostic} from './diagnostics';
 import {diagnosticAdvice} from './diagnostics';
 import type {Navigation,Region} from './navigation';
@@ -521,6 +521,12 @@ async function matchesSource(nav:Navigation,file:string,text?:string){
   const digest=Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',bytes))).map(x=>x.toString(16).padStart(2,'0')).join('');
   return digest===nav.sources[file];
 }
+async function displayFocusLocation(hint:PreviewFocus|undefined,nav:Navigation):Promise<Region|undefined>{
+ if(!view||!model.followPreview||!model.continuousPreview||active!==model.root)return;
+ const file=active,text=view.state.doc.toString(),at=view.state.selection.main.head,prefix=previewFocusPrefix(hint,file,text,at);
+ const row=await previewFocusTarget(hint,nav,file,text,at,async value=>Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',new TextEncoder().encode(value.replace(/\r\n/g,'\n'))))).map(x=>x.toString(16).padStart(2,'0')).join(''));
+ if(view&&file===active&&file===model.root&&prefix!==undefined&&prefix===previewFocusPrefix(hint,file,view.state.doc.toString(),view.state.selection.main.head)&&model.followPreview&&model.continuousPreview)return row;
+}
 async function cursorLocation(nav:Navigation,page:number,bundleId?:string):Promise<Region|undefined>{
   if(!view)return;const file=active,text=view.state.doc.toString(),head=view.state.selection.main.head,line=view.state.doc.lineAt(head).number;
   if(!sourceLineHasOutput(view.state.doc.lineAt(head).text))return;
@@ -928,7 +934,8 @@ api.on(async message=>{
       // Resolve continuous page geometry before acknowledging the frame, so
       // newly queued local proofs cannot postpone attaching its canvas.
       if(model.continuousPreview)await pdf.sizes(true);
-      const target=model.followPreview&&message.navigation?await cursorLocation(message.navigation,pageNumber):undefined;
+      const proposedTarget=model.followPreview&&message.navigation?await cursorLocation(message.navigation,pageNumber)??await displayFocusLocation(message.displayFocus,message.navigation):undefined;
+      const target=proposedTarget&&proposedTarget[2]<=pdf.numPages?proposedTarget:undefined;
       const visible=model.continuousPreview?continuousView.visiblePage:undefined;
       const page=model.followPreview&&target?target[2]:Math.min(visible??pageNumber,pdf.numPages);
       adoptZoom(await desiredZoom(pdf));
@@ -944,8 +951,8 @@ api.on(async message=>{
         continuousBases.set(message.bundle.id,{id:message.bundle.id,navigation:message.navigation,text:typeof text==='string'&&await matchesSource(message.navigation,model.root,text)?text:undefined,texts});
         if(continuousBases.size>4){const oldest=[...continuousBases.keys()].find(id=>id!==continuousBasis?.id&&id!==message.bundle.id);if(oldest)continuousBases.delete(oldest);}
       }
-      if(message.profile)console.debug('Full preview preparation',JSON.stringify({id:message.bundle.id,encodeMs:message.profile.encodeMs,transportMs:performance.timeOrigin+arrivedAt-message.profile.sentAt,decodeMs:decodedAt-arrivedAt,loadMs:loadedAt-decodedAt,locationMs:locatedAt-loadedAt,renderMs:renderedAt-locatedAt,sourceMapMs:performance.now()-renderedAt}));
-      prepared={id:message.bundle.id,pdf,task,page,canvas,navigation:message.navigation,target};await api.call('ack',message.bundle.id,null);
+      if(message.profile)console.debug('Full preview preparation',JSON.stringify({id:message.bundle.id,page,targetPage:target?.[2],focusPage:message.displayFocus?.region?.[2],focusLine:message.displayFocus?.line,cursorLine:view?.state.doc.lineAt(view.state.selection.main.head).number,encodeMs:message.profile.encodeMs,transportMs:performance.timeOrigin+arrivedAt-message.profile.sentAt,decodeMs:decodedAt-arrivedAt,loadMs:loadedAt-decodedAt,locationMs:locatedAt-loadedAt,renderMs:renderedAt-locatedAt,sourceMapMs:performance.now()-renderedAt}));
+      prepared={id:message.bundle.id,pdf,task,page,canvas,navigation:message.navigation,target,displayFocus:message.displayFocus};await api.call('ack',message.bundle.id,null);
     }catch(e){void task?.destroy();await api.call('ack',message.bundle.id,String(e));}
   }
   if(message.type==='commit'&&prepared?.id===message.id){
@@ -956,6 +963,7 @@ api.on(async message=>{
     }
     if(!retainLocal)displayedSequence=fullSequence;scheduleFit(true);
     navigationToken++;el('navState').textContent=retainLocal?'Source navigation will be available after full verification.':current.navigation?'Click PDF text to show its source':'Source navigation unavailable for this preview';
+    if(!retainLocal&&current.displayFocus&&current.navigation){const frame=current;void continuousSetup.then(async()=>{if(await matchesSource(frame.navigation,active))return;const row=await displayFocusLocation(frame.displayFocus,frame.navigation);if(current===frame&&model.continuousPreview&&model.followPreview&&row&&row[2]<=frame.pdf.numPages)continuousView.revealPosition(row[2],row[4]);}).catch(()=>{});}
     if(!retainLocal&&model.followPreview&&current.navigation)void locateSource(false).catch(e=>{el('navState').textContent=String(e);});
     current.timing=message.timing;
     if(previewSession){previewSession.pending=true;drawPreviewCaret();void refreshPreviewCaret().catch(()=>{endPreview();el('navState').textContent='Continue editing in the source pane.';});}

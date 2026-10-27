@@ -143,6 +143,7 @@ export class ContinuousView{
     if(oldBlock&&oldBlock!==block)oldBlock.width=oldBlock.height=0;if(oldCanvas)oldCanvas.width=oldCanvas.height=0;
     return block;
   }
+  revealPosition(page:number,y:number){const e=this.entries.get(page);if(e&&!e.block&&!e.band&&e.coveredBy===undefined)this.reveal(e.element,y);}
   mark(page:number,box:{x:number;y:number;width:number;height:number},live=false){
     const e=this.entries.get(page);if(!e)return false;
     let y=box.y;

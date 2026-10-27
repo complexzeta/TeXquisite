@@ -34,3 +34,27 @@ export function backward(nav:Navigation,page:number,x:number,y:number):Region|un
  for(const row of nav.regions){if(row[2]!==page)continue;const dx=Math.max(row[3]-x,0,x-row[3]-row[5]),dy=Math.max(row[4]-y,0,y-row[4]-row[6]);const score=dx*dx+dy*dy;if(score<distance){distance=score;best=row;}}
  return best;
 }
+
+// A display hint belongs to an immutable full frame. It never authorizes
+// source navigation, editing or local proof reuse against a newer source.
+export interface PreviewFocus {file:string;sourceHash:string;prefixHash:string;line:number;column:number;region:Region;}
+export function capturePreviewFocus(nav:Navigation|undefined,file:string,text:string,focus:{line:number;column:number}|undefined,digest:(text:string)=>string):PreviewFocus|undefined{
+ if(!nav||!focus||!Number.isSafeInteger(focus.line)||!Number.isSafeInteger(focus.column)||focus.line<1||focus.column<0||nav.sources[file]!==digest(text))return;
+ const lines=text.split('\n'),line=lines[focus.line-1];if(line===undefined||focus.column>line.length||!sourceLineHasOutput(line))return;
+ const prefix=lines.slice(0,focus.line-1).map(line=>line+'\n').join(''),region=forwardPosition(nav,file,text,prefix.length+focus.column);
+ if(!region||region[1]!==focus.line||region[2]<1||!Number.isSafeInteger(region[2])||!region.slice(3).every(Number.isFinite))return;
+ return {file,sourceHash:nav.sources[file],prefixHash:digest(prefix),...focus,region};
+}
+export function previewFocusPrefix(hint:PreviewFocus|undefined,file:string,text:string,at:number):string|undefined{
+ if(!hint||hint.file!==file||!Number.isSafeInteger(at)||at<0||at>text.length)return;
+ const before=text.slice(0,at),line=before.split('\n').length,start=before.lastIndexOf('\n')+1,end=text.indexOf('\n',start),sourceLine=text.slice(start,end<0?text.length:end);
+ if(line!==hint.line||Math.abs(at-start-hint.column)>64||!sourceLineHasOutput(sourceLine))return;
+ return text.slice(0,start);
+}
+export async function previewFocusTarget(hint:PreviewFocus|undefined,nav:Navigation,file:string,text:string,at:number,digest:(text:string)=>Promise<string>):Promise<Region|undefined>{
+ if(!hint||nav.sources[file]!==hint.sourceHash)return;
+ const prefix=previewFocusPrefix(hint,file,text,at);if(prefix===undefined)return;
+ const r=hint.region;if(r[0]!==file||r[1]!==hint.line||!Number.isSafeInteger(r[2])||r[2]<1||!r.slice(3).every(Number.isFinite))return;
+ if(await digest(prefix)!==hint.prefixHash)return;
+ return r;
+}
