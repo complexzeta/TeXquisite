@@ -1,6 +1,6 @@
 import {decodeNavigation} from './navigation-codec';
 import {matchLocalPatchRaster,LOCAL_INK_BLEED_BP} from './local-raster';
-import {placementCorrection} from './local-raster';
+import {placementCorrection,GlyphLookup} from './local-raster';
 import {mathSpans,isMath,nearestMathCaret,mathCaretBox,moveMath,moveMathAcross,changeMath,parseMath,MathFormula,MathSpan,MathAction} from './math-edit';
 import {EditorView,basicSetup} from 'codemirror';
 import {undo,redo,isolateHistory} from '@codemirror/commands';
@@ -669,8 +669,8 @@ function mayShowLocal(message:any){
 function tileCanvas(tile:any){const canvas=document.createElement('canvas');canvas.width=tile.width;canvas.height=tile.height;
   if(tile.image){const target=canvas.getContext('bitmaprenderer');if(target)target.transferFromImageBitmap(tile.image);else{canvas.getContext('2d')!.drawImage(tile.image,0,0);tile.image.close();}}
   else canvas.getContext('2d')!.putImageData(new ImageData(new Uint8ClampedArray(tile.data.buffer,tile.data.byteOffset,tile.data.byteLength),tile.width,tile.height),0,0);return canvas;}
-async function tileMatchesFull(pdf:any,box:any,full:{width:number;height:number},pixels:Uint8ClampedArray){
-  const tile=await pdf.regionPixels(1,box,scale,window.devicePixelRatio||1),data=tile.data;let equal=tile.fullWidth===full.width&&tile.fullHeight===full.height;
+async function tileMatchesFull(pdf:any,box:any,full:{width:number;height:number},pixels:Uint8ClampedArray,preparedTile?:any){
+  const tile=preparedTile??await pdf.regionPixels(1,box,scale,window.devicePixelRatio||1),data=tile.data;let equal=tile.fullWidth===full.width&&tile.fullHeight===full.height;
   for(let y=0;y<tile.patchHeight&&equal;y++)for(let x=0;x<tile.patchWidth&&equal;x++){const a=((y+tile.sourceY)*tile.width+x+tile.sourceX)*4,b=((y+tile.y)*full.width+x+tile.x)*4;for(let c=0;c<4;c++)if(data[a+c]!==pixels[b+c]){equal=false;break;}}
   return equal;
 }
@@ -686,16 +686,13 @@ async function localInkFits(message:any,providedPdf?:any){
 }
 async function localCorrection(message:any,base:any,fragment:any){
   const [fullGlyphs,fragmentGlyphs]=await Promise.all([base.glyphs(message.page),fragment.glyphs(message.fragment.page)]);
-  const nearest=(glyphs:PdfCharacter[],code:number,box:number[])=>{
-    const ranked=glyphs.filter(g=>g[0]===code).map(g=>({g,d:(g[1]+g[3]/2-box[0]-box[2]/2)**2+(g[2]+g[4]/2-box[1]-box[3]/2)**2})).sort((a,b)=>a.d-b.d);
-    if(!ranked.length||ranked[0].d>4||ranked[1]&&ranked[1].d-ranked[0].d<.01)return;return ranked[0].g;
-  };
+  const fullLookup=new GlyphLookup<PdfCharacter>(fullGlyphs),fragmentLookup=new GlyphLookup<PdfCharacter>(fragmentGlyphs);
   const offsets:{x:number;y:number;full:PdfCharacter;fragment:PdfCharacter}[]=[];
-  for(const a of message.calibration?.anchors??[]){const full=nearest(fullGlyphs,a.code,a.full),local=nearest(fragmentGlyphs,a.code,a.fragment);if(full&&local)offsets.push({x:full[1]-local[1],y:full[2]-local[2],full,fragment:local});}
+  for(const a of message.calibration?.anchors??[]){const full=fullLookup.nearest(a.code,a.full),local=fragmentLookup.nearest(a.code,a.fragment);if(full&&local)offsets.push({x:full[1]-local[1],y:full[2]-local[2],full,fragment:local});}
   const correction=placementCorrection(offsets,message.calibration);if(!correction)return false;
   const x=message.calibration.x+correction.dx,y=message.calibration.y+correction.dy,calibratedGlyphs:{x:number;y:number;width:number;height:number}[]=[];
   for(const g of fragmentGlyphs){
-    const full=nearest(fullGlyphs,g[0],[g[1]+x,g[2]+y,g[3],g[4]]);if(!full)continue;
+    const full=fullLookup.nearest(g[0],[g[1]+x,g[2]+y,g[3],g[4]]);if(!full)continue;
     if(Math.abs(full[1]-g[1]-x)<=.02&&Math.abs(full[2]-g[2]-y)<=.02&&Math.abs(full[3]-g[3])<=.02&&Math.abs(full[4]-g[4])<=.02)calibratedGlyphs.push({x:full[1],y:full[2],width:full[3],height:full[4]});
   }
   return {...correction,calibratedGlyphs};
@@ -727,18 +724,22 @@ api.on(async message=>{
     let ok=false,reply:boolean|{dx:number;dy:number}=false;const proofToken=localProofToken,key=proofKey(message),baseline=acceptedBaseline(message),tasks=[loadPdf(message.pdf,true),loadPdf(message.fragmentPdf,true)];
     let cached:Awaited<ReturnType<typeof baseline.page>>|undefined;
     try{if(message.root===model.root){const [base,composed,fragment]=await Promise.all([baseline.document,...tasks.map(task=>task.promise)]);
-      cached=await baseline.page(message.page);const a=cached.value.canvas,pa=cached.value.pixels;let ink=false;
-      const composedRaster=await composed.renderPixels(1,scale,window.devicePixelRatio||1),pb=composedRaster.pixels;ink=await localInkFits(message,fragment);
+      // Submit the independent proof reads together. Otherwise an idle page
+      // render can start between each round trip and delay the same proof
+      // repeatedly. PDFium still executes each request serially.
+      const reads=[baseline.page(message.page).then(frame=>cached=frame),composed.renderPixels(1,scale,window.devicePixelRatio||1),localInkFits(message,fragment),composed.regionPixels(1,message.footprint,scale,window.devicePixelRatio||1)] as const;
+      const [frame,composedRaster,ink,tile]=await Promise.all(reads).catch(async error=>{await Promise.allSettled(reads);throw error;});
+      const a=frame.value.canvas,pa=frame.value.pixels,pb=composedRaster.pixels;
       const factor=scale*(window.devicePixelRatio||1),box=message.footprint,result=matchLocalPatchRaster(pa,pb,a.width,a.height,{x:box.x*factor,y:box.y*factor,width:box.width*factor,height:box.height*factor},(message.calibration?.calibratedGlyphs??[]).map((g:any)=>({x:g.x*factor,y:g.y*factor,width:g.width*factor,height:g.height*factor})));
       ok=ink&&a.width===composedRaster.width&&a.height===composedRaster.height&&result.ok;
-      if(ok)ok=await tileMatchesFull(composed,message.footprint,composedRaster,pb);
+      if(ok)ok=await tileMatchesFull(composed,message.footprint,composedRaster,pb,tile);
       console.debug('Local raster verification',JSON.stringify({ink,...result,scale,ratio:window.devicePixelRatio}));
       ok=ok&&proofToken===localProofToken&&key===proofKey(message)&&message.root===model.root;
       if(ok){
         // Page verification may have completed in parallel. Evict only the
         // oldest paragraph image, without clearing its independent page proof.
         if(localProofs.size>=8&&!localProofs.has(key)){const oldest=localProofs.keys().next().value!;localProofs.get(oldest)!.release();localProofs.delete(oldest);}
-        localProofs.get(key)?.release();localProofs.set(key,{canvas:a,page:message.page,release:cached.release,retain:baseline.retain});cached=undefined;
+        localProofs.get(key)?.release();localProofs.set(key,{canvas:a,page:message.page,release:frame.release,retain:baseline.retain});cached=undefined;
       }
       reply=ok?true:ink&&proofToken===localProofToken&&key===proofKey(message)?await localCorrection(message,base,fragment):false;
     }}catch{reply=false;}finally{cached?.release();baseline.release();void Promise.all(tasks.map(task=>task.destroy())).catch(()=>{});await api.call('localAck',message.token,reply);}

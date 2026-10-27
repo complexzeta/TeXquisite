@@ -1,5 +1,5 @@
 import type {Navigation,Region} from './navigation';
-const sameFile=(a:string,b:string)=>a.replaceAll('\\','/').toLowerCase()===b.replaceAll('\\','/').toLowerCase();
+const sameFile=(a:string,b:string)=>a===b||a.replaceAll('\\','/').toLowerCase()===b.replaceAll('\\','/').toLowerCase();
 export function sourceLineHasOutput(source:string){
  return !!source.trim()&&!/^\s*%/.test(source)&&!/^\s*\\(?:end\s*\{\s*document\s*\}|begin\s*\{\s*document\s*\}|(?:newpage|clearpage|cleardoublepage)\b)\s*(?:%.*)?$/.test(source);
 }

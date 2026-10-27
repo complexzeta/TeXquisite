@@ -1,4 +1,22 @@
 export const LOCAL_INK_BLEED_BP=1;
+
+// Calibration asks about the same page hundreds of times. Group by character
+// once, then find the two nearest candidates without allocating or sorting.
+export class GlyphLookup<T extends readonly number[]> {
+  private readonly byCode=new Map<number,T[]>();
+  constructor(glyphs:readonly T[]){
+    for(const glyph of glyphs){let group=this.byCode.get(glyph[0]);if(!group){group=[];this.byCode.set(glyph[0],group);}group.push(glyph);}
+  }
+  nearest(code:number,box:readonly number[]){
+    if(Number.isNaN(code))return;
+    let first=Infinity,second=Infinity,chosen:T|undefined;
+    for(const g of this.byCode.get(code)??[]){
+      const distance=(g[1]+g[3]/2-box[0]-box[2]/2)**2+(g[2]+g[4]/2-box[1]-box[3]/2)**2;
+      if(distance<first){second=first;first=distance;chosen=g;}else if(distance<second)second=distance;
+    }
+    if(chosen&&first<=4&&second-first>=.01)return chosen;
+  }
+}
 export function inkFitsRaster(data:Uint8Array|Uint8ClampedArray,width:number,height:number,bounds:{left:number;top:number;right:number;bottom:number}){
   if(!Number.isSafeInteger(width)||!Number.isSafeInteger(height)||width<1||height<1||data.length!==width*height*4||![bounds.left,bounds.top,bounds.right,bounds.bottom].every(Number.isFinite)||bounds.right<=bounds.left||bounds.bottom<=bounds.top)return false;
   const left=Math.max(0,Math.min(width,Math.floor(bounds.left))),right=Math.max(0,Math.min(width,Math.ceil(bounds.right))),top=Math.floor(bounds.top),bottom=Math.ceil(bounds.bottom);

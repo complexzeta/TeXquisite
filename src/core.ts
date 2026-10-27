@@ -196,6 +196,9 @@ export class BuildController {
   }
   private prefetchPending(){
     const options=this.pending,context=this.residentContext;
+    // Automatic typing keeps the newest pending source. Starting an older
+    // revision speculatively makes us publish it even after newer keys arrive.
+    if(options?.automatic)return;
     if(!this.canPrefetch||this.residentTask||!context||options?.sourceText===undefined||options.engine!=='pdflatex'||options.executable!=='latexmk'||!splitResidentArticle(options.sourceText))return;
     if(!!options.characterMapping!==!!context.characterMapping)return;
     if(context.environmentKey&&context.environmentKey!==hash(JSON.stringify([path.resolve(options.root),options.supportFolders])))return;
@@ -404,12 +407,13 @@ export class BuildController {
         // A failed local page proof may stop its transferred worker. That
         // retired owner must not block every later publication from offering
         // its newly converged compiler. A live owner still transfers once.
-        if(this.localCompilerTransferred&&this.transferredCompiler?.initialized||this.current!==bundle||this.pending||this.residentTask||this.resident.busy||abort.signal.aborted||generation!==this.generation)return;
+        // A newer build owns it from source capture, before its RPC exists.
+        if(this.localCompilerTransferred&&this.transferredCompiler?.initialized||this.current!==bundle||this.pending||this.active&&this.active!==abort||this.residentTask||this.resident.busy||abort.signal.aborted||generation!==this.generation)return;
         const compiler=this.resident;this.resident=new ResidentCompiler();this.localCompilerTransferred=true;this.transferredCompiler=compiler;this.prepareStandby(acceptedBundle,compilerSource,project);return compiler;
       },replaceCompiler:previous=>{
         // Explicitly replace the idle local owner with this newly converged
         // publication. Preserve the ordinary one-time transfer guard.
-        if(this.transferredCompiler!==previous||previous.busy||!previous.initialized||this.current!==bundle||this.retired||this.pending||this.residentTask||this.resident.busy||!this.resident.initialized||abort.signal.aborted||generation!==this.generation)return;
+        if(this.transferredCompiler!==previous||previous.busy||!previous.initialized||this.current!==bundle||this.retired||this.pending||this.active&&this.active!==abort||this.residentTask||this.resident.busy||!this.resident.initialized||abort.signal.aborted||generation!==this.generation)return;
         const compiler=this.resident;this.resident=new ResidentCompiler();this.transferredCompiler=compiler;this.localCompilerTransferred=true;previous.stop();this.prepareStandby(acceptedBundle,compilerSource,project);return compiler;
       },returnCompiler:compiler=>{
         // An unsupported block must not strand the only warm engine locally.

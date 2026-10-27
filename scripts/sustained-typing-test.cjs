@@ -27,11 +27,20 @@ const hash=s=>createHash('sha256').update(s).digest('hex'),delay=ms=>new Promise
    await action();const expected=await text();await page.waitForFunction(h=>[...document.querySelectorAll('#pages canvas')].some(c=>c.dataset.localSourceHash===h||c.dataset.sourceHash===h),hash(expected),{timeout:30000,polling:10});
    const trace=await page.evaluate(()=>({inputs:window.__typing.inputs,previews:window.__typing.previews})),inputs=trace.inputs.map(({text,...i})=>({...i,hash:hash(text)})),frames=trace.previews.map(p=>({...p,input:inputs.findIndex(i=>i.hash===p.hash)})).filter(p=>p.input>=0),latencies=frames.map(p=>p.at-inputs[p.input].at),stalls=[];let last=inputs[0]?.at;
    for(const frame of frames){if(last!==undefined)stalls.push(frame.at-last);last=frame.at;}
-   const s={name,startedAt:inputs[0]?.at,endedAt:frames.at(-1)?.at,inputCount:inputs.length,displayedStates:frames.length,maxLatencyMs:Math.round(Math.max(0,...latencies)),maxPreviewGapMs:Math.round(Math.max(0,...stalls)),frames:frames.map(p=>({input:p.input,latencyMs:Math.round(p.at-inputs[p.input].at),layout:p.layout,pipeline:p.pipeline?JSON.parse(p.pipeline):undefined}))};assert.ok(inputs.length&&frames.length,'Real source changes and matching preview required');result.scenarios.push(s);
+   const s={name,startedAt:inputs[0]?.at,endedAt:frames.at(-1)?.at,inputCount:inputs.length,displayedStates:frames.length,firstPreviewMs:Math.round((frames[0]?.at??0)-(inputs[0]?.at??0)),maxLatencyMs:Math.round(Math.max(0,...latencies)),maxPreviewGapMs:Math.round(Math.max(0,...stalls)),frames:frames.map(p=>({input:p.input,latencyMs:Math.round(p.at-inputs[p.input].at),layout:p.layout,pipeline:p.pipeline?JSON.parse(p.pipeline):undefined}))};assert.ok(inputs.length&&frames.length,'Real source changes and matching preview required');result.scenarios.push(s);
   };
   const idle=Number(process.env.PERSISTENT_TEX_TEST_IDLE_MS??0);if(!Number.isInteger(idle)||idle<0||idle>20000)throw Error('Invalid test idle duration');result.idleBeforeTypingMs=idle;if(idle){await ready();if(process.env.PERSISTENT_TEX_STANDBY_TRACE==='1'){result.standbyObservations=[];const until=Date.now()+idle;while(Date.now()<until){result.standbyObservations.push(await page.evaluate(()=>window.desktop.call('previewPerformance')));await delay(Math.min(500,Math.max(0,until-Date.now())));}}else await delay(idle);}
   result.privateMiBBeforeTyping=await app.evaluate(({app})=>Math.round(app.getAppMetrics().reduce((n,p)=>n+(p.memory.privateBytes??0),0)/1024));
   for(const mode of ['lecture','document']){
+   if(process.env.PERSISTENT_TEX_BLOCK_TRANSITIONS==='1'){
+    await page.locator('#previewMode').selectOption(mode);
+    for(const marker of ['LiveMark','Paragraph 20.','Paragraph 3.','Paragraph 32.','Paragraph 12.']){
+     await ready();const prior=(await page.locator('#log').textContent()).length;
+     await measure(mode+'-move-'+marker,async()=>{await page.evaluate(marker=>{const v=document.querySelector('.cm-content').cmTile.root.view,at=v.state.doc.toString().indexOf(marker)+marker.length;v.dispatch({selection:{anchor:at},scrollIntoView:true});v.focus();},marker);await page.keyboard.type(' word',{delay:80});});
+     result.scenarios.at(-1).buildLog=(await page.locator('#log').textContent()).slice(prior);
+    }
+    continue;
+   }
    await page.locator('#previewMode').selectOption(mode);await focus('LiveMark');
    await measure(mode+'-typing',()=>page.keyboard.type(' a continuous stream of words',{delay:80}));
    await focus('Paragraph 20.');await measure(mode+'-later-page',()=>page.keyboard.type(' later page typing',{delay:80}));

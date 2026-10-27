@@ -10,22 +10,22 @@ async function store(){return new ArtifactStore(path.join(base,randomUUID()));}
 async function pdf(text='one'){const d=await PDFDocument.create();d.addPage().drawText(text);return d.save();}
 const details={revision:1,root:'main.tex',engine:'pdflatex'};
 
-test('An already prefetched intermediate revision publishes once before the newest pending edit',async t=>{
+for(const automatic of [false,true])test(automatic?'Automatic full work coalesces unstarted revisions while preserving the in-flight publication':'An already prefetched manual revision publishes once before the newest pending edit',async t=>{
  const s=await store(),project=path.join(s.directory,'source');await fs.mkdir(project,{recursive:true});const root=path.join(project,'main.tex');
  const source='\\documentclass{article}\n\\begin{document}\nVERSION\n\\end{document}\n';await fs.writeFile(root,source);
  const bytes=Buffer.from(await pdf()),calls=[],commits=[];let began,release;
  const blocked=new Promise(resolve=>began=resolve),gate=new Promise(resolve=>release=resolve);
  const controller=new BuildController(s,{prepare:async()=>{if(!commits.length){began();await gate;}},commit:b=>commits.push(b.sourceHash),discard:()=>{}},()=>{},()=>{});t.after(()=>controller.cancel());
  controller.resident.compile=async text=>{calls.push(text);return bytes;};
- const options={root,engine:'pdflatex',executable:'latexmk',timeoutMs:30000,automatic:true};
+ const options={root,engine:'pdflatex',executable:'latexmk',timeoutMs:30000,automatic};
  const a=source.replace('VERSION','Alpha'),b=source.replace('VERSION','Beta'),c=source.replace('VERSION','Gamma');
  const first=controller.request({...options,sourceText:a});await blocked;
- const second=controller.request({...options,sourceText:b});assert.ok(calls.includes(b));
+ const second=controller.request({...options,sourceText:b});assert.equal(calls.includes(b),!automatic);
  const third=controller.request({...options,sourceText:c});release();await Promise.all([first,second,third]);
- assert.deepEqual(calls,[a,b,c]);assert.deepEqual(commits,[hash(a),hash(b),hash(c)]);
+ const expected=automatic?[a,c]:[a,b,c];assert.deepEqual(calls,expected);assert.deepEqual(commits,expected.map(hash));
 });
 
-test('Chapter prefetch publishes each captured resource revision once while retaining the newest pending buffers',{timeout:30000},async t=>{
+for(const automatic of [false,true])test(automatic?'Automatic chapter work retains the newest pending buffers':'Manual chapter prefetch publishes each captured resource revision once',{timeout:30000},async t=>{
  const s=await store(),project=path.join(s.directory,'source');await fs.mkdir(project,{recursive:true});const root=path.join(project,'main.tex'),chapter=path.join(project,'chapter.tex');
  const source='\\documentclass{article}\n\\begin{document}\n\\input{chapter}\n\\end{document}\n';await fs.writeFile(root,source);await fs.writeFile(chapter,'Disk.');
  const bytes=Buffer.from(await pdf()),calls=[],published=[];let began,release;
@@ -33,11 +33,27 @@ test('Chapter prefetch publishes each captured resource revision once while reta
  const controller=new BuildController(s,{prepare:async(_bundle,_bytes,map)=>{published.push(map.sources[chapter]);if(published.length===1){began();await gate;}},commit:()=>{},discard:()=>{}},()=>{},()=>{});t.after(()=>controller.cancel());
  controller.resident.navigation=JSON.stringify(['chapter.tex',1,1,0,0,1,1]);
  controller.resident.compile=async(_text,_signal,_timeout,_log,context)=>{calls.push(Buffer.from(context.resources.find(([name])=>name==='chapter.tex')[1]).toString());return bytes;};
- const options={root,engine:'pdflatex',executable:'latexmk',timeoutMs:30000,automatic:true,sourceText:source};
+ const options={root,engine:'pdflatex',executable:'latexmk',timeoutMs:30000,automatic,sourceText:source};
  const first=controller.request({...options,sourceFiles:{[chapter]:'Alpha'}});await blocked;
- const second=controller.request({...options,sourceFiles:{[chapter]:'Beta'}});assert.deepEqual(calls,['Alpha','Beta']);
+ const second=controller.request({...options,sourceFiles:{[chapter]:'Beta'}});assert.deepEqual(calls,automatic?['Alpha']:['Alpha','Beta']);
  const third=controller.request({...options,sourceFiles:{[chapter]:'Gamma'}});release();await Promise.all([first,second,third]);
- assert.deepEqual(calls,['Alpha','Beta','Gamma']);assert.deepEqual(published,['Alpha','Beta','Gamma'].map(hash));
+ const expected=automatic?['Alpha','Gamma']:['Alpha','Beta','Gamma'];assert.deepEqual(calls,expected);assert.deepEqual(published,expected.map(hash));
+});
+
+for(const offer of ['takeCompiler','replaceCompiler'])test('An older '+offer+' offer cannot steal the compiler during newer source capture',async t=>{
+ const s=await store(),project=path.join(s.directory,'source');await fs.mkdir(project,{recursive:true});const root=path.join(project,'main.tex'),source='\\documentclass{article}\n\\begin{document}\nAlpha\n\\end{document}\n';await fs.writeFile(root,source);
+ let basis,entered,release;const began=new Promise(r=>entered=r),gate=new Promise(r=>release=r),bytes=Buffer.from(await pdf());
+ const controller=new BuildController(s,{prepare:async()=>{},commit:()=>{},discard:()=>{},localBasis:b=>basis=b},()=>{},()=>{});t.after(async()=>{release();await controller.dispose();});
+ const compiler=controller.resident;Object.defineProperty(compiler,'initialized',{get:()=>true});compiler.compile=async()=>bytes;
+ const options={root,engine:'pdflatex',executable:'latexmk',timeoutMs:30000,automatic:true,sourceText:source};await controller.request(options);const old=basis;
+ const mirror=[...controller.mirrors.values()][0],capture=mirror.capture.bind(mirror);mirror.capture=async(...args)=>{entered();await gate;return capture(...args);};
+ const next=controller.request({...options,sourceText:source.replace('Alpha','Beta')});await began;
+ const previous={initialized:true,busy:false,stop(){}};if(offer==='replaceCompiler'){controller.transferredCompiler=previous;controller.localCompilerTransferred=true;}
+ const transferred=old[offer](previous);
+ // Restore a mistakenly transferred stub so a failing regression check never
+ // starts an actual cold compiler or strands the held capture.
+ if(transferred){controller.resident.stop();controller.resident=compiler;}controller.transferredCompiler=undefined;controller.localCompilerTransferred=false;
+ release();await next;assert.equal(transferred,undefined);assert.equal(controller.current.sourceHash,hash(options.sourceText.replace('Alpha','Beta')));
 });
 
 test('Automatic unfinished math retains the resident checkpoint without native retries; manual verification remains available',async t=>{
