@@ -700,6 +700,20 @@ async function localCorrection(message:any,base:any,fragment:any){
 api.on(async message=>{
   if(message.type==='toolchainStatus'){model.toolchain=message.report;renderToolchain(message.report,true);return;}
   if(message.type==='localState'){if(message.state==='off'||message.state==='moving'){localRenderToken++;localProofToken++;if(message.state==='off')clearLocalProofs();}el('previewState').dataset.localState=message.state;if(model.continuousPreview)refreshPreviewStatus();return;}
+  if(message.type==='localPlacement'){
+    let reply:Awaited<ReturnType<typeof localCorrection>>=false;
+    const proofToken=localProofToken,key=proofKey(message),baseline=acceptedBaseline(message),task=loadPdf(message.fragmentPdf,true),at=performance.now();
+    try{
+      const [base,fragment]=await Promise.all([baseline.document,task.promise]);
+      if(message.root===model.root)reply=await localCorrection(message,base,fragment);
+      if(proofToken!==localProofToken||key!==proofKey(message)||message.root!==model.root)reply=false;
+    }catch{reply=false;}finally{
+      baseline.release();void task.destroy().catch(()=>{});
+      console.debug('Local placement preflight',JSON.stringify({applied:typeof reply==='object',elapsedMs:performance.now()-at}));
+      await api.call('localAck',message.token,reply);
+    }
+    return;
+  }
   if(message.type==='localVerifyPages'){
     let ok=false;const proofToken=localProofToken,span=message.pageSpan,key=pageProofKey({...message,page:span.first});
     let fingerprint:string;

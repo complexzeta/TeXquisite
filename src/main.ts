@@ -117,7 +117,8 @@ const localPreview=new LocalPreview(
   }),
   editId=>{if(state.onSave&&editId===latestEditId)scheduleFullVerification(editId,0);},
   value=>{tracePreview({event:'local-state',state:value});send({type:'localState',state:value});},message=>{tracePreview({event:'local-log',message:message.split('\n')[0].slice(0,500)});appendLog(message);},
-  (basis,pdf,pageSpan,continuation)=>localMessage({type:'localVerifyPages',continuation,root:basis.options.root,baseId:basis.bundle.id,basePdf:new Uint8Array(basis.pdf),pdf:new Uint8Array(pdf),pageSpan}).then(result=>result===true));
+  (basis,pdf,pageSpan,continuation)=>localMessage({type:'localVerifyPages',continuation,root:basis.options.root,baseId:basis.bundle.id,basePdf:new Uint8Array(basis.pdf),pdf:new Uint8Array(pdf),pageSpan}).then(result=>result===true),
+  (basis,page,fragmentPdf,fragment,calibration)=>localMessage({type:'localPlacement',root:basis.options.root,baseId:basis.bundle.id,basePdf:new Uint8Array(basis.pdf),page,fragmentPdf:new Uint8Array(fragmentPdf),fragment,calibration}));
 const setStatus=(text:string)=>{const conflict=conflicts.values().next().value;status=text+(conflict&&!/changed outside|externally changed|changed on disk/i.test(text)?' '+path.basename(conflict)+' changed outside the app; its draft is preserved. Select its tab and use Save copy or Reload disk.':'');send({type:'status',text:status,conflict:conflict?path.basename(conflict):undefined});};
 const appendLog=(text:string)=>{send({type:'log',text:text.slice(-2_000_000),append:true});if(text.startsWith('Resident compiler unavailable:')&&toolchain){toolchain.fast={available:false,mismatches:[],reason:text.trim().replace(/^Resident compiler unavailable: /,'Native compilation only: ')};send({type:'toolchainStatus',report:toolchain});}};
 function persist() {

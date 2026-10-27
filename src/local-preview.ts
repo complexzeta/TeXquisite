@@ -9,6 +9,7 @@ import type {LocalBasis} from './core';
 import {RegionCompositor,ParagraphAnchor,paragraphPages,cursorPosition,flowCaretY,flowLocations} from './region-compositor';
 type CalibrationGlyph={x:number;y:number;width:number;height:number};
 export type LocalVerification=boolean|{dx:number;dy:number;calibratedGlyphs?:CalibrationGlyph[]};
+export interface LocalCalibration {x:number;y:number;anchors:ParagraphAnchor[];calibratedGlyphs?:CalibrationGlyph[];}
 const hash=(s:string)=>createHash('sha256').update(s).digest('hex');
 export function paragraphAt(source:string,at:number):RegionRange|undefined{
   if(at<0||at>source.length)return;
@@ -136,7 +137,7 @@ export class LocalPreview{
       }
     },this.slot?.basis.bundle.id!==this.basis?.bundle.id?150:500);this.idleTimer.unref();
   }
-  constructor(private verify:(basis:LocalBasis,pdf:Uint8Array,page:number,fragmentPdf:Uint8Array,fragment:RegionFragment,footprint:{x:number;y:number;width:number;height:number},calibration:{x:number;y:number;anchors:ParagraphAnchor[];calibratedGlyphs?:CalibrationGlyph[]})=>Promise<LocalVerification>,private publish:(candidate:LocalCandidate)=>Promise<boolean>,private fallback:(editId:string)=>void,private state:(state:string)=>void,private log:(message:string)=>void,private verifyPages?:(basis:LocalBasis,pdf:Uint8Array,span:PageSpan,continuation?:string)=>Promise<boolean>){}
+  constructor(private verify:(basis:LocalBasis,pdf:Uint8Array,page:number,fragmentPdf:Uint8Array,fragment:RegionFragment,footprint:{x:number;y:number;width:number;height:number},calibration:LocalCalibration)=>Promise<LocalVerification>,private publish:(candidate:LocalCandidate)=>Promise<boolean>,private fallback:(editId:string)=>void,private state:(state:string)=>void,private log:(message:string)=>void,private verifyPages?:(basis:LocalBasis,pdf:Uint8Array,span:PageSpan,continuation?:string)=>Promise<boolean>,private placement?:(basis:LocalBasis,page:number,fragmentPdf:Uint8Array,fragment:RegionFragment,calibration:LocalCalibration)=>Promise<LocalVerification>){}
   stop(){this.visits=[];this.disarm();this.verifyingWithOwner=false;this.publishedCompiler=undefined;this.basis=undefined;this.compositionBase=undefined;}
   prepareFullVerification(){
     this.cancelIdle();
@@ -316,12 +317,35 @@ export class LocalPreview{
       const pageWork=background&&!target?.recent||this.continuous&&slot.compositor?Promise.resolve():verifyPageRange();
       // A parallel rejection must be observed even while raster proof awaits.
       void pageWork.catch(()=>{});
-      let paragraphElapsed=0,calibratedGlyphs:CalibrationGlyph[]|undefined;
+      let paragraphElapsed=0,preflightMs=0,preflightApplied=false,rasterAttempts=0,calibratedGlyphs:CalibrationGlyph[]|undefined;
       try{if(slot.compositor){
-        const verify=async()=>{const c=slot.compositor!,check=await c.compose(original!);return this.verify(basis,check.pdf,check.page,original!.pdf,original!.fragment,check.footprint,{x:c.x,y:c.y,anchors:c.anchors,calibratedGlyphs});};
-        let verified=await Promise.race([verify(),cancelled]);if(!valid())return;
-        if(typeof verified==='object'){
-          slot.compositor.adjust(verified.dx,verified.dy);calibratedGlyphs=verified.calibratedGlyphs;verified=await Promise.race([verify(),cancelled]);
+        const origin={x:slot.compositor.x,y:slot.compositor.y};
+        // A retained focused checkpoint commonly already matches the accepted
+        // raster. Estimate placement only after replaying a different prefix.
+        if(this.placement&&this.continuous&&!background&&(preparation?.anchorSourceBytes??0)>0&&process.env.PERSISTENT_TEX_DISABLE_PLACEMENT_PREFLIGHT!=='1'){
+          const c=slot.compositor,at=performance.now();
+          const correction=await Promise.race([this.placement(basis,c.page,original!.pdf,original!.fragment,{x:c.x,y:c.y,anchors:c.anchors}).catch(()=>false as const),cancelled]);
+          preflightMs=performance.now()-at;if(!valid())return;
+          // Placement is only a proposal. The complete raster, ink and tile
+          // proof below must still authorize this exact composed output.
+          if(typeof correction==='object'){c.adjust(correction.dx,correction.dy);calibratedGlyphs=correction.calibratedGlyphs;preflightApplied=true;}
+        }
+        const verify=async()=>{rasterAttempts++;const c=slot.compositor!,check=await c.compose(original!);return this.verify(basis,check.pdf,check.page,original!.pdf,original!.fragment,check.footprint,{x:c.x,y:c.y,anchors:c.anchors,calibratedGlyphs});};
+        const checkPlacement=async()=>{
+          let result=await Promise.race([verify(),cancelled]);if(!valid())return false;
+          if(typeof result==='object'){
+            // Preflight and retry together retain the original translation cap.
+            if(Math.abs(slot.compositor!.x-origin.x+result.dx)>.01||Math.abs(slot.compositor!.y-origin.y+result.dy)>.01)return false;
+            slot.compositor!.adjust(result.dx,result.dy);calibratedGlyphs=result.calibratedGlyphs;result=await Promise.race([verify(),cancelled]);
+          }
+          return result;
+        };
+        let verified=await checkPlacement().catch(error=>{if(!preflightApplied)throw error;return false;});if(!valid())return;
+        if(verified!==true&&preflightApplied){
+          // A proposal must not discard an already-correct original baseline.
+          // Restore it before narrowing the region or starting broader work.
+          slot.compositor.adjust(origin.x-slot.compositor.x,origin.y-slot.compositor.y);calibratedGlyphs=undefined;
+          verified=await checkPlacement();if(!valid())return;
         }
         if(verified!==true){
           if(background||expanded)throw new Error('Adjacent-paragraph baseline needs a narrower region.');
@@ -331,7 +355,7 @@ export class LocalPreview{
         }
       }}finally{paragraphElapsed=performance.now()-placedAt;await pageWork;}
       if(!slot.compositor&&!slot.pageReady)throw new Error('This paragraph requires verified page-range output.');
-      if(!valid())return;slot.ready=true;if(!background)this.state('ready');this.log('Local preparation: '+JSON.stringify({readyMs:performance.now()-started,rangeFrom:range.from,rangeTo:range.to,adjacentParagraph:expanded,compilerFromPublishedBuild:slot.compiler===this.publishedCompiler,compilerInitiallyWarm,pageBaselineFromWitness,placementMs:placedAt-nodesAt,paragraphVerificationMs:paragraphElapsed,pageVerificationMs:pageElapsed,parallelVerification:true,...preparation})+'\n');
+      if(!valid())return;slot.ready=true;if(!background)this.state('ready');this.log('Local preparation: '+JSON.stringify({readyMs:performance.now()-started,rangeFrom:range.from,rangeTo:range.to,adjacentParagraph:expanded,compilerFromPublishedBuild:slot.compiler===this.publishedCompiler,compilerInitiallyWarm,pageBaselineFromWitness,placementMs:placedAt-nodesAt,preflightMs,preflightApplied,rasterAttempts,paragraphVerificationMs:paragraphElapsed,pageVerificationMs:pageElapsed,parallelVerification:true,...preparation})+'\n');
       if(background){this.rememberSlot(slot);this.log(target?.recent?'Local recent region prepared.\n':'Local neighbor prepared.\n');}
       else{if(!this.pending&&!this.running){slot.compiler.useRegion(slot.regionKey);slot.compiler.prepareNextRegionEdit();this.scheduleIdle();}
       if(this.pending&&!this.running)void this.drain();}
