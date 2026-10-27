@@ -3,6 +3,7 @@ import { renameSync } from 'node:fs';
 import * as path from 'node:path';
 import { createHash, randomUUID } from 'node:crypto';
 import { spawn } from 'node:child_process';
+import {freemem} from 'node:os';
 import { PDFDocument } from 'pdf-lib';
 import {parseDiagnostic,parseWarnings,BuildDiagnostic,DiagnosticInput} from './diagnostics';
 import {SourceMirror,SnapshotLimitError,resourceIdentity} from './snapshot';
@@ -122,7 +123,7 @@ export class ArtifactStore {
 
 export interface BuildOptions { focus?:{line:number;column:number}; root: string; engine: string; executable: string; timeoutMs: number; sourceRevision?:number; sourceText?:string; characterMapping?:boolean; sourceFiles?:Record<string,string>; supportFolders?:string[]; editId?:string; automatic?:boolean; }
 export interface DisplayTiming {editId?:string;backend:string;requestToCommitMs:number;}
-export interface LocalBasis {bundle:Bundle;options:BuildOptions;source:string;compilerSource:string;project:ResidentContext;pdf:Uint8Array;takeCompiler?:()=>ResidentCompiler|undefined;replaceCompiler?:(previous:ResidentCompiler)=>ResidentCompiler|undefined;returnCompiler?:(compiler:ResidentCompiler)=>boolean;}
+export interface LocalBasis {bundle:Bundle;options:BuildOptions;source:string;compilerSource:string;project:ResidentContext;pdf:Uint8Array;canBuildAlongside?:()=>boolean;takeCompiler?:()=>ResidentCompiler|undefined;replaceCompiler?:(previous:ResidentCompiler)=>ResidentCompiler|undefined;returnCompiler?:(compiler:ResidentCompiler)=>boolean;}
 export interface Viewer { prepare(bundle: Bundle,pdf?:Uint8Array,navigation?:Navigation): Promise<void>; commit(bundle: Bundle,timing?:DisplayTiming): void; discard(bundle: Bundle): void; diagnostic?(issue:BuildDiagnostic):void; problems?(issues:BuildDiagnostic[],editId?:string):void; localBasis?(basis:LocalBasis):void; }
 export class BuildController {
   private static protectedDirectories=new Set<string>();
@@ -150,6 +151,28 @@ export class BuildController {
   private residentTask?:{source:string;resourceKey?:string;characterMapping?:boolean;abort:AbortController;promise:Promise<Buffer|undefined>;prefetched?:{options:BuildOptions;requestedAt:number}};
   private residentContext?:ResidentContext;
   private canPrefetch=false;
+  private standbyTimer?:NodeJS.Timeout;
+  private standbySeed?:{bundle:Bundle;source:string;project:ResidentContext};
+  private activityAt=performance.now();
+  private priming?:BuildController['residentTask'];
+  get independentLocalOwner(){return !!this.transferredCompiler?.initialized&&this.resident.initialized&&!this.priming;}
+  noteActivity(){
+    this.activityAt=performance.now();
+    if(this.priming&&this.residentTask===this.priming){this.priming.abort.abort();this.resident.stop();this.residentTask=undefined;this.priming=undefined;}
+    if(this.standbySeed&&!this.resident.initialized&&!this.residentTask&&this.transferredCompiler?.initialized)this.armStandby();
+  }
+  private prepareStandby(bundle:Bundle,source:string,project:ResidentContext){this.standbySeed={bundle,source,project};this.activityAt=performance.now();this.armStandby();}
+  private armStandby(){
+    clearTimeout(this.standbyTimer);
+    this.standbyTimer=setTimeout(()=>{
+      const seed=this.standbySeed;if(!seed||this.retired||this.current!==seed.bundle||!this.transferredCompiler?.initialized||this.resident.initialized||this.residentTask||this.pending)return;
+      if(freemem()<1024*1024*1024)return;
+      if(performance.now()-this.activityAt<1500){this.armStandby();return;}
+      const {source,project}=seed,standby=this.resident,abort=new AbortController(),promise=standby.compile(source,abort.signal,10000,()=>{},project);
+      const task={source,resourceKey:project.resourceKey,characterMapping:!!project.characterMapping,abort,promise};this.residentTask=task;this.priming=task;
+      void task.promise.then(pdf=>{if(this.resident!==standby)return;if(!pdf)standby.stop();else this.log('Warm standby compiler ready for independent preview updates.\n');}).catch(()=>{}).finally(()=>{if(this.residentTask===task)this.residentTask=undefined;if(this.priming===task)this.priming=undefined;});
+    },500);this.standbyTimer.unref();
+  }
   private residentSources?:Record<string,string>;
   private startResident(source:string,timeoutMs:number,project:ResidentContext={}){
     const abort=new AbortController();
@@ -203,7 +226,7 @@ export class BuildController {
     if (!this.loop) this.loop = this.drain().finally(()=>{this.loop=undefined;});
     return this.loop;
   }
-  cancel() { this.generation++; this.pending=undefined; this.active?.abort();this.residentTask?.abort.abort();this.residentTask=undefined;this.canPrefetch=false;this.warm.stop();this.resident.stop();clearTimeout(this.pruneTimer); }
+  cancel() { this.standbySeed=undefined;clearTimeout(this.standbyTimer);this.priming=undefined;this.generation++; this.pending=undefined; this.active?.abort();this.residentTask?.abort.abort();this.residentTask=undefined;this.canPrefetch=false;this.warm.stop();this.resident.stop();clearTimeout(this.pruneTimer); }
   async dispose(){if(this.retired)return;this.retired=true;this.cancel();await this.loop?.catch(()=>{});await this.warm.stop();await this.pruneTask;BuildController.protectedDirectories.delete(path.join(this.store.directory,'cache',this.cacheSession));BuildController.protectedDirectories.delete(path.join(this.store.directory,'warm',this.cacheSession));const auxiliary=path.join(this.store.directory,'auxiliary'),users=(BuildController.auxiliaryUsers.get(auxiliary)??1)-1;if(users)BuildController.auxiliaryUsers.set(auxiliary,users);else BuildController.auxiliaryUsers.delete(auxiliary);}
   private async drain() {
     while (this.pending) {
@@ -360,23 +383,26 @@ export class BuildController {
       this.current=bundle;
       this.viewer.commit(bundle,{editId:options.editId,backend,requestToCommitMs:committedAt-requestedAt});
       this.viewer.problems?.(warnings,options.editId);
-      if(backend.startsWith('Preamble'))try{this.viewer.localBasis?.({bundle,options,source,compilerSource,project,pdf,takeCompiler:()=>{
+      const acceptedBundle=bundle;
+      if(backend.startsWith('Preamble'))try{this.viewer.localBasis?.({bundle,options,source,compilerSource,project,pdf,canBuildAlongside:()=>this.independentLocalOwner,takeCompiler:()=>{
         // Transfer ownership only after publication and only while idle. Future
         // full verification gets its own worker; local edits cannot race it.
         // A failed local page proof may stop its transferred worker. That
         // retired owner must not block every later publication from offering
         // its newly converged compiler. A live owner still transfers once.
-        if(this.localCompilerTransferred&&this.transferredCompiler?.initialized||this.current!==bundle||this.residentTask||this.resident.busy||abort.signal.aborted||generation!==this.generation)return;
-        const compiler=this.resident;this.resident=new ResidentCompiler();this.localCompilerTransferred=true;this.transferredCompiler=compiler;return compiler;
+        if(this.localCompilerTransferred&&this.transferredCompiler?.initialized||this.current!==bundle||this.pending||this.residentTask||this.resident.busy||abort.signal.aborted||generation!==this.generation)return;
+        const compiler=this.resident;this.resident=new ResidentCompiler();this.localCompilerTransferred=true;this.transferredCompiler=compiler;this.prepareStandby(acceptedBundle,compilerSource,project);return compiler;
       },replaceCompiler:previous=>{
         // Explicitly replace the idle local owner with this newly converged
         // publication. Preserve the ordinary one-time transfer guard.
-        if(this.transferredCompiler!==previous||previous.busy||!previous.initialized||this.current!==bundle||this.retired||this.residentTask||this.resident.busy||!this.resident.initialized||abort.signal.aborted||generation!==this.generation)return;
-        const compiler=this.resident;this.resident=new ResidentCompiler();this.transferredCompiler=compiler;this.localCompilerTransferred=true;previous.stop();return compiler;
+        if(this.transferredCompiler!==previous||previous.busy||!previous.initialized||this.current!==bundle||this.retired||this.pending||this.residentTask||this.resident.busy||!this.resident.initialized||abort.signal.aborted||generation!==this.generation)return;
+        const compiler=this.resident;this.resident=new ResidentCompiler();this.transferredCompiler=compiler;this.localCompilerTransferred=true;previous.stop();this.prepareStandby(acceptedBundle,compilerSource,project);return compiler;
       },returnCompiler:compiler=>{
         // An unsupported block must not strand the only warm engine locally.
         // Reclaim it only before a replacement worker has begun any request.
+        if(this.transferredCompiler===compiler&&this.current===bundle&&generation===this.generation&&!this.retired&&!compiler.busy&&this.priming&&this.residentTask===this.priming){this.priming.abort.abort();this.resident.stop();this.residentTask=undefined;this.priming=undefined;}
         if(this.transferredCompiler!==compiler||this.current!==bundle||generation!==this.generation||this.retired||this.residentTask||this.resident.initialized||this.resident.busy||compiler.busy||!compiler.initialized)return false;
+        this.standbySeed=undefined;clearTimeout(this.standbyTimer);
         this.resident=compiler;this.transferredCompiler=undefined;this.localCompilerTransferred=false;return true;
       }});}catch(error){this.log('Local preview preparation deferred: '+String(error)+'\n');}
       if(process.env.PERSISTENT_TEX_PROFILE)this.log('Profile build '+JSON.stringify({revision,queueMs:began-requestedAt,captureMs:capturedAt-began,compileMs:compiledAt-capturedAt,stageAndRenderMs:stagedAt-compiledAt,viewerMs,commitMs:committedAt-stagedAt,totalMs:committedAt-began})+'\n');

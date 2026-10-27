@@ -368,12 +368,12 @@ export class LocalPreview{
       // The first keystroke can beat the scheduled preparation after a cursor
       // move. Queue it against the checked baseline instead of cold-building
       // the whole document while its warm compiler sits here unused.
-      this.pending={source,editId,at:cursor.at};this.schedule();return true;
+      this.pending={source,editId,at:cursor.at};this.schedule();return !basis.canBuildAlongside?.();
     }
     slot.latestSource=source;
     if(source!==(slot.sourceText??slot.basis.source)){slot.edited=true;this.parked=[];}
     slot.liveEnd=source.length-((slot.sourceText??slot.basis.source).length-slot.range.to);
-    this.pending={source,editId,at:this.cursor?.at??slot.range.from};if(slot.ready){if(!this.running)void this.drain();else{if(slot.pageMode&&(slot.pageCostMs??0)>200)slot.compiler.supersedeRegionEdit();this.prefetch();}}return true;
+    this.pending={source,editId,at:this.cursor?.at??slot.range.from};if(slot.ready){if(!this.running)void this.drain();else{if(slot.pageMode&&(slot.pageCostMs??0)>200)slot.compiler.supersedeRegionEdit();this.prefetch();}}return slot.ready||!slot.basis.canBuildAlongside?.();
   }
   private async output(slot:Slot,request:Request){
     slot.compiler.useRegion(slot.regionKey);

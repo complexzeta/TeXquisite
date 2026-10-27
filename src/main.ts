@@ -99,7 +99,7 @@ function scheduleFullVerification(editId:string,delay=2500,required=delay===0){
     fullVerification=undefined;if(!state.onSave||editId!==latestEditId||state.previewMode==='lecture'&&!required)return;
     // Automatic verification must not compete with a queued/unfinished local
     // frame. Explicit builds bypass this idle scheduler.
-    if(localPreview.busy||!localPreview.prepareFullVerification()){scheduleFullVerification(editId,50,required);return;}
+    if(!(required&&controller?.independentLocalOwner)&&(localPreview.busy||!localPreview.prepareFullVerification())){scheduleFullVerification(editId,50,required);return;}
     void build(undefined,true).catch(e=>setStatus(String(e)));
   },delay);fullVerification.unref();
 }
@@ -273,7 +273,7 @@ function updateAppMenu(){Menu.setApplicationMenu(appMenu(state,(action,value)=>s
 async function handle(method:string,args:unknown[]) {
   switch(method){
     case 'localAck': {const entry=localWaiting.get(String(args[0]));if(entry){clearTimeout(entry.timer);localWaiting.delete(String(args[0]));const reply=args[1] as LocalVerification;entry.resolve(reply===true?true:reply&&typeof reply==='object'&&Number.isFinite(reply.dx)&&Number.isFinite(reply.dy)&&Math.abs(reply.dx)<=.01&&Math.abs(reply.dy)<=.01?reply:false);}return true;}
-    case 'localCursor': {if(typeof args[0]==='string'&&typeof args[1]==='number'&&Number.isSafeInteger(args[1])&&args[1]>=0&&state.docs.some(doc=>doc.path===args[0])){state.lastCursor={file:args[0],at:args[1]};localPreview.move(args[0],args[1]);}return true;}
+    case 'localCursor': {if(typeof args[0]==='string'&&typeof args[1]==='number'&&Number.isSafeInteger(args[1])&&args[1]>=0&&state.docs.some(doc=>doc.path===args[0])){controller?.noteActivity();state.lastCursor={file:args[0],at:args[1]};localPreview.move(args[0],args[1]);}return true;}
     case 'localRefresh': localPreview.refresh();return true;
     case 'localWarm': {if(typeof args[0]==='string'&&typeof args[1]==='string'&&args[0]===state.root&&args[2]===latestEditId){localPreview.prepareNextEdit(args[0],args[1]);if(typeof args[3]==='number'&&Number.isFinite(args[3]))tracePreview({event:'local-displayed',editId:args[2],elapsedMs:args[3],layout:args[4]});}return true;}
     case 'previewTiming': {if(args[0]===latestEditId&&typeof args[1]==='number'&&Number.isFinite(args[1]))tracePreview({event:'full-displayed',editId:args[0],elapsedMs:args[1]});return true;}
@@ -467,6 +467,7 @@ async function handle(method:string,args:unknown[]) {
       return {name,root:rootFile,rootText,packageEdit,width:size.width,height:size.height};
     }
     case 'edit': {
+      controller?.noteActivity();
       lastActivity=Date.now();
       const [file,text,editId]=args;if(typeof file!=='string'||typeof text!=='string')throw new Error('Invalid edit.');
       const doc=state.docs.find(d=>d.path===file)??movedDocuments.get(file);if(!doc)throw new Error('File is not open.');
@@ -509,7 +510,7 @@ async function handle(method:string,args:unknown[]) {
     case 'saveCopy': clearTimeout(fullVerification);localPreview.stop();return saveFile(true);
     case 'root': if(state.active.endsWith('.tex')){await selectRoot(state.active);return state;}throw new Error('Select a .tex file to set the root.');
     case 'build': {const root=activePreviewRoot();if(root&&root!==state.root)await selectRoot(root,false);await saveAllAndBuild(true);return true;}
-    case 'live': state.onSave=!state.onSave;await persist();if(state.onSave)void saveAllAndBuild(true).catch(e=>setStatus(String(e)));else{clearTimeout(fullVerification);localPreview.stop();setStatus('Automatic saving and preview paused.');}return state.onSave;
+    case 'live': state.onSave=!state.onSave;await persist();if(state.onSave)void saveAllAndBuild(true).catch(e=>setStatus(String(e)));else{clearTimeout(fullVerification);localPreview.stop();controller?.noteActivity();setStatus('Automatic saving and preview paused.');}return state.onSave;
     case 'cancel': clearTimeout(fullVerification);localPreview.stop();controller?.cancel();return true;
     case 'settings': {
       const value=args[0] as Partial<State>;

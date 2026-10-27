@@ -15,7 +15,7 @@ import {ProjectSearchUI} from './project-search-ui';
 import {PanelLayout} from './panel-layout';
 import {completeTex,texCompletion,surroundTex} from './tex-completion';
 import {imageTex} from './image-paste';
-import {loadPdf,renderCheckedPdfRegion} from './pdf-viewer';
+import {loadPdf,renderCheckedPdfRegion,copyPdfRaster} from './pdf-viewer';
 import {BaselineCache} from './baseline-cache';
 import {ContinuousView} from './continuous-view';
 import {forwardPosition,backward,sourceLineHasOutput} from './navigation-query';
@@ -40,10 +40,10 @@ function markInput(){const stamp=inputStartedAt=performance.now();queueMicrotask
 let previewUpdating=false,previewKnownCurrent=false;
 let localCanvas:HTMLCanvasElement|undefined,localStatus='',localRenderToken=0,localProofToken=0;
 const localProofs=new Map<string,{canvas:HTMLCanvasElement;page:number;release:()=>void;retain:()=>{document:Promise<any>;release:()=>void}}>();
-const baselineCache=new BaselineCache<any,{canvas:HTMLCanvasElement;pixels:Uint8ClampedArray}>(loadPdf,frame=>frame.pixels.byteLength+frame.canvas.width*frame.canvas.height*4,frame=>{frame.canvas.width=frame.canvas.height=0;});
+const baselineCache=new BaselineCache<any,{canvas:HTMLCanvasElement;pixels:Uint8ClampedArray}>(bytes=>loadPdf(bytes,true),frame=>frame.pixels.byteLength+frame.canvas.width*frame.canvas.height*4,frame=>{frame.canvas.width=frame.canvas.height=0;});
 function acceptedBaseline(message:any){
   const zoom=scale,ratio=window.devicePixelRatio||1;
-  return baselineCache.acquire(JSON.stringify([message.root,message.baseId,zoom,ratio]),message.basePdf,async(pdf:any,page:number)=>pdf.renderWithPixels(page,zoom,ratio));
+  return baselineCache.acquire(JSON.stringify([message.root,message.baseId,zoom,ratio]),message.basePdf,async(pdf:any,page:number)=>{if(current?.id===message.baseId&&current.page===page&&Number(current.canvas.dataset.renderScale)===zoom&&Number(current.canvas.dataset.renderRatio)===ratio){const copy=copyPdfRaster(current.canvas);if(copy)return copy;}return pdf.renderWithPixels(page,zoom,ratio);});
 }
 const localPageProofs=new Set<string>();
 const localPageBaselines=new Map<string,ReturnType<ReturnType<typeof acceptedBaseline>['retain']>&{retain:ReturnType<typeof acceptedBaseline>['retain'];span:{first:number;last:number};continuation?:string}>();
@@ -615,8 +615,8 @@ el('pages').addEventListener('click',event=>void command(async()=>{
   }catch(e){el('navState').textContent=String(e).replace(/^.*Error: /,'');}
 }));
 function copyCanvasMetadata(canvas:HTMLCanvasElement,source:HTMLCanvasElement){for(const [key,value] of Object.entries(source.dataset))if(value!==undefined&&!['renderScale','renderRatio','pageWidth','pageHeight','rasterMs','workerMs','renderMs'].includes(key))canvas.dataset[key]=value;}
-async function render(pdf:any,page:number){
-  const zoom=scale,ratio=window.devicePixelRatio||1,canvas=await pdf.render(page,zoom,ratio);canvas.dataset.renderScale=String(zoom);canvas.dataset.renderRatio=String(ratio);canvas.dataset.pageWidth=String(parseFloat(canvas.style.width)/zoom);canvas.dataset.pageHeight=String(parseFloat(canvas.style.height)/zoom);return canvas;
+async function render(pdf:any,page:number,includePixels=false){
+  const zoom=scale,ratio=window.devicePixelRatio||1,canvas=await pdf.render(page,zoom,ratio,includePixels);canvas.dataset.renderScale=String(zoom);canvas.dataset.renderRatio=String(ratio);canvas.dataset.pageWidth=String(parseFloat(canvas.style.width)/zoom);canvas.dataset.pageHeight=String(parseFloat(canvas.style.height)/zoom);return canvas;
 }
 function show(candidate:any,reconcileBands=false){
   const rasterScale=Number(candidate.canvas.dataset.renderScale)||scale,rasterRatio=Number(candidate.canvas.dataset.renderRatio)||window.devicePixelRatio||1;
@@ -666,14 +666,13 @@ function mayShowLocal(message:any){
   const {rangeFrom:from,rangeTo:to}=message;if(!Number.isSafeInteger(from)||!Number.isSafeInteger(to)||from<0||to<from||to>input.text.length)return false;
   const prefix=input.text.slice(0,from),suffix=input.text.slice(to);return text.length>=prefix.length+suffix.length&&text.startsWith(prefix)&&text.endsWith(suffix);
 }
-function canvasPixels(canvas:HTMLCanvasElement){const copy=document.createElement('canvas');copy.width=canvas.width;copy.height=canvas.height;const ctx=copy.getContext('2d')!;ctx.drawImage(canvas,0,0);const pixels=ctx.getImageData(0,0,copy.width,copy.height).data;copy.width=copy.height=0;return pixels;}
 function tileCanvas(tile:any){const canvas=document.createElement('canvas');canvas.width=tile.width;canvas.height=tile.height;
   if(tile.image){const target=canvas.getContext('bitmaprenderer');if(target)target.transferFromImageBitmap(tile.image);else{canvas.getContext('2d')!.drawImage(tile.image,0,0);tile.image.close();}}
   else canvas.getContext('2d')!.putImageData(new ImageData(new Uint8ClampedArray(tile.data.buffer,tile.data.byteOffset,tile.data.byteLength),tile.width,tile.height),0,0);return canvas;}
-async function tileMatchesFull(pdf:any,box:any,full:HTMLCanvasElement,pixels:Uint8ClampedArray){
-  const tile=await pdf.renderRegion(1,box,scale,window.devicePixelRatio||1),canvas=tileCanvas(tile),data=canvasPixels(canvas);let equal=tile.fullWidth===full.width&&tile.fullHeight===full.height;
+async function tileMatchesFull(pdf:any,box:any,full:{width:number;height:number},pixels:Uint8ClampedArray){
+  const tile=await pdf.regionPixels(1,box,scale,window.devicePixelRatio||1),data=tile.data;let equal=tile.fullWidth===full.width&&tile.fullHeight===full.height;
   for(let y=0;y<tile.patchHeight&&equal;y++)for(let x=0;x<tile.patchWidth&&equal;x++){const a=((y+tile.sourceY)*tile.width+x+tile.sourceX)*4,b=((y+tile.y)*full.width+x+tile.x)*4;for(let c=0;c<4;c++)if(data[a+c]!==pixels[b+c]){equal=false;break;}}
-  canvas.width=canvas.height=0;return equal;
+  return equal;
 }
 function localInkBounds(message:any){
   const f=message.fragment,factor=72/(72.27*65536),bleed=LOCAL_INK_BLEED_BP,ratio=scale*(window.devicePixelRatio||1),left=(f.paddingSp*factor-bleed)*ratio;
@@ -681,7 +680,7 @@ function localInkBounds(message:any){
   return {left,top:((message.inkTopSp??f.paddingSp)*factor-bleed)*ratio,right:((f.paddingSp+f.widthSp)*factor+bleed)*ratio,bottom:((f.paddingSp+f.heightSp+f.depthSp)*factor+bleed)*ratio};
 }
 async function localInkFits(message:any,providedPdf?:any){
-  const task=providedPdf?undefined:loadPdf(message.fragmentPdf);
+  const task=providedPdf?undefined:loadPdf(message.fragmentPdf,true);
   try{const pdf=providedPdf??await task!.promise;return (await pdf.inkFits(message.fragment.page,localInkBounds(message),scale,window.devicePixelRatio||1)).safe===true;}
   finally{await task?.destroy();}
 }
@@ -712,27 +711,27 @@ api.on(async message=>{
     const currentProof=()=>proofToken===localProofToken&&key===pageProofKey({...message,page:span.first})&&message.root===model.root;
     const retainPageBaseline=(baseline:ReturnType<typeof acceptedBaseline>)=>{if(localPageBaselines.size>=8&&!localPageBaselines.has(key)){const oldest=localPageBaselines.keys().next().value!;localPageBaselines.get(oldest)!.release();localPageBaselines.delete(oldest);localPageProofs.delete(oldest);}localPageBaselines.get(key)?.release();localPageBaselines.set(key,{...baseline.retain(),retain:baseline.retain,span:{...span},continuation:message.continuation});};
     if(verifiedPageOutputs.has(fingerprint)&&currentProof()){const baseline=acceptedBaseline(message);retainPageBaseline(baseline);baseline.release();localPageProofs.add(key);console.debug('Local page range verification',JSON.stringify({ok:true,reused:true,span}));await api.call('localAck',message.token,true);return;}
-    const baseline=acceptedBaseline(message),task=loadPdf(message.pdf);
+    const baseline=acceptedBaseline(message),task=loadPdf(message.pdf,true);
     try{const [base,partial]=await Promise.all([baseline.document,task.promise]);
       ok=message.root===model.root&&Number.isSafeInteger(span.first)&&Number.isSafeInteger(span.last)&&span.first>=1&&span.last>=span.first&&span.last-span.first<3&&span.last<=base.numPages&&partial.numPages===span.last-span.first+1;
       for(let page=span.first;ok&&page<=span.last;page++){
-        const cached=await baseline.page(page),a=cached.value.canvas;let b:HTMLCanvasElement|undefined;
-        try{const {canvas,pixels:pb}=await partial.renderWithPixels(page-span.first+1,scale,window.devicePixelRatio||1);b=canvas;const pa=cached.value.pixels;ok=a.width===canvas.width&&a.height===canvas.height&&pa.length===pb.length;for(let i=0;ok&&i<pa.length;i++)if(pa[i]!==pb[i])ok=false;}
-        finally{cached.release();if(b)b.width=b.height=0;}
+        const cached=await baseline.page(page),a=cached.value.canvas;
+        try{const raster=await partial.renderPixels(page-span.first+1,scale,window.devicePixelRatio||1),pb=raster.pixels,pa=cached.value.pixels;ok=a.width===raster.width&&a.height===raster.height&&pa.length===pb.length;for(let i=0;ok&&i<pa.length;i++)if(pa[i]!==pb[i])ok=false;}
+        finally{cached.release();}
       }
       ok=ok&&currentProof();
       if(ok){retainPageBaseline(baseline);localPageProofs.add(key);if(verifiedPageOutputs.size>=8)verifiedPageOutputs.delete(verifiedPageOutputs.values().next().value!);verifiedPageOutputs.add(fingerprint);}console.debug('Local page range verification',JSON.stringify({ok,reused:false,span,scale,ratio:window.devicePixelRatio}));
-    }catch{ok=false;}finally{baseline.release();await task.destroy();await api.call('localAck',message.token,ok);}return;
+    }catch{ok=false;}finally{baseline.release();void task.destroy().catch(()=>{});await api.call('localAck',message.token,ok);}return;
   }
   if(message.type==='localVerify'){
-    let ok=false,reply:boolean|{dx:number;dy:number}=false;const proofToken=localProofToken,key=proofKey(message),baseline=acceptedBaseline(message),tasks=[loadPdf(message.pdf),loadPdf(message.fragmentPdf)];
-    let cached:Awaited<ReturnType<typeof baseline.page>>|undefined,b:HTMLCanvasElement|undefined;
+    let ok=false,reply:boolean|{dx:number;dy:number}=false;const proofToken=localProofToken,key=proofKey(message),baseline=acceptedBaseline(message),tasks=[loadPdf(message.pdf,true),loadPdf(message.fragmentPdf,true)];
+    let cached:Awaited<ReturnType<typeof baseline.page>>|undefined;
     try{if(message.root===model.root){const [base,composed,fragment]=await Promise.all([baseline.document,...tasks.map(task=>task.promise)]);
       cached=await baseline.page(message.page);const a=cached.value.canvas,pa=cached.value.pixels;let ink=false;
-      const {canvas:composedCanvas,pixels:pb}=await composed.renderWithPixels(1,scale,window.devicePixelRatio||1);b=composedCanvas;ink=await localInkFits(message,fragment);
+      const composedRaster=await composed.renderPixels(1,scale,window.devicePixelRatio||1),pb=composedRaster.pixels;ink=await localInkFits(message,fragment);
       const factor=scale*(window.devicePixelRatio||1),box=message.footprint,result=matchLocalPatchRaster(pa,pb,a.width,a.height,{x:box.x*factor,y:box.y*factor,width:box.width*factor,height:box.height*factor},(message.calibration?.calibratedGlyphs??[]).map((g:any)=>({x:g.x*factor,y:g.y*factor,width:g.width*factor,height:g.height*factor})));
-      ok=ink&&a.width===composedCanvas.width&&a.height===composedCanvas.height&&result.ok;
-      if(ok)ok=await tileMatchesFull(composed,message.footprint,composedCanvas,pb);composedCanvas.width=composedCanvas.height=0;
+      ok=ink&&a.width===composedRaster.width&&a.height===composedRaster.height&&result.ok;
+      if(ok)ok=await tileMatchesFull(composed,message.footprint,composedRaster,pb);
       console.debug('Local raster verification',JSON.stringify({ink,...result,scale,ratio:window.devicePixelRatio}));
       ok=ok&&proofToken===localProofToken&&key===proofKey(message)&&message.root===model.root;
       if(ok){
@@ -742,7 +741,7 @@ api.on(async message=>{
         localProofs.get(key)?.release();localProofs.set(key,{canvas:a,page:message.page,release:cached.release,retain:baseline.retain});cached=undefined;
       }
       reply=ok?true:ink&&proofToken===localProofToken&&key===proofKey(message)?await localCorrection(message,base,fragment):false;
-    }}catch{reply=false;}finally{cached?.release();baseline.release();if(b)b.width=b.height=0;await Promise.all(tasks.map(task=>task.destroy()));await api.call('localAck',message.token,reply);}
+    }}catch{reply=false;}finally{cached?.release();baseline.release();void Promise.all(tasks.map(task=>task.destroy())).catch(()=>{});await api.call('localAck',message.token,reply);}
     return;
   }
   if(message.type==='localPage'){
@@ -750,7 +749,7 @@ api.on(async message=>{
     if(!mayShowLocal(message)){await api.call('localAck',message.token,true);return;}
     const input=localInputs.get(message.editId)!,inputAt=input.startedAt;
     const receivedAt=performance.now();
-    const task=message.flowOutput?undefined:loadPdf(message.pdf);let keepTask=false;
+    const task=message.flowOutput?undefined:loadPdf(message.pdf,true);let keepTask=false;
     try{
       if(message.flowOutput){
         if(!model.continuousPreview)throw Error('Continuous preview was turned off.');
@@ -913,8 +912,8 @@ api.on(async message=>{
       const visible=model.continuousPreview?continuousView.visiblePage:undefined;
       const page=model.followPreview&&target?target[2]:Math.min(visible??pageNumber,pdf.numPages);
       adoptZoom(await desiredZoom(pdf));
-      let canvas=await render(pdf,page);
-      while(Number(canvas.dataset.renderScale)!==scale&&token===loadToken){canvas.width=canvas.height=0;canvas=await render(pdf,page);}
+      let canvas=await render(pdf,page,true);
+      while(Number(canvas.dataset.renderScale)!==scale&&token===loadToken){canvas.width=canvas.height=0;canvas=await render(pdf,page,true);}
       if(token!==loadToken)throw new Error('Project or preview changed while loading.');
       canvas.dataset.sourceHash=message.bundle.sourceHash??'';
       if(message.navigation){

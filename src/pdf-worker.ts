@@ -12,7 +12,7 @@ worker.onmessage=event=>{
   const {id,method,...args}=event.data;
   // PDFium's instance is shared. Serialize calls, including document teardown,
   // while keeping the editor and its event loop independent of rasterization.
-  void work.enqueue(method==='checkedRegion'||method==='renderRegion'?0:1,async()=>{
+  void work.enqueue(method==='checkedRegion'||method==='renderRegion'?0:args.interactive===true?1:2,async()=>{
     try{
       const lib=await library;
       const queueMs=Number.isFinite(args.postedAt)?Math.max(0,performance.timeOrigin+performance.now()-args.postedAt):0;
@@ -36,7 +36,7 @@ worker.onmessage=event=>{
             const pixels=new Uint8ClampedArray(bitmap.data.buffer as ArrayBuffer,bitmap.data.byteOffset,bitmap.data.byteLength);
             canvas.getContext('2d')!.putImageData(new ImageData(pixels,bitmap.width,bitmap.height),0,0);
             const image=canvas.transferToImageBitmap();
-            worker.postMessage({id,result:{width:bitmap.width,height:bitmap.height,originalWidth:bitmap.originalWidth,originalHeight:bitmap.originalHeight,image,rasterMs,workerMs:performance.now()-started}},[image]);
+            worker.postMessage({id,result:{width:bitmap.width,height:bitmap.height,originalWidth:bitmap.originalWidth,originalHeight:bitmap.originalHeight,image,...(args.includePixels?{data:bitmap.data}:{}),rasterMs,workerMs:performance.now()-started}},args.includePixels?[image,bitmap.data.buffer as ArrayBuffer]:[image]);
           }else worker.postMessage({id,result:{...bitmap,rasterMs,workerMs:performance.now()-started}},[bitmap.data.buffer as ArrayBuffer]);
         }finally{page.close();}
       }else if(method==='checkedRegion'){
