@@ -22,9 +22,10 @@ import {inspectToolchain,toolEnvironment,ToolchainReport} from './toolchain';
 import {generateInstalledFormat,fingerprintFiles} from './format-cache';
 import {formatFingerprint,FORMAT_FINGERPRINT_POLICY} from './format-fingerprint';
 import {probe} from './toolchain';
+import {standaloneTex,previewRootForDocument} from './document-root';
 
 interface Doc {path:string;text:string;diskHash:string;dirty:boolean;eol:string;}
-interface State {texBin?:string;toolchainSeen?:boolean;projectSidebar?:boolean;docs:Doc[];active:string;root:string;engine:string;latexmk:string;onSave:boolean;backups?:boolean;liveVersion?:number;supportFolders?:string[];zoom?:number|'fit-width';statusBar?:boolean;panelLayout?:PanelPreferences;autoClose?:boolean;followPreview?:boolean;previewEditing?:boolean;continuousPreview?:boolean;lastCursor?:{file:string;at:number};}
+interface State {documentRoots?:Record<string,string>;texBin?:string;toolchainSeen?:boolean;projectSidebar?:boolean;docs:Doc[];active:string;root:string;engine:string;latexmk:string;onSave:boolean;backups?:boolean;liveVersion?:number;supportFolders?:string[];zoom?:number|'fit-width';statusBar?:boolean;panelLayout?:PanelPreferences;autoClose?:boolean;followPreview?:boolean;previewEditing?:boolean;continuousPreview?:boolean;lastCursor?:{file:string;at:number};}
 const testData=process.env.PERSISTENT_TEX_TEST_DATA;
 // Retain the established profile location across the TeXquisite rename.
 app.setPath('userData',testData?path.resolve(testData):path.join(app.getPath('appData'),'Persistent TeX'));
@@ -158,19 +159,25 @@ async function saveAllAndBuild(force=false,previewRequested=false) {
 async function prepare(bundle:Bundle,store:ArtifactStore,preparedPdf?:Uint8Array,navigation?:Navigation) {
   const pdf=preparedPdf??await fs.readFile(store.pdf(bundle));
   navigation??=await store.navigation(bundle);
+  if(bundle.root===state.root&&navigation)for(const doc of state.docs)if(navigation.sources[doc.path])rememberDocumentRoot(doc.path,bundle.root);
   return new Promise<void>((resolve,reject)=>{
     const timer=setTimeout(()=>{waiting.delete(bundle.id);reject(new Error('PDF viewer did not finish loading.'));},30000);
     waiting.set(bundle.id,{resolve,reject,timer});
     send({type:'prepare',bundle,pdf:new Uint8Array(pdf),navigation:encodeNavigation(navigation)});
   });
 }
-async function selectRoot(root:string) {
+function rememberDocumentRoot(file:string,root=state.root){if(root)(state.documentRoots??={})[file]=root;}
+function activePreviewRoot(){
+ const doc=state.docs.find(d=>d.path===state.active),remembered=state.documentRoots?.[state.active];
+ return previewRootForDocument(state.root,doc,state.docs.some(d=>d.path===remembered)?remembered:undefined);
+}
+async function selectRoot(root:string,automaticBuild=true) {
   projectSearch.stop();searchPreview=undefined;
   clearTimeout(fullVerification);localPreview.stop();
   void controller?.dispose().catch(error=>appendLog('Previous project cleanup deferred: '+String(error)+'\n')); displayed=undefined;currentDiagnostic=undefined;currentProblems=[];
   const generation=++rootGeneration;
   latestEditId=documentEditIds.get(root);
-  state.root=root; send({type:'reset',root});send({type:'root',root});
+  state.root=root;rememberDocumentRoot(root,root);send({type:'reset',root});send({type:'root',root});
   const store=new ArtifactStore(path.join(data(),'projects',hash(path.resolve(root).toLowerCase()).slice(0,32)));
   const next=new BuildController(store,{
     prepare:async(bundle,pdf,map)=>{if(generation!==rootGeneration)throw new Error('Project changed.');await prepare(bundle,store,pdf,map);},
@@ -191,7 +198,7 @@ async function selectRoot(root:string) {
     }
   } else setStatus('No successful preview yet. Save your source, then build.');
   await persist();
-  if(state.onSave){void build().catch(e=>setStatus(String(e)));void saveAllAndBuild(true,true).catch(e=>setStatus(String(e)));}
+  if(state.onSave&&automaticBuild){void build().catch(e=>setStatus(String(e)));void saveAllAndBuild(true,true).catch(e=>setStatus(String(e)));}
 }
 async function openFile(file:string,keepRoot=false,expectedGeneration?:number) {
   file=path.resolve(file);
@@ -206,7 +213,8 @@ async function openFile(file:string,keepRoot=false,expectedGeneration?:number) {
   if(expectedGeneration!==undefined&&expectedGeneration!==rootGeneration)throw Error("The project changed while opening this file.");
   state.active=file;
   const opened=state.docs.find(doc=>doc.path===file)!;
-  if(!keepRoot&&file.endsWith('.tex')&&(!state.root||file!==state.root&&/^\s*\\documentclass(?:\[[^\]]*\])?\{[^}]+\}/m.test(opened.text)))await selectRoot(file);
+  if(!keepRoot&&/\.tex$/i.test(file)&&(!state.root||file!==state.root&&standaloneTex(opened)))await selectRoot(file);
+  rememberDocumentRoot(file);
   await persist();void runBackup(); return state;
 }
 async function saveFile(copy=false) {
@@ -318,7 +326,7 @@ async function handle(method:string,args:unknown[]) {
     case 'initialize': {
       void runBackup();
       localPreview.setContinuous(!!state.continuousPreview);
-      const savedRoot=state.root;state.root='';
+      const savedRoot=activePreviewRoot();state.root='';
       if(state.lastCursor&&state.docs.some(doc=>doc.path===state.lastCursor!.file)&&Number.isSafeInteger(state.lastCursor.at)&&state.lastCursor.at>=0)localPreview.move(state.lastCursor.file,state.lastCursor.at);
       if(savedRoot)void selectRoot(savedRoot).catch(e=>setStatus(String(e)));
       return {...state,root:savedRoot,toolchain,showToolchainSetup:(!state.toolchainSeen&&!state.docs.length)||!!toolchain&&(!toolchain.ready||!toolchain.fast.available)&&acknowledgedToolchain!==toolchainSignature(toolchain)};
@@ -452,10 +460,17 @@ async function handle(method:string,args:unknown[]) {
       const [file,text,editId]=args;if(typeof file!=='string'||typeof text!=='string')throw new Error('Invalid edit.');
       const doc=state.docs.find(d=>d.path===file)??movedDocuments.get(file);if(!doc)throw new Error('File is not open.');
       doc.text=text;doc.dirty=hash(bytes(doc))!==doc.diskHash;
-      if(typeof args[3]==='number'&&Number.isSafeInteger(args[3])){state.lastCursor={file:doc.path,at:args[3]};localPreview.move(doc.path,args[3],true);}
-      if(doc.path!==state.root&&doc.path.endsWith('.tex')&&/^\s*\\documentclass(?:\[[^\]]*\])?\{[^}]+\}/m.test(text))await selectRoot(doc.path);
-      latestEditId=typeof editId==='string'?editId:undefined;
-      if(latestEditId)documentEditIds.set(doc.path,latestEditId);else documentEditIds.delete(doc.path);
+      const documentEditId=typeof editId==='string'?editId:undefined;
+      if(documentEditId)documentEditIds.set(doc.path,documentEditId);else documentEditIds.delete(doc.path);
+      if(doc.path===state.active&&typeof args[3]==='number'&&Number.isSafeInteger(args[3])){state.lastCursor={file:doc.path,at:args[3]};localPreview.move(doc.path,args[3],true);}
+      if(doc.path===state.active&&doc.path!==state.root&&standaloneTex(doc))await selectRoot(doc.path);
+      // An edit already queued for a previous tab must still be saved, without
+      // replacing the selected project's cursor, revision or pending preview.
+      if(doc.path!==state.active&&doc.path!==state.root&&state.documentRoots?.[doc.path]!==state.root){
+        if(state.onSave)void saveAllAndBuild(false,true).catch(async error=>{await persist();setStatus(String(error));});else await persist();
+        return true;
+      }
+      latestEditId=documentEditId;
       setStatus(state.onSave?'Saving edits and updating preview…':'Automatic saving and preview paused.');
       if(state.onSave){
         const immediate=!!controller;
@@ -471,11 +486,18 @@ async function handle(method:string,args:unknown[]) {
       else await persist();
       return true;
     }
-    case 'active': {const file=String(args[0]);if(state.docs.some(d=>d.path===file))state.active=file;await persist();return state;}
+    case 'active': {
+      const file=String(args[0]);if(state.docs.some(d=>d.path===file)){
+        state.active=file;
+        if(args[1]!==true){const root=activePreviewRoot();if(root&&root!==state.root)await selectRoot(root);}
+        rememberDocumentRoot(file);
+      }
+      await persist();return state;
+    }
     case 'save': return saveFile();
     case 'saveCopy': clearTimeout(fullVerification);localPreview.stop();return saveFile(true);
     case 'root': if(state.active.endsWith('.tex')){await selectRoot(state.active);return state;}throw new Error('Select a .tex file to set the root.');
-    case 'build': await saveAllAndBuild(true);return true;
+    case 'build': {const root=activePreviewRoot();if(root&&root!==state.root)await selectRoot(root,false);await saveAllAndBuild(true);return true;}
     case 'live': state.onSave=!state.onSave;await persist();if(state.onSave)void saveAllAndBuild(true).catch(e=>setStatus(String(e)));else{clearTimeout(fullVerification);localPreview.stop();setStatus('Automatic saving and preview paused.');}return state.onSave;
     case 'cancel': clearTimeout(fullVerification);localPreview.stop();controller?.cancel();return true;
     case 'settings': {

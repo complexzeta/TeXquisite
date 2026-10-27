@@ -231,7 +231,7 @@ async function navigateProblem(issue:BuildDiagnostic){
   const priorFile=active,priorText=view?.state.doc.toString(),token=++navigationToken;
   await flush();const result=await api.call('navigateDiagnostic',issue.id);
   if((compileIssue!==issue&&!projectProblems.includes(issue))||token!==navigationToken||active!==priorFile||view?.state.doc.toString()!==priorText)return;
-  const follow=model.followPreview;model=result.state;model.followPreview=follow;renderEditor();void api.call('active',active).catch(report);
+  const follow=model.followPreview;model=result.state;model.followPreview=follow;renderEditor();void api.call('active',active,true).catch(report);
   if(view){const position=view.state.doc.line(Math.min(result.line,view.state.doc.lines)).from;suppressFollow=true;try{view.dispatch({selection:{anchor:position},effects:EditorView.scrollIntoView(position,{y:'center'})});}finally{suppressFollow=false;}view.focus();}
 }
 const report=(e:unknown)=>{el('status').textContent=String(e).replace(/^Error: Error invoking remote method 'desktop': (?:Error: )?/,'').replace(/^Error: /,'');};
@@ -303,6 +303,20 @@ new ProjectSearchUI((method,...args)=>api.call(method,...args),async()=>{try{awa
 let projectOpenToken=0,projectOpenChain:Promise<unknown>=Promise.resolve();
 const projectSidebar=new ProjectSidebar((method,...args)=>api.call(method,...args),file=>{const token=++projectOpenToken,root=model.root;projectOpenChain=projectOpenChain.catch(()=>{}).then(()=>command(async()=>{if(token!==projectOpenToken||model.root!==root)return;try{await flush();}catch(e){report(e);}const next=await api.call("projectOpen",file);if(token!==projectOpenToken||model.root!==root)return;model=next;renderEditor();}));}, (file,text,at)=>{if(active!==file||view?.state.doc.toString()!==text)return;if(view){view.dispatch({selection:{anchor:at},effects:EditorView.scrollIntoView(at,{y:"center"})});view.focus();}});
 el("toggleProject").onclick=()=>void command(async()=>{model.projectSidebar=await api.call("projectSidebar",!model.projectSidebar);projectSidebar.update(model);view?.requestMeasure();});
+let tabActivationChain:Promise<unknown>=Promise.resolve(),tabActivationToken=0;
+function activateDocumentTab(file:string){
+ const token=++tabActivationToken;
+ tabActivationChain=tabActivationChain.catch(()=>{}).then(async()=>{
+  if(token!==tabActivationToken)return;
+  try{await flush();}catch(error){report(error);}
+  if(token!==tabActivationToken)return;
+  const next=await api.call('active',file);
+  if(token!==tabActivationToken)return;
+  model=next;renderEditor();
+  if(view)void api.call('localCursor',active,view.state.selection.main.head).catch(report);
+ });
+ void tabActivationChain.catch(report);
+}
 function renderTabs(){
   projectSidebar.update(model);
   toolbarButton('autoClose','braces',model.autoClose!==false?'Match pairs: on. Match delimiters, wrap selections and synchronize environment names':'Match pairs: off. Enable delimiter matching and linked environment names');el('autoClose').setAttribute('aria-pressed',String(model.autoClose!==false));
@@ -317,7 +331,7 @@ function renderTabs(){
   const statusVisible=model.statusBar!==false;el('statusBar').hidden=!statusVisible;document.body.dataset.statusBar=statusVisible?'visible':'hidden';toolbarButton('toggleStatus','status',statusVisible?'Hide status bar':'Show status bar');el('toggleStatus').setAttribute('aria-pressed',String(statusVisible));
   toolbarSelect('panelLayout','panels','Panel layout: '+el<HTMLSelectElement>('panelLayout').selectedOptions[0]?.textContent);toolbarSelect('layoutMode','pages',model.continuousPreview?'Preview layout: Continuous scroll':'Preview layout: Paged PDF');
   el('tabs').replaceChildren();
-  for(const doc of model.docs){const button=document.createElement('button');button.textContent=doc.path.split(/[\\/]/).at(-1)+(doc.dirty?' •':'');button.title=doc.path;button.className=doc.path===active?'active':'';button.onclick=()=>void command(async()=>{try{await flush();}catch(e){report(e);}model=await api.call('active',doc.path);renderEditor();});el('tabs').append(button);}
+  for(const doc of model.docs){const button=document.createElement('button');button.textContent=doc.path.split(/[\\/]/).at(-1)+(doc.dirty?' •':'');button.title=doc.path;button.className=doc.path===active?'active':'';button.onclick=()=>activateDocumentTab(doc.path);el('tabs').append(button);}
   el('rootLabel').textContent=model.root?'Root: '+model.root:'No root selected';
 }
 function renderEditor(){
@@ -403,6 +417,7 @@ async function pasteImage(image?:File){
 }
 
 for(const [button,method] of [['new','new'],['open','open'],['support','support'],['reload','reload'],['example','fixture'],['save','save'],['saveCopy','saveCopy'],['root','root']])el(button).onclick=()=>void command(async()=>{
+  await tabActivationChain.catch(()=>{});
   // Recovery commands must remain available when autosave rejects a conflict.
   // The edit request has already delivered the current draft to the main process.
   try{await flush();}catch(e){if(!['reload','saveCopy','open','new'].includes(method))throw e;}
@@ -416,7 +431,7 @@ for(const [button,method] of [['new','new'],['open','open'],['support','support'
   model=response;renderEditor();
   if(method==='saveCopy'&&model.docs.find((d:any)=>d.path===active)?.dirty){lastSent.delete(active);await flush();}
 });
-for(const method of ['build','cancel','export','previous'])el(method).onclick=()=>void command(async()=>{await flush();await api.call(method);});
+for(const method of ['build','cancel','export','previous'])el(method).onclick=()=>void command(async()=>{if(method!=='cancel')await tabActivationChain.catch(()=>{});await flush();await api.call(method);});
 el('live').onclick=()=>void command(async()=>{await flush();model.onSave=await api.call('live');renderTabs();renderIssue();refreshPreviewStatus();});
 el('toggleStatus').onclick=()=>void command(async()=>{model.statusBar=model.statusBar===false;renderTabs();await api.call('statusBar',model.statusBar);});
 el('toggleLog').onclick=()=>{const log=el<HTMLDetailsElement>('logs');log.open=!log.open;};
@@ -586,7 +601,7 @@ el('pages').addEventListener('click',event=>void command(async()=>{
     if(model.previewEditing&&!candidate.navigation.nativeInputs){const text=result.state.docs.find((doc:any)=>doc.path===row[0])?.text;const glyphs=pageGlyphs=await candidate.pdf.glyphs(candidate.page);if(text!==undefined)for(const span of proseSpans(candidate.navigation,row[0],row[1],candidate.page,text,glyphs)){const at=nearestCaret(span,x,y);if(at!==undefined){mapped=span;position=at;break;}}}
     if(model.previewEditing&&!mapped&&!candidate.navigation.nativeInputs){const text=result.state.docs.find((doc:any)=>doc.path===row[0])?.text;if(text!==undefined)for(const span of mathSpans(candidate.navigation,row[0],row[1],candidate.page,text,pageGlyphs)){const caret=nearestMathCaret(span,x,y);if(caret){mapped=span;position=caret.at;mathSlot=caret.slot;break;}}}
     if(pointToken!==navigationToken||active!==priorFile||view?.state.doc.toString()!==priorText||current?.id!==candidate.id)return;
-    const follow=model.followPreview,editing=model.previewEditing;model=result.state;model.followPreview=follow;model.previewEditing=editing;renderEditor();void api.call('active',active).catch(e=>{el('navState').textContent=String(e);});
+    const follow=model.followPreview,editing=model.previewEditing;model=result.state;model.followPreview=follow;model.previewEditing=editing;renderEditor();void api.call('active',active,true).catch(e=>{el('navState').textContent=String(e);});
     if(model.continuousPreview)pageNumber=candidate.page;
     if(view){const at=position??view.state.doc.line(Math.min(result.line,view.state.doc.lines)).from;suppressFollow=true;try{view.dispatch({selection:{anchor:at},effects:EditorView.scrollIntoView(at,{y:'center'})});}finally{suppressFollow=false;}
       if(editing&&mapped&&position!==undefined){

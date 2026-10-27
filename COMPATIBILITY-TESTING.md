@@ -1,6 +1,6 @@
 # TeX Live compatibility pass
 
-The manually triggered **TeX Live compatibility** GitHub Actions workflow tests TeX Live 2024, 2025 and current 2026 on Windows Server 2022 and 2025 runners. Jobs use ephemeral runner storage, at most two jobs run together, and only small diagnostic results are uploaded for seven days. It does not publish builds or upload local user documents. The UI test uses the checksum-verified published 0.85.0 portable payload, not a newly packaged build.
+The manually triggered **TeX Live compatibility** GitHub Actions workflow tests TeX Live 2024, 2025 and current 2026 on Windows Server 2022 and 2025 runners. Jobs use ephemeral runner storage, at most two jobs run together, and only small diagnostic results are uploaded for seven days. It does not publish builds or upload local user documents. The UI test uses the checksum-verified published 0.86.0 portable payload, not a newly packaged build.
 
 For local campaigns, `scripts/install-test-texlive.ps1` and `scripts/prepare-portable-test.ps1` require a dedicated `-WorkRoot` on a volume labelled Kingston. They redirect temporary storage and install portable TeX trees without persistent PATH, file-association or desktop changes. Historical versions use frozen TUG archive mirrors; 2026 uses the current CTAN tree and records its actual version. Documentation/source packages are omitted. A completed installation is recorded in `installation.json`; reuse its bin folder rather than reinstalling it.
 

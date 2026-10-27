@@ -41,7 +41,7 @@ jobs:
         run: |
           npm run build
           if($LASTEXITCODE -ne 0){exit $LASTEXITCODE}
-          node --test --test-concurrency=1 test/format-fingerprint.test.cjs test/format-cache.test.cjs test/format-preparation.test.cjs test/toolchain.test.cjs
+          node --test --test-concurrency=1 test/document-root.test.cjs test/format-fingerprint.test.cjs test/format-cache.test.cjs test/format-preparation.test.cjs test/toolchain.test.cjs
           exit $LASTEXITCODE
       - name: Install isolated TeX Live
         id: install
