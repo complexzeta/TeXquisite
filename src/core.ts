@@ -124,7 +124,7 @@ export class ArtifactStore {
 export interface BuildOptions { focus?:{line:number;column:number}; root: string; engine: string; executable: string; timeoutMs: number; sourceRevision?:number; sourceText?:string; characterMapping?:boolean; sourceFiles?:Record<string,string>; supportFolders?:string[]; editId?:string; automatic?:boolean; }
 export interface DisplayTiming {editId?:string;backend:string;requestToCommitMs:number;}
 export interface LocalBasis {bundle:Bundle;options:BuildOptions;source:string;compilerSource:string;project:ResidentContext;pdf:Uint8Array;canBuildAlongside?:()=>boolean;takeCompiler?:()=>ResidentCompiler|undefined;replaceCompiler?:(previous:ResidentCompiler)=>ResidentCompiler|undefined;returnCompiler?:(compiler:ResidentCompiler)=>boolean;}
-export interface Viewer { prepare(bundle: Bundle,pdf?:Uint8Array,navigation?:Navigation): Promise<void>; commit(bundle: Bundle,timing?:DisplayTiming): void; discard(bundle: Bundle): void; diagnostic?(issue:BuildDiagnostic):void; problems?(issues:BuildDiagnostic[],editId?:string):void; localBasis?(basis:LocalBasis):void; }
+export interface Viewer { prepare(bundle: Bundle,pdf?:Uint8Array,navigation?:Navigation): Promise<void>; commit(bundle: Bundle,timing?:DisplayTiming): void; discard(bundle: Bundle): void; diagnostic?(issue:BuildDiagnostic):void; problems?(issues:BuildDiagnostic[],editId?:string):void; localBasis?(basis:LocalBasis):void; performance?(report:Record<string,unknown>):void; }
 export class BuildController {
   private static protectedDirectories=new Set<string>();
   private static auxiliaryUsers=new Map<string,number>();
@@ -155,23 +155,37 @@ export class BuildController {
   private standbySeed?:{bundle:Bundle;source:string;project:ResidentContext};
   private activityAt=performance.now();
   private priming?:BuildController['residentTask'];
+  private standbyAttempts=0;
+  private standbyCancellations=0;
+  private standbyActivity={edit:0,cursor:0,pause:0};
+  private standbyOutcome='none';
   get independentLocalOwner(){return !!this.transferredCompiler?.initialized&&this.resident.initialized&&!this.priming;}
-  noteActivity(){
+  get standbyReport(){
+    const freeMiB=Math.floor(freemem()/1024/1024),idleMs=Math.max(0,Math.floor(performance.now()-this.activityAt)),seed=this.standbySeed;
+    const state=this.retired?'retired':this.independentLocalOwner?'ready':this.priming?'preparing':!seed?'unseeded':this.current!==seed.bundle?'stale-seed':!this.transferredCompiler?.initialized?'no-local-owner':this.residentTask||this.pending?'busy':freeMiB<1024?'memory':idleMs<1500?'active':'waiting';
+    return {state,freeMiB,idleMs,fullBusy:!!this.residentTask,attempts:this.standbyAttempts,cancellations:this.standbyCancellations,activity:{...this.standbyActivity},lastOutcome:this.standbyOutcome};
+  }
+  noteActivity(kind:'edit'|'cursor'|'pause'='edit'){
+    this.standbyActivity[kind]++;
     this.activityAt=performance.now();
-    if(this.priming&&this.residentTask===this.priming){this.priming.abort.abort();this.resident.stop();this.residentTask=undefined;this.priming=undefined;}
+    if(this.priming&&this.residentTask===this.priming){this.standbyCancellations++;this.standbyOutcome='cancelled';this.priming.abort.abort();this.resident.stop();this.residentTask=undefined;this.priming=undefined;}
     if(this.standbySeed&&!this.resident.initialized&&!this.residentTask&&this.transferredCompiler?.initialized)this.armStandby();
   }
   private prepareStandby(bundle:Bundle,source:string,project:ResidentContext){this.standbySeed={bundle,source,project};this.activityAt=performance.now();this.armStandby();}
-  private armStandby(){
+  private armStandby(delay=500){
     clearTimeout(this.standbyTimer);
     this.standbyTimer=setTimeout(()=>{
       const seed=this.standbySeed;if(!seed||this.retired||this.current!==seed.bundle||!this.transferredCompiler?.initialized||this.resident.initialized||this.residentTask||this.pending)return;
-      if(freemem()<1024*1024*1024)return;
+      this.viewer.performance?.(this.standbyReport);
+      // Memory pressure can clear while the user remains idle. Keep one
+      // low-frequency retry rather than waiting for another edit to wake us.
+      if(freemem()<1024*1024*1024){this.armStandby(2000);return;}
       if(performance.now()-this.activityAt<1500){this.armStandby();return;}
+      this.standbyAttempts++;this.standbyOutcome='preparing';
       const {source,project}=seed,standby=this.resident,abort=new AbortController(),promise=standby.compile(source,abort.signal,10000,()=>{},project);
       const task={source,resourceKey:project.resourceKey,characterMapping:!!project.characterMapping,abort,promise};this.residentTask=task;this.priming=task;
-      void task.promise.then(pdf=>{if(this.resident!==standby)return;if(!pdf)standby.stop();else this.log('Warm standby compiler ready for independent preview updates.\n');}).catch(()=>{}).finally(()=>{if(this.residentTask===task)this.residentTask=undefined;if(this.priming===task)this.priming=undefined;});
-    },500);this.standbyTimer.unref();
+      void task.promise.then(pdf=>{if(this.resident!==standby)return;if(!pdf){this.standbyOutcome='unavailable';standby.stop();}else{this.standbyOutcome='ready';this.log('Warm standby compiler ready for independent preview updates.\n');}}).catch(error=>{if(this.priming===task)this.standbyOutcome=String(error).includes('timed out')?'timeout':'failed';}).finally(()=>{if(this.residentTask===task)this.residentTask=undefined;if(this.priming===task)this.priming=undefined;this.viewer.performance?.(this.standbyReport);});
+    },delay);this.standbyTimer.unref();
   }
   private residentSources?:Record<string,string>;
   private startResident(source:string,timeoutMs:number,project:ResidentContext={}){
@@ -400,7 +414,7 @@ export class BuildController {
       },returnCompiler:compiler=>{
         // An unsupported block must not strand the only warm engine locally.
         // Reclaim it only before a replacement worker has begun any request.
-        if(this.transferredCompiler===compiler&&this.current===bundle&&generation===this.generation&&!this.retired&&!compiler.busy&&this.priming&&this.residentTask===this.priming){this.priming.abort.abort();this.resident.stop();this.residentTask=undefined;this.priming=undefined;}
+        if(this.transferredCompiler===compiler&&this.current===bundle&&generation===this.generation&&!this.retired&&!compiler.busy&&this.priming&&this.residentTask===this.priming){this.standbyCancellations++;this.standbyOutcome='cancelled';this.priming.abort.abort();this.resident.stop();this.residentTask=undefined;this.priming=undefined;}
         if(this.transferredCompiler!==compiler||this.current!==bundle||generation!==this.generation||this.retired||this.residentTask||this.resident.initialized||this.resident.busy||compiler.busy||!compiler.initialized)return false;
         this.standbySeed=undefined;clearTimeout(this.standbyTimer);
         this.resident=compiler;this.transferredCompiler=undefined;this.localCompilerTransferred=false;return true;

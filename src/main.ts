@@ -184,6 +184,7 @@ async function selectRoot(root:string,automaticBuild=true) {
   state.root=root;rememberDocumentRoot(root,root);send({type:'reset',root});send({type:'root',root});
   const store=new ArtifactStore(path.join(data(),'projects',hash(path.resolve(root).toLowerCase()).slice(0,32)));
   const next=new BuildController(store,{
+    performance:report=>{if(generation===rootGeneration&&!closing)tracePreview({event:'standby',...report});},
     prepare:async(bundle,pdf,map)=>{if(generation!==rootGeneration)throw new Error('Project changed.');await prepare(bundle,store,pdf,map);},
     problems:(issues,editId)=>{if(generation===rootGeneration&&editId===latestEditId){currentProblems=issues;send({type:"problems",root,editId,issues});}},
     diagnostic:issue=>{if(generation===rootGeneration&&issue.editId===latestEditId){currentDiagnostic=issue;send({type:'diagnostic',issue});}},
@@ -272,8 +273,9 @@ async function build(sourceText?:string,automatic=sourceText!==undefined) {
 function updateAppMenu(){Menu.setApplicationMenu(appMenu(state,(action,value)=>send({type:'menuAction',action,value})));if(window&&!window.isDestroyed()){window.setAutoHideMenuBar(false);window.setMenuBarVisibility(true);}}
 async function handle(method:string,args:unknown[]) {
   switch(method){
+    case 'previewPerformance': return {standby:controller?.standbyReport,localReady:localPreview.ready,localBusy:localPreview.busy};
     case 'localAck': {const entry=localWaiting.get(String(args[0]));if(entry){clearTimeout(entry.timer);localWaiting.delete(String(args[0]));const reply=args[1] as LocalVerification;entry.resolve(reply===true?true:reply&&typeof reply==='object'&&Number.isFinite(reply.dx)&&Number.isFinite(reply.dy)&&Math.abs(reply.dx)<=.01&&Math.abs(reply.dy)<=.01?reply:false);}return true;}
-    case 'localCursor': {if(typeof args[0]==='string'&&typeof args[1]==='number'&&Number.isSafeInteger(args[1])&&args[1]>=0&&state.docs.some(doc=>doc.path===args[0])){controller?.noteActivity();state.lastCursor={file:args[0],at:args[1]};localPreview.move(args[0],args[1]);}return true;}
+    case 'localCursor': {if(typeof args[0]==='string'&&typeof args[1]==='number'&&Number.isSafeInteger(args[1])&&args[1]>=0&&state.docs.some(doc=>doc.path===args[0])){controller?.noteActivity('cursor');state.lastCursor={file:args[0],at:args[1]};localPreview.move(args[0],args[1]);}return true;}
     case 'localRefresh': localPreview.refresh();return true;
     case 'localWarm': {if(typeof args[0]==='string'&&typeof args[1]==='string'&&args[0]===state.root&&args[2]===latestEditId){localPreview.prepareNextEdit(args[0],args[1]);if(typeof args[3]==='number'&&Number.isFinite(args[3]))tracePreview({event:'local-displayed',editId:args[2],elapsedMs:args[3],layout:args[4]});}return true;}
     case 'previewTiming': {if(args[0]===latestEditId&&typeof args[1]==='number'&&Number.isFinite(args[1]))tracePreview({event:'full-displayed',editId:args[0],elapsedMs:args[1]});return true;}
@@ -510,7 +512,7 @@ async function handle(method:string,args:unknown[]) {
     case 'saveCopy': clearTimeout(fullVerification);localPreview.stop();return saveFile(true);
     case 'root': if(state.active.endsWith('.tex')){await selectRoot(state.active);return state;}throw new Error('Select a .tex file to set the root.');
     case 'build': {const root=activePreviewRoot();if(root&&root!==state.root)await selectRoot(root,false);await saveAllAndBuild(true);return true;}
-    case 'live': state.onSave=!state.onSave;await persist();if(state.onSave)void saveAllAndBuild(true).catch(e=>setStatus(String(e)));else{clearTimeout(fullVerification);localPreview.stop();controller?.noteActivity();setStatus('Automatic saving and preview paused.');}return state.onSave;
+    case 'live': state.onSave=!state.onSave;await persist();if(state.onSave)void saveAllAndBuild(true).catch(e=>setStatus(String(e)));else{clearTimeout(fullVerification);localPreview.stop();controller?.noteActivity('pause');setStatus('Automatic saving and preview paused.');}return state.onSave;
     case 'cancel': clearTimeout(fullVerification);localPreview.stop();controller?.cancel();return true;
     case 'settings': {
       const value=args[0] as Partial<State>;

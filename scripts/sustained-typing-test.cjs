@@ -29,7 +29,7 @@ const hash=s=>createHash('sha256').update(s).digest('hex'),delay=ms=>new Promise
    for(const frame of frames){if(last!==undefined)stalls.push(frame.at-last);last=frame.at;}
    const s={name,startedAt:inputs[0]?.at,endedAt:frames.at(-1)?.at,inputCount:inputs.length,displayedStates:frames.length,maxLatencyMs:Math.round(Math.max(0,...latencies)),maxPreviewGapMs:Math.round(Math.max(0,...stalls)),frames:frames.map(p=>({input:p.input,latencyMs:Math.round(p.at-inputs[p.input].at),layout:p.layout,pipeline:p.pipeline?JSON.parse(p.pipeline):undefined}))};assert.ok(inputs.length&&frames.length,'Real source changes and matching preview required');result.scenarios.push(s);
   };
-  const idle=Number(process.env.PERSISTENT_TEX_TEST_IDLE_MS??0);if(!Number.isInteger(idle)||idle<0||idle>20000)throw Error('Invalid test idle duration');if(idle){await ready();await delay(idle);}
+  const idle=Number(process.env.PERSISTENT_TEX_TEST_IDLE_MS??0);if(!Number.isInteger(idle)||idle<0||idle>20000)throw Error('Invalid test idle duration');result.idleBeforeTypingMs=idle;if(idle){await ready();if(process.env.PERSISTENT_TEX_STANDBY_TRACE==='1'){result.standbyObservations=[];const until=Date.now()+idle;while(Date.now()<until){result.standbyObservations.push(await page.evaluate(()=>window.desktop.call('previewPerformance')));await delay(Math.min(500,Math.max(0,until-Date.now())));}}else await delay(idle);}
   result.privateMiBBeforeTyping=await app.evaluate(({app})=>Math.round(app.getAppMetrics().reduce((n,p)=>n+(p.memory.privateBytes??0),0)/1024));
   for(const mode of ['lecture','document']){
    await page.locator('#previewMode').selectOption(mode);await focus('LiveMark');
