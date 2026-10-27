@@ -16,7 +16,7 @@ function request(method:string,args:Record<string,unknown>,transfer:Transferable
   return new Promise((resolve,reject)=>{
     const id=++sequence;
     const timer=setTimeout(()=>{pending.delete(id);reject(new Error('PDF renderer timed out.'));},25000);
-    pending.set(id,{resolve,reject,timer});worker.postMessage({id,method,...args},transfer);
+    pending.set(id,{resolve,reject,timer});worker.postMessage({id,method,...args,postedAt:performance.timeOrigin+performance.now()},transfer);
   });
 }
 // Ephemeral local output needs no document handle or teardown round trip.

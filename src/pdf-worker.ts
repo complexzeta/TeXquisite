@@ -1,18 +1,21 @@
 import {PDFiumLibrary,PDFiumDocument} from '@hyzyla/pdfium';
 import {inkFitsRaster} from './local-raster';
+import {PdfWorkQueue} from './pdf-work-queue';
 
 const library=PDFiumLibrary.init({wasmUrl:new URL('./vendor/pdfium.wasm',import.meta.url).href});
 void library.catch(()=>{});
 const documents=new Map<number,PDFiumDocument>();
-let nextDocument=0,chain=Promise.resolve();
+let nextDocument=0;
+const work=new PdfWorkQueue();
 const worker=globalThis as unknown as {onmessage:(event:MessageEvent)=>void;postMessage:(value:unknown,transfer?:Transferable[])=>void};
 worker.onmessage=event=>{
   const {id,method,...args}=event.data;
   // PDFium's instance is shared. Serialize calls, including document teardown,
   // while keeping the editor and its event loop independent of rasterization.
-  chain=chain.catch(()=>{}).then(async()=>{
+  void work.enqueue(method==='checkedRegion'||method==='renderRegion'?0:1,async()=>{
     try{
       const lib=await library;
+      const queueMs=Number.isFinite(args.postedAt)?Math.max(0,performance.timeOrigin+performance.now()-args.postedAt):0;
       if(method==='load'){
         const document=await lib.loadDocument(args.bytes),documentId=++nextDocument;
         documents.set(documentId,document);
@@ -58,7 +61,7 @@ worker.onmessage=event=>{
             const bitmap=await page.render({scale:args.scale,colorSpace:'RGBA',transparent:false}),renderedAt=performance.now();
             if(bitmap.width!==size.width||bitmap.height!==size.height)throw new Error('Checked raster geometry changed.');
             const safe=inkFitsRaster(bitmap.data,bitmap.width,bitmap.height,bounds),checkedAt=performance.now();
-            const timing={loadMs:loadedAt-started,rasterMs:renderedAt-loadedAt,checkMs:checkedAt-renderedAt,rasterPasses:1};
+            const timing={queueMs,loadMs:loadedAt-started,rasterMs:renderedAt-loadedAt,checkMs:checkedAt-renderedAt,rasterPasses:1};
             if(!safe){worker.postMessage({id,result:{safe:false,...timing,workerMs:performance.now()-started}});}
             else{
               const bx=Math.max(0,x-2),by=Math.max(0,y-2),br=Math.min(size.width,right+2),bb=Math.min(size.height,bottom+2),width=br-bx,height=bb-by,data=new Uint8Array(width*height*4);
@@ -130,5 +133,5 @@ worker.onmessage=event=>{
         worker.postMessage({id,result:null});
       }else throw new Error('Unknown PDF worker request.');
     }catch(error){worker.postMessage({id,error:String(error)});}
-  });
+  }).catch(error=>worker.postMessage({id,error:String(error)}));
 };
