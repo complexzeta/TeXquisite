@@ -29,6 +29,18 @@ export function loadPdf(bytes:Uint8Array){
     documentId=result.documentId;
     const glyphCache=new Map<number,Promise<PdfCharacter[]>>();
     let pageSizes:Promise<any>|undefined;
+    // Proofs consume the worker raster directly, avoiding a GPU canvas readback.
+    const rasterize=async(page:number,scale:number,ratio:number,retainPixels=false)=>{
+        if(closed)throw new Error('PDF was closed.');
+        const started=performance.now(),bitmap=await request('render',{documentId,page,scale:scale*ratio,imageBitmap:!retainPixels});
+        const canvas=document.createElement('canvas');canvas.width=bitmap.width;canvas.height=bitmap.height;
+        canvas.style.width=bitmap.originalWidth*scale+'px';canvas.style.height=bitmap.originalHeight*scale+'px';
+        if(bitmap.image){const target=canvas.getContext('bitmaprenderer');if(target)target.transferFromImageBitmap(bitmap.image);else{canvas.getContext('2d')!.drawImage(bitmap.image,0,0);bitmap.image.close();}}
+        const pixels=bitmap.data?new Uint8ClampedArray(bitmap.data.buffer,bitmap.data.byteOffset,bitmap.data.byteLength):undefined;
+        if(pixels){canvas.getContext('2d')!.putImageData(new ImageData(pixels,bitmap.width,bitmap.height),0,0);}
+        canvas.dataset.rasterMs=String(bitmap.rasterMs);canvas.dataset.workerMs=String(bitmap.workerMs);canvas.dataset.renderMs=String(performance.now()-started);
+        return {canvas,pixels};
+      };
     return {
       glyphs(page:number):Promise<PdfCharacter[]>{if(closed)return Promise.reject(new Error('PDF was closed.'));let result=glyphCache.get(page);if(!result){result=request('glyphs',{documentId,page});glyphCache.set(page,result);}return result;},
       numPages:result.numPages,
@@ -39,16 +51,8 @@ export function loadPdf(bytes:Uint8Array){
       async renderRegion(page:number,rect:{x:number;y:number;width:number;height:number},scale:number,ratio:number){
         if(closed)throw new Error('PDF was closed.');return request('renderRegion',{documentId,page,rect,scale:scale*ratio,imageBitmap:true});
       },
-      async render(page:number,scale:number,ratio:number){
-        if(closed)throw new Error('PDF was closed.');
-        const started=performance.now(),bitmap=await request('render',{documentId,page,scale:scale*ratio,imageBitmap:true});
-        const canvas=document.createElement('canvas');canvas.width=bitmap.width;canvas.height=bitmap.height;
-        canvas.style.width=bitmap.originalWidth*scale+'px';canvas.style.height=bitmap.originalHeight*scale+'px';
-        if(bitmap.image){const target=canvas.getContext('bitmaprenderer');if(target)target.transferFromImageBitmap(bitmap.image);else{canvas.getContext('2d')!.drawImage(bitmap.image,0,0);bitmap.image.close();}}
-        else{const pixels=new Uint8ClampedArray(bitmap.data.buffer,bitmap.data.byteOffset,bitmap.data.byteLength);canvas.getContext('2d')!.putImageData(new ImageData(pixels,bitmap.width,bitmap.height),0,0);}
-        canvas.dataset.rasterMs=String(bitmap.rasterMs);canvas.dataset.workerMs=String(bitmap.workerMs);canvas.dataset.renderMs=String(performance.now()-started);
-        return canvas;
-      }
+      async render(page:number,scale:number,ratio:number){return (await rasterize(page,scale,ratio)).canvas;},
+      async renderWithPixels(page:number,scale:number,ratio:number){const frame=await rasterize(page,scale,ratio,true);if(!frame.pixels)throw new Error('PDF proof pixels are unavailable.');return {canvas:frame.canvas,pixels:frame.pixels};}
     };
   });
   return {promise,async destroy(){

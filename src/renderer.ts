@@ -43,7 +43,7 @@ const localProofs=new Map<string,{canvas:HTMLCanvasElement;page:number;release:(
 const baselineCache=new BaselineCache<any,{canvas:HTMLCanvasElement;pixels:Uint8ClampedArray}>(loadPdf,frame=>frame.pixels.byteLength+frame.canvas.width*frame.canvas.height*4,frame=>{frame.canvas.width=frame.canvas.height=0;});
 function acceptedBaseline(message:any){
   const zoom=scale,ratio=window.devicePixelRatio||1;
-  return baselineCache.acquire(JSON.stringify([message.root,message.baseId,zoom,ratio]),message.basePdf,async(pdf:any,page:number)=>{const canvas=await pdf.render(page,zoom,ratio);return {canvas,pixels:canvasPixels(canvas)};});
+  return baselineCache.acquire(JSON.stringify([message.root,message.baseId,zoom,ratio]),message.basePdf,async(pdf:any,page:number)=>pdf.renderWithPixels(page,zoom,ratio));
 }
 const localPageProofs=new Set<string>();
 const localPageBaselines=new Map<string,ReturnType<ReturnType<typeof acceptedBaseline>['retain']>&{retain:ReturnType<typeof acceptedBaseline>['retain'];span:{first:number;last:number};continuation?:string}>();
@@ -717,7 +717,7 @@ api.on(async message=>{
       ok=message.root===model.root&&Number.isSafeInteger(span.first)&&Number.isSafeInteger(span.last)&&span.first>=1&&span.last>=span.first&&span.last-span.first<3&&span.last<=base.numPages&&partial.numPages===span.last-span.first+1;
       for(let page=span.first;ok&&page<=span.last;page++){
         const cached=await baseline.page(page),a=cached.value.canvas;let b:HTMLCanvasElement|undefined;
-        try{const canvas=await render(partial,page-span.first+1) as HTMLCanvasElement;b=canvas;const pa=cached.value.pixels,pb=canvasPixels(canvas);ok=a.width===canvas.width&&a.height===canvas.height&&pa.length===pb.length;for(let i=0;ok&&i<pa.length;i++)if(pa[i]!==pb[i])ok=false;}
+        try{const {canvas,pixels:pb}=await partial.renderWithPixels(page-span.first+1,scale,window.devicePixelRatio||1);b=canvas;const pa=cached.value.pixels;ok=a.width===canvas.width&&a.height===canvas.height&&pa.length===pb.length;for(let i=0;ok&&i<pa.length;i++)if(pa[i]!==pb[i])ok=false;}
         finally{cached.release();if(b)b.width=b.height=0;}
       }
       ok=ok&&currentProof();
@@ -729,7 +729,7 @@ api.on(async message=>{
     let cached:Awaited<ReturnType<typeof baseline.page>>|undefined,b:HTMLCanvasElement|undefined;
     try{if(message.root===model.root){const [base,composed,fragment]=await Promise.all([baseline.document,...tasks.map(task=>task.promise)]);
       cached=await baseline.page(message.page);const a=cached.value.canvas,pa=cached.value.pixels;let ink=false;
-      const composedCanvas:HTMLCanvasElement=await render(composed,1);b=composedCanvas;ink=await localInkFits(message,fragment);const pb=canvasPixels(composedCanvas);
+      const {canvas:composedCanvas,pixels:pb}=await composed.renderWithPixels(1,scale,window.devicePixelRatio||1);b=composedCanvas;ink=await localInkFits(message,fragment);
       const factor=scale*(window.devicePixelRatio||1),box=message.footprint,result=matchLocalPatchRaster(pa,pb,a.width,a.height,{x:box.x*factor,y:box.y*factor,width:box.width*factor,height:box.height*factor},(message.calibration?.calibratedGlyphs??[]).map((g:any)=>({x:g.x*factor,y:g.y*factor,width:g.width*factor,height:g.height*factor})));
       ok=ink&&a.width===composedCanvas.width&&a.height===composedCanvas.height&&result.ok;
       if(ok)ok=await tileMatchesFull(composed,message.footprint,composedCanvas,pb);composedCanvas.width=composedCanvas.height=0;

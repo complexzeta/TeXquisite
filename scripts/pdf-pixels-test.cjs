@@ -1,0 +1,17 @@
+const {_electron:electron}=require('playwright'),fs=require('node:fs/promises'),path=require('node:path'),assert=require('node:assert/strict'),{PDFDocument,StandardFonts,rgb,degrees}=require('pdf-lib');
+(async()=>{
+ const directory=require('./test-artifacts.cjs').testDirectory('pdf-pixels'),profile=path.join(directory,'profile');await fs.mkdir(profile);
+ const pdf=await PDFDocument.create(),font=await pdf.embedFont(StandardFonts.TimesRoman);
+ for(const rotation of [0,90]){const page=pdf.addPage([340,270]);page.setRotation(degrees(rotation));page.drawText('Proof: square roots, text and coloured ink',{x:12,y:230,size:13,font});page.drawRectangle({x:40,y:70,width:140,height:80,color:rgb(.2,.6,.9),opacity:.45});page.drawLine({start:{x:21.25,y:35.75},end:{x:305.5,y:205.25},thickness:.3,color:rgb(.9,.1,.2)});page.drawText('Glyph edges 0123456789',{x:40.1,y:130.4,size:17.3,font,color:rgb(.1,.2,.7)});}
+ const bytes=Array.from(await pdf.save()),app=await electron.launch({...(process.env.PERSISTENT_TEX_EXECUTABLE?{executablePath:process.env.PERSISTENT_TEX_EXECUTABLE}:{}),args:process.env.PERSISTENT_TEX_EXECUTABLE?[]:['.'],env:{...process.env,PERSISTENT_TEX_TEST_DATA:profile,PERSISTENT_TEX_TEST_HIDDEN:'1'},timeout:90000});let result={passed:false,directory};
+ try{const page=await app.firstWindow({timeout:90000});result.samples=await page.evaluate(async bytes=>{
+  const worker=new Worker(new URL('./pdf-worker.js',location.href),{type:'module'}),pending=new Map();let sequence=0;worker.onmessage=e=>{const p=pending.get(e.data.id);pending.delete(e.data.id);if(e.data.error)p.reject(Error(e.data.error));else p.resolve(e.data.result);};
+  const request=(method,args)=>new Promise((resolve,reject)=>{const id=++sequence;pending.set(id,{resolve,reject});worker.postMessage({id,method,...args});});
+  try{const {documentId}=await request('load',{bytes:new Uint8Array(bytes)}),samples=[];for(const scale of [1,2.5])for(const page of [1,2]){
+   const raw=await request('render',{documentId,page,scale,imageBitmap:false}),bitmap=await request('render',{documentId,page,scale,imageBitmap:true}),a=document.createElement('canvas'),b=document.createElement('canvas');a.width=b.width=raw.width;a.height=b.height=raw.height;
+   a.getContext('2d').drawImage(bitmap.image,0,0);bitmap.image.close();const pixels=new Uint8ClampedArray(raw.data.buffer,raw.data.byteOffset,raw.data.byteLength);b.getContext('2d').putImageData(new ImageData(pixels,raw.width,raw.height),0,0);
+   const old=a.getContext('2d').getImageData(0,0,a.width,a.height).data,painted=b.getContext('2d').getImageData(0,0,b.width,b.height).data;let oldDifferences=0,paintDifferences=0;for(let i=0;i<pixels.length;i++){if(old[i]!==pixels[i])oldDifferences++;if(painted[i]!==pixels[i])paintDifferences++;}samples.push({page,scale,width:raw.width,height:raw.height,oldDifferences,paintDifferences});a.width=a.height=b.width=b.height=0;
+  }await request('close',{documentId});return samples;}finally{worker.terminate();}
+ },bytes);for(const s of result.samples){assert.equal(s.oldDifferences,0,'Raw pixels must match the old ImageBitmap readback');assert.equal(s.paintDifferences,0,'Proof pixels must equal their displayed canvas');}result.passed=true;
+ }finally{await fs.writeFile(path.join(directory,'result.json'),JSON.stringify(result,null,2));await app.evaluate(({app})=>app.exit(0)).catch(()=>{});await app.close().catch(()=>{});console.log(JSON.stringify(result));}
+})().catch(e=>{console.error(String(e));process.exitCode=1});
