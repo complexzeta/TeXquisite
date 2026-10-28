@@ -52,6 +52,7 @@ export function flowWindowAt(source:string,at:number):RegionRange|undefined{
 }
 const lineOffset=(source:string,line:number)=>{let at=0;while(line-->0){at=source.indexOf('\n',at);if(at<0)return -1;at++;}return at;};
 type Request={source:string;fullSource?:string;editId:string;at:number;};
+export interface LocalCandidate {pageLocations?:{page:number;locations:ReturnType<typeof flowLocations>}[];}
 type DiskInput={file:string;mtime:number;ctime:number;ino:number;size:number;};
 type Slot={neutralLast?:boolean;cancelWork?:()=>void;epoch?:number;cancelled?:boolean;regionKey?:string;edited?:boolean;latestSource?:string;file?:string;input?:IncludedInput;sourceText?:string;otherResources?:string;basis:LocalBasis;range:RegionRange;liveEnd:number;compiledRange:RegionRange;compiler:ResidentCompiler;compositor?:RegionCompositor;ready:boolean;abort:AbortController;diskInputs:DiskInput[];pageMode?:boolean;pageReady?:boolean;pageCostMs?:number;proofPage?:number;sourcePages?:PageSpan;baselineSpan?:PageSpan;continuation?:string;verifyPageRange?:()=>Promise<void>;};
 export interface LocalCandidate {neutralBlock?:{id:string;prior:string[];ranges:{id:string;from:number;to:number;baseFrom:number;baseTo:number}[];locations:ReturnType<typeof flowLocations>;caretY?:number};sourceFile?:string;root:string;baseId:string;editId:string;sourceHash:string;pdf:Uint8Array;page:number;timing:unknown;fragmentPdf?:Uint8Array;fragment?:RegionFragment;inkTopSp?:number;flowOutput?:{stateChanged?:boolean;locations?:ReturnType<typeof flowLocations>;baseRangeTo?:number;caretY?:number;rect:{x:number;y:number;width:number;height:number};leading:number;baselineLeading:number;fragmentRect:{x:number;y:number;width:number;height:number}};rangeFrom:number;rangeTo:number;footprint?:{x:number;y:number;width:number;height:number};pageOutput?:boolean;pageSpan?:PageSpan;sourcePages?:PageSpan;proofPage?:number;cursorPage?:number;cursorPosition?:ReturnType<typeof cursorPosition>;baselineSpan?:PageSpan;continuation?:string;}
@@ -506,7 +507,22 @@ export class LocalPreview{
     if(this.continuous&&(output.pageSpan.first!==slot.baselineSpan?.first||output.pageSpan.last!==slot.baselineSpan?.last)&&(!slot.continuation||output.timing?.continuation!==slot.continuation))throw new Error('The affected page range changed without a verified continuation.');
     if(this.continuous&&slot.continuation&&output.timing?.continuation!==slot.continuation)throw new Error('The page band did not reach its prepared continuation.');
     const position=cursorPosition(output.navigation,source,slot.compiledRange.from+request.at-slot.range.from,sourceName,output.pageSpan);
-    return {kind:'page' as const,output,cursorPage:position?.page,cursorPosition:position};
+    // Compatibility preambles can differ from the editor. Map only complete
+    // glyph intervals inside byte-for-byte equal source prefixes/suffixes.
+    const editor=request.fullSource??request.source;
+    let prefix=0,suffix=0;
+    while(prefix<Math.min(source.length,editor.length)&&source[prefix]===editor[prefix])prefix++;
+    while(suffix<Math.min(source.length,editor.length)-prefix&&source[source.length-1-suffix]===editor[editor.length-1-suffix])suffix++;
+    const pageLocations=Array.from({length:output.pageSpan.last-output.pageSpan.first+1},(_,i)=>{
+      const page=output.pageSpan.first+i;
+      return {page,locations:flowLocations(output.navigation,source,sourceName,page,0,source.length).flatMap(g=>{
+        const shift=g.end<=prefix?0:g.at>=source.length-suffix?editor.length-source.length:undefined;
+        if(shift===undefined)return [];
+        const at=g.at+shift,end=g.end+shift,start=editor.lastIndexOf('\n',at-1)+1,stop=editor.indexOf('\n',at);
+        return /^\s*\\(?:begin|end)\s*\{document\}/.test(editor.slice(start,stop<0?editor.length:stop))?[]:[{...g,at,end}];
+      })};
+    });
+    return {kind:'page' as const,output,pageLocations,cursorPage:position?.page,cursorPosition:position};
   }
   private prefetch(){
     if(!this.canPrefetch||this.prefetched||!this.pending||!this.slot?.ready)return;
@@ -547,7 +563,7 @@ export class LocalPreview{
         }else{
           const output=result.output,span=output.pageSpan,old=slot.sourcePages!;
           slot.sourcePages={first:Math.min(old.first,span.first),last:Math.max(old.last,span.last)};
-          candidate={...identity,pdf:await selectPages(output.pdf,span),page:span.first,pageSpan:span,sourcePages:slot.sourcePages,proofPage:slot.proofPage,cursorPage:result.cursorPage,cursorPosition:result.cursorPosition,timing:output.timing,pageOutput:true,baselineSpan:slot.baselineSpan,continuation:slot.continuation};
+          candidate={...identity,pageLocations:result.pageLocations,pdf:await selectPages(output.pdf,span),page:span.first,pageSpan:span,sourcePages:slot.sourcePages,proofPage:slot.proofPage,cursorPage:result.cursorPage,cursorPosition:result.cursorPosition,timing:output.timing,pageOutput:true,baselineSpan:slot.baselineSpan,continuation:slot.continuation};
         }
         if(epoch!==this.epoch)continue;
         const accepted=await this.publish(candidate);

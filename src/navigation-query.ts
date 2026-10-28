@@ -1,5 +1,24 @@
 import type {Navigation,Region} from './navigation';
 export interface LiveFlowFrame {root:string;file:string;baseId:string;sourceHash:string;editId:string;text:string;from:number;to:number;}
+// Unchanged pages keep their original pixels. Their source offsets may move
+// after a local replacement, but only exactly matching source is navigable.
+export function unchangedPageLocations(nav:Navigation,file:string,before:string,after:string,excluded:{first:number;last:number}){
+ let prefix=0,suffix=0;while(prefix<Math.min(before.length,after.length)&&before[prefix]===after[prefix])prefix++;
+ while(suffix<Math.min(before.length,after.length)-prefix&&before[before.length-1-suffix]===after[after.length-1-suffix])suffix++;
+ const lines=before.split('\n'),starts=[0];for(let i=0;i<before.length;i++)if(before[i]==='\n')starts.push(i+1);
+ const pages=new Map<number,{at:number;end:number;x:number;y:number;width:number;height:number}[]>();
+ for(const g of [...(nav.characters??[]),...(nav.mathCharacters??[])]){
+  if(g[0]!==file||g[3]>=excluded.first&&g[3]<=excluded.last)continue;
+  const line=lines[g[1]-1],start=starts[g[1]-1];if(line===undefined||!sourceLineHasOutput(line))continue;
+  const bytes=new TextEncoder().encode(line),left=g[2],right=left+(g[9]??1);
+  if(left<0||right>bytes.length)continue;
+  const decoder=new TextDecoder('utf-8',{fatal:true});let at:number,end:number;
+  try{at=start+decoder.decode(bytes.slice(0,left)).length;end=start+decoder.decode(bytes.slice(0,right)).length;}catch{continue;}
+  const shift=end<=prefix?0:at>=before.length-suffix?after.length-before.length:undefined;if(shift===undefined)continue;
+  const locations=pages.get(g[3])??[];locations.push({at:at+shift,end:end+shift,x:g[4],y:g[5],width:g[6],height:g[7]});pages.set(g[3],locations);
+ }
+ return [...pages].map(([page,locations])=>({page,locations}));
+}
 export function liveFlowPosition(frame:LiveFlowFrame,current:{root:string;file:string;baseId:string;sourceHash?:string;editId?:string;text:string},locations:readonly {at:number;end:number;x:number;y:number;width:number;height:number}[],x:number,y:number){
  if(!frame.root||!frame.file||!frame.baseId||!frame.sourceHash||!frame.editId||(['root','file','baseId','sourceHash','editId','text'] as const).some(key=>frame[key]!==current[key]))return;
  if(!Number.isInteger(frame.from)||!Number.isInteger(frame.to)||frame.from<0||frame.to<=frame.from||frame.to>frame.text.length||!Number.isFinite(x)||!Number.isFinite(y))return;

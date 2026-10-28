@@ -183,6 +183,19 @@ export class ContinuousView{
     if(left<view.left+24)this.viewport.scrollLeft+=left-view.left-24;else if(left>view.right-24)this.viewport.scrollLeft+=left-view.right+24;
     return true;
   }
+  canvasForPage(page:number){return this.entries.get(page)?.canvas;}
+  markCanvas(canvas:HTMLCanvasElement,box:{x:number;y:number;width:number;height:number}){
+    const entry=[...this.entries.values()].find(e=>e.canvas===canvas||e.band?.includes(canvas));
+    if(!entry||!canvas.isConnected)return false;
+    this.host.querySelectorAll('.navigation-marker').forEach(e=>e.remove());
+    const marker=document.createElement('div');marker.className='navigation-marker';
+    const c=canvas.getBoundingClientRect(),p=entry.element.getBoundingClientRect();
+    marker.style.cssText=`left:${c.left-p.left+box.x*this.scale}px;top:${c.top-p.top+box.y*this.scale}px;width:${Math.max(4,box.width*this.scale)}px;height:${Math.max(5,box.height*this.scale)}px`;
+    entry.element.append(marker);this.reveal(canvas,box.y);
+    const left=marker.getBoundingClientRect().left,view=this.viewport.getBoundingClientRect();
+    if(left<view.left+24)this.viewport.scrollLeft+=left-view.left-24;else if(left>view.right-24)this.viewport.scrollLeft+=left-view.right+24;
+    return true;
+  }
   scroll(page:number){this.entries.get(page)?.element.scrollIntoView({block:'start'});}
   revealPage(page:number){const entry=this.entries.get(page),element=entry?.coveredBy===undefined?entry?.element:this.entries.get(entry.coveredBy)?.element;if(!element)return;const box=element.getBoundingClientRect(),view=this.viewport.getBoundingClientRect();if(box.bottom<=view.top+24||box.top>=view.bottom-24)element.scrollIntoView({block:'nearest'});}
   reveal(canvas:HTMLElement,y:number,scale=this.scale){const point=canvas.getBoundingClientRect().top+y*scale,view=this.viewport.getBoundingClientRect();if(point>view.bottom-24)this.viewport.scrollTop+=point-view.bottom+24;else if(point<view.top+24)this.viewport.scrollTop+=point-view.top-24;}
