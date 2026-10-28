@@ -293,6 +293,7 @@ function createState(text:string){return EditorState.create({doc:text,extensions
   if(applyingProjectReplace)return;
   if(update.docChanged||update.selectionSet){if(surroundSession)cancelSurround();navigationToken++;if(!previewApplying&&previewSession)endPreview();}
   if(update.docChanged){
+    el('pages').querySelectorAll('.navigation-marker').forEach(marker=>marker.remove());
     const edit={id:editSession+'-'+(++editSequence),startedAt:inputStartedAt||performance.now(),text:update.state.doc.toString()};inputStartedAt=0;
     localInputs.set(edit.id,{file:active,text:edit.text,startedAt:edit.startedAt,sequence:editSequence});if(localInputs.size>128)localInputs.delete(localInputs.keys().next().value!);
     editDetails.set(active,edit);latestEdit=edit;previewKnownCurrent=false;
@@ -546,13 +547,13 @@ async function cursorLocation(nav:Navigation,page:number,bundleId?:string):Promi
   if(nav.nativeInputs&&bundleId)return api.call('nativeNavigation',bundleId,'forward',{file,line,page});
   return forwardPosition(nav,file,text,head,page);
 }
-function markLocation(row:Region){
+function markLocation(row:Region,highlight=true){
   const canvas=current?.canvas as HTMLCanvasElement|undefined;if(!canvas)return;
-  if(model.continuousPreview){const id=current.id;void continuousSetup.then(()=>{if(current?.id!==id||!model.continuousPreview)return;continuousView.mark(row[2],{x:row[3],y:row[4],width:row[5],height:row[6]});el('navState').textContent=`${row[0].split(/[\\/]/).at(-1)} · line ${row[1]}`;});return;}
+  if(model.continuousPreview){const id=current.id;void continuousSetup.then(()=>{if(current?.id!==id||!model.continuousPreview)return;continuousView.mark(row[2],{x:row[3],y:row[4],width:row[5],height:row[6]},false,highlight);el('navState').textContent=`${row[0].split(/[\\/]/).at(-1)} · line ${row[1]}`;});return;}
   const viewport=el('pdfViewport'),pages=el('pages');pages.querySelector('.navigation-marker')?.remove();
-  const marker=document.createElement('div');marker.className='navigation-marker';
+  if(highlight){const marker=document.createElement('div');marker.className='navigation-marker';
   marker.style.cssText=`left:${row[3]*scale}px;top:${row[4]*scale}px;width:${Math.max(4,row[5]*scale)}px;height:${Math.max(5,row[6]*scale)}px`;
-  pages.append(marker);
+  pages.append(marker);setTimeout(()=>marker.remove(),1200);}
   const canvasBox=canvas.getBoundingClientRect(),viewportBox=viewport.getBoundingClientRect();
   viewport.scrollTop+=canvasBox.top-viewportBox.top+row[4]*scale-viewport.clientHeight/2;
   const left=canvasBox.left-viewportBox.left+viewport.scrollLeft+row[3]*scale;if(left<viewport.scrollLeft||left>viewport.scrollLeft+viewport.clientWidth-30)viewport.scrollLeft=Math.max(0,left-40);
@@ -565,15 +566,15 @@ async function locateContinuous(explicit:boolean){
   if(!valid())return;
   const line=view!.state.doc.lineAt(at).number,flow=liveFlow?.canvas.isConnected?liveFlow:undefined,basis=continuousBasis;
   const status=(ok:boolean)=>{if(ok)el('navState').textContent=`${file.split(/[\\/]/).at(-1)} · line ${line}`;else if(explicit)el('navState').textContent='No current mapped output here; wait for the preview to update.';};
-  if(neutralIds.size){const context=retainedContext(),found=context&&retainedNavigation.forward(context,at);if(found&&valid()){const marked=continuousView.mark(found.page,found.glyph);if(marked)pageNumber=found.page;status(marked);}else status(false);return;}
+  if(neutralIds.size){const context=retainedContext(),found=context&&retainedNavigation.forward(context,at);if(found&&valid()){const marked=continuousView.mark(found.page,found.glyph,false,explicit);if(marked)pageNumber=found.page;status(marked);}else status(false);return;}
   const pages=currentLivePages();
   if(pages){
     const found=pages.pages.flatMap(p=>p.locations.map(g=>({p,g}))).filter(({g})=>view!.state.doc.lineAt(g.at).number===line).sort((a,b)=>Math.abs(a.g.at-at)-Math.abs(b.g.at-at))[0];
-    const marked=!!found&&(found.p.canvas?continuousView.markCanvas(found.p.canvas,found.g):continuousView.mark(found.p.page,found.g));if(marked)pageNumber=found.p.page;status(marked);return;
+    const marked=!!found&&(found.p.canvas?continuousView.markCanvas(found.p.canvas,found.g,explicit):continuousView.mark(found.p.page,found.g,false,explicit));if(marked)pageNumber=found.p.page;status(marked);return;
   }
   if(flow&&file===flow.file&&text===flow.text&&at>=flow.from&&at<flow.to){
     const glyph=flow.locations.reduce<FlowLocation|undefined>((best,g)=>!best||Math.abs(g.at-at)<Math.abs(best.at-at)?g:best,undefined);
-    const found=!!glyph&&continuousView.mark(flow.page,glyph,true);if(found)pageNumber=flow.page;status(found);return;
+    const found=!!glyph&&continuousView.mark(flow.page,glyph,true,explicit);if(found)pageNumber=flow.page;status(found);return;
   }
   if(flow?.stateChanged){status(false);return;}
   if(!basis){status(false);return;}
@@ -585,7 +586,7 @@ async function locateContinuous(explicit:boolean){
   if(!valid())return;
   const row=basis.navigation.nativeInputs?await cursorLocation(basis.navigation,pageNumber,basis.id):forwardPosition(basis.navigation,file,mappedText,mappedAt,pageNumber);
   if(!valid())return;
-  const found=!!row&&continuousView.mark(row[2],{x:row[3],y:row[4],width:row[5],height:row[6]});if(found)pageNumber=row![2];status(found);
+  const found=!!row&&continuousView.mark(row[2],{x:row[3],y:row[4],width:row[5],height:row[6]},false,explicit);if(found)pageNumber=row![2];status(found);
 }
 async function locateSource(explicit:boolean){
   if(model.continuousPreview&&view){if(explicit)endPreview();await locateContinuous(explicit);return;}
@@ -602,7 +603,7 @@ async function locateSource(explicit:boolean){
     copyCanvasMetadata(canvas,candidate.canvas);
     renderToken++;current={...current,canvas,page:row[2]};show(current);if(!model.continuousPreview)candidate.canvas.width=candidate.canvas.height=0;
   }
-  markLocation(row);
+  markLocation(row,explicit);
 }
 el('editPreview').onclick=()=>void command(async()=>{navigationToken++;endPreview();const enabled=model.previewEditing=!model.previewEditing;renderTabs();await flush();await api.call('previewEditing',enabled);el('navState').textContent=enabled?'Preparing editable text · click plain text after the preview updates':'Click PDF text to show its source';});
 el('locate').onclick=()=>void command(()=>locateSource(true));

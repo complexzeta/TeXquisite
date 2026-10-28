@@ -28,6 +28,14 @@ const hash=s=>createHash('sha256').update(s).digest('hex'),delay=ms=>new Promise
    assert.equal(await page.evaluate(()=>document.querySelector('.cm-content').cmTile.root.view.state.selection.main.head),want,String(want));
   }
   result.twoWayAcrossPages=true;result.unchangedPageChecked=!!firstParagraph;
-  await page.evaluate(()=>{const v=document.querySelector('.cm-content').cmTile.root.view,c=document.querySelector('[data-local-layout="continuous-pages"]'),r=c.getBoundingClientRect();v.dispatch({changes:{from:0,insert:'%'},selection:{anchor:1}});c.dispatchEvent(new MouseEvent('click',{bubbles:true,clientX:r.left+100,clientY:r.top+100}));if(v.state.selection.main.head!==1)throw Error('Stale page moved caret');});result.staleRejected=true;result.passed=true;
+  // Explicit navigation briefly marks the destination, but passive following
+  // must scroll across pages without leaving any highlight over the text.
+  await page.locator('#locate').click();await page.waitForFunction(()=>!!document.querySelector('.navigation-marker'));
+  await page.waitForFunction(()=>!document.querySelector('.navigation-marker'),null,{timeout:3000});result.explicitHighlightExpires=true;
+  await page.locator('#follow').click();await page.waitForFunction(()=>!document.querySelector('.navigation-marker'),null,{timeout:3000});
+  await page.evaluate(at=>{const v=document.querySelector('.cm-content').cmTile.root.view;v.dispatch({selection:{anchor:at}});},targets[0]);
+  await page.waitForFunction(at=>{const m=window.pageFrames.at(-1).pageLocations.find(p=>p.locations.some(g=>g.at===at)),g=m?.locations.find(g=>g.at===at),c=document.querySelector(`.flow-page[data-page="${m?.page}"] canvas`),v=document.querySelector('#pdfViewport').getBoundingClientRect();if(!c||!g)return false;const r=c.getBoundingClientRect(),y=r.top+g.y*(r.width/612);return y>=v.top&&y<=v.bottom&&!document.querySelector('.navigation-marker');},targets[0],{timeout:5000});result.followScrollsWithoutHighlight=true;
+  await page.locator('#locate').click();await page.waitForFunction(()=>!!document.querySelector('.navigation-marker'));
+  await page.evaluate(()=>{const v=document.querySelector('.cm-content').cmTile.root.view,c=document.querySelector('[data-local-layout="continuous-pages"]'),r=c.getBoundingClientRect();v.dispatch({changes:{from:0,insert:'%'},selection:{anchor:1}});if(document.querySelector('.navigation-marker'))throw Error('Typing retained the old highlight');c.dispatchEvent(new MouseEvent('click',{bubbles:true,clientX:r.left+100,clientY:r.top+100}));if(v.state.selection.main.head!==1)throw Error('Stale page moved caret');});result.typingClearsHighlight=true;result.staleRejected=true;result.passed=true;
  }catch(e){result.error=String(e);throw e;}finally{if(page)await fs.writeFile(path.join(directory,'build.log'),await page.locator('#log').textContent().catch(()=>''));await app.evaluate(({app})=>app.exit(0)).catch(()=>{});await app.close().catch(()=>{});await fs.writeFile(path.join(directory,'result.json'),JSON.stringify(result,null,2));console.log(JSON.stringify(result));}
 })().catch(e=>{console.error(String(e));process.exitCode=1;});

@@ -165,7 +165,7 @@ export class ContinuousView{
     const canvas=e.canvas!;canvas.getContext('2d')!.drawImage(region,tile.sourceX,tile.sourceY,rect.width,rect.height,rect.x,rect.y,rect.width,rect.height);e.neutral.set(id,rect);e.patched=true;this.observer?.unobserve(e.element);this.restore(position);return canvas;
   }
   revealPosition(page:number,y:number){const e=this.entries.get(page);if(e&&!e.block&&!e.band&&e.coveredBy===undefined)this.reveal(e.element,y);}
-  mark(page:number,box:{x:number;y:number;width:number;height:number},live=false){
+  mark(page:number,box:{x:number;y:number;width:number;height:number},live=false,highlight=true){
     const e=this.entries.get(page);if(!e)return false;
     let y=box.y;
     if(!live&&e.block){
@@ -174,25 +174,29 @@ export class ContinuousView{
       else if(y+box.height>top)return false;
     }
     this.host.querySelectorAll('.navigation-marker').forEach(e=>e.remove());
-    const marker=document.createElement('div');marker.className='navigation-marker';
-    marker.style.cssText=`left:${box.x*this.scale}px;top:${y*this.scale}px;width:${Math.max(4,box.width*this.scale)}px;height:${Math.max(5,box.height*this.scale)}px`;
     const target=live?e.block:e.element;if(!target)return false;
-    if(live){marker.style.top=(e.top!/(this.scale*this.ratio)+y)*this.scale+'px';}
-    e.element.append(marker);this.reveal(e.element,live?e.top!/(this.scale*this.ratio)+y:y);
-    const left=marker.getBoundingClientRect().left,view=this.viewport.getBoundingClientRect();
+    const top=live?e.top!/(this.scale*this.ratio)+y:y;
+    if(highlight){const marker=document.createElement('div');marker.className='navigation-marker';
+      marker.style.cssText=`left:${box.x*this.scale}px;top:${top*this.scale}px;width:${Math.max(4,box.width*this.scale)}px;height:${Math.max(5,box.height*this.scale)}px`;
+      e.element.append(marker);setTimeout(()=>marker.remove(),1200);
+    }
+    this.reveal(e.element,top);
+    const left=e.element.getBoundingClientRect().left+box.x*this.scale,view=this.viewport.getBoundingClientRect();
     if(left<view.left+24)this.viewport.scrollLeft+=left-view.left-24;else if(left>view.right-24)this.viewport.scrollLeft+=left-view.right+24;
     return true;
   }
   canvasForPage(page:number){return this.entries.get(page)?.canvas;}
-  markCanvas(canvas:HTMLCanvasElement,box:{x:number;y:number;width:number;height:number}){
+  markCanvas(canvas:HTMLCanvasElement,box:{x:number;y:number;width:number;height:number},highlight=true){
     const entry=[...this.entries.values()].find(e=>e.canvas===canvas||e.band?.includes(canvas));
     if(!entry||!canvas.isConnected)return false;
     this.host.querySelectorAll('.navigation-marker').forEach(e=>e.remove());
-    const marker=document.createElement('div');marker.className='navigation-marker';
     const c=canvas.getBoundingClientRect(),p=entry.element.getBoundingClientRect();
-    marker.style.cssText=`left:${c.left-p.left+box.x*this.scale}px;top:${c.top-p.top+box.y*this.scale}px;width:${Math.max(4,box.width*this.scale)}px;height:${Math.max(5,box.height*this.scale)}px`;
-    entry.element.append(marker);this.reveal(canvas,box.y);
-    const left=marker.getBoundingClientRect().left,view=this.viewport.getBoundingClientRect();
+    if(highlight){const marker=document.createElement('div');marker.className='navigation-marker';
+      marker.style.cssText=`left:${c.left-p.left+box.x*this.scale}px;top:${c.top-p.top+box.y*this.scale}px;width:${Math.max(4,box.width*this.scale)}px;height:${Math.max(5,box.height*this.scale)}px`;
+      entry.element.append(marker);setTimeout(()=>marker.remove(),1200);
+    }
+    this.reveal(canvas,box.y);
+    const left=canvas.getBoundingClientRect().left+box.x*this.scale,view=this.viewport.getBoundingClientRect();
     if(left<view.left+24)this.viewport.scrollLeft+=left-view.left-24;else if(left>view.right-24)this.viewport.scrollLeft+=left-view.right+24;
     return true;
   }
