@@ -93,6 +93,7 @@ export class RegionCompositor{
       (a.heightSp===b.heightSp&&JSON.stringify(a.shape)===JSON.stringify(b.shape)||sameSingleLinePlacement(a,b));
   }
   neutralCompatible(output:ParagraphOutput){const a=this.original.fragment,b=output.fragment;return !!a.neutralCharacters&&!!a.neutralWriteFree&&!!b.neutralCharacters&&!!b.neutralWriteFree&&!b.lectureSideEffects&&a.flowStateHash===b.flowStateHash&&this.compatible(output);}
+  neutralExclusions(output:ParagraphOutput){const a=this.original.fragment,b=output.fragment;return {baselineCharacters:!a.neutralCharacters,editedCharacters:!b.neutralCharacters,baselineWrites:!a.neutralWriteFree,editedWrites:!b.neutralWriteFree,sideEffects:!!b.lectureSideEffects,flowState:a.flowStateHash!==b.flowStateHash,layoutOrTable:!this.compatible(output),table:a.stateHash!==b.stateHash,width:a.widthSp!==b.widthSp,height:a.heightSp!==b.heightSp,depth:a.depthSp!==b.depthSp,padding:a.paddingSp!==b.paddingSp,shape:JSON.stringify(a.shape)!==JSON.stringify(b.shape),singleLine:sameSingleLinePlacement(a,b)};}
   inkTopSp(output:ParagraphOutput){return output.fragment.paddingSp+output.fragment.heightSp-this.original.fragment.heightSp;}
   flow(output:ParagraphOutput,allowStateChanges=false){
     const a=this.original.fragment,b=output.fragment;

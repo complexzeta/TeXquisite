@@ -60,11 +60,43 @@ canonical path. Immediate file writes and active characters have explicit native
 regressions. These exclusions are conservative, not a proof of arbitrary macro
 semantics or all native engine state.
 
+## Retained navigation and invalidation
+
+Retained patches now carry native glyph positions in page coordinates. The
+renderer keeps a bounded, immutable navigation ledger: every update accounts for
+the complete editor text, remaps unchanged blocks after source-offset shifts,
+and requires the exact root, file, baseline, revision, edit ID and text. Original
+baseline glyphs outside the edited ranges remain usable; old glyphs inside those
+ranges are excluded. These maps authorize navigation only, never visual editing
+or a raster patch.
+
+Continuous pages can receive retained patches with Follow typing off, without
+scrolling the viewport. A discarded or superseded retained patch is no longer
+acknowledged as painted. The source ledger advances only after display succeeds.
+
+Zoom and fit-width changes with retained blocks request a canonical build of the
+complete current source. The last good pixels remain visible while it runs.
+Switching layout no longer briefly redisplays the original baseline over local
+edits. New baseline source, compiler source, root, resources or environment
+invalidate experimental checkpoints even if a bundle identifier is reused.
+Returning to Lecture mode seeds the ledger only from a current canonical source.
+
+If a word is inserted before the newly selected paragraph is prepared, its caret
+can advance past the original paragraph end. The request now finds the first
+actual edit, verifies the complete independent substitution, and queues that
+checkpoint. Unaccounted changes still take the full path. A synthetic no-wait
+cross-page handoff measured 188–239 ms to a matching canvas in development checks
+(208 ms in the final interaction run);
+this is not a rerun of the larger private-manuscript benchmark above.
+
+Geometry exclusions remain conservative. Even inserting a descender can change
+paragraph depth and require fallback. Broader layout/state changes still use the
+full current source. No new executable or default-on setting is provided.
+
 ## Work required before enabling this
 
 - Account for the first uncached block and occasional slow cached returns.
 - Handle paragraph growth/reflow and interaction with floats and math.
-- Implement exact inverse navigation for retained edited blocks.
 - Extend invalidation and custom macro/engine-state coverage; EqTable equality
   alone is not a complete semantic proof for arbitrary TeX programs.
 - Broaden zoom, document switching, cancellation, history and memory testing.
@@ -88,6 +120,8 @@ process-local `TEMP`/`TMP` on that drive. Run native and Electron suites seriall
 node --test --test-concurrency=1 test/neutral-blocks.test.cjs test/neutral-preview.test.cjs
 node scripts/neutral-canvas-test.cjs
 node scripts/neutral-session-test.cjs
+node --test test/retained-navigation.test.cjs
+node scripts/retained-navigation-test.cjs
 ```
 
 The session test requires both independent local patches, automatic saving,
@@ -96,3 +130,20 @@ source and Lecture setting. The generic private-document harness additionally
 accepts `PERSISTENT_TEX_BLOCK_REVISITS=1` and `PERSISTENT_TEX_BLOCK_COUNT=2`.
 It still requires an explicit separate writable project clone; never point it
 at a user's working document.
+
+The navigation/invalidation follow-up passed 14 serialized source/native guards,
+including UTF-8 baseline columns, footer exclusion, stale revisions and a single
+worker switching paragraphs without preparation. Its final app check passed
+both directions on two edited pages, unchanged-text navigation, preserved
+scroll with Follow typing off, offset shifts, stale clicks, undo/redo, zoom,
+fit-width, vertical panels, view/mode switches, file switching, reflow fallback
+and export of all changes. A separate save/export/reopen run also passed.
+
+The final no-wait handoff was 208 ms to a current canvas; the other retained
+samples in that run were 32–70 ms. Test-driver waits can take about a second in
+a hidden window, so those waits are recorded separately and are not substituted
+for edit-to-canvas latency. These remain synthetic, hidden-window observations,
+not physical-screen timing or a universal bound. Some zoom proofs legitimately
+choose page/full fallback, and redo after moving between paragraphs may require
+a canonical build. Those paths were accepted only with the complete current
+source; no proof tolerance was relaxed to make a test pass.

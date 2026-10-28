@@ -19,6 +19,7 @@ export class ContinuousView{
     this.viewport.scrollLeft=position.left;
   }
   get visiblePage(){return this.position().page;}
+  ownsCanvas(page:number,canvas:HTMLCanvasElement){return this.entries.get(page)?.canvas===canvas;}
   private dispose(entries:typeof this.entries,keep?:HTMLCanvasElement){for(const e of entries.values())for(const c of [...(e.band??[]),...(e.pieces??[]),...(e.canvas?[e.canvas]:[]),...(e.block?[e.block]:[])])if(c!==keep)c.width=c.height=0;}
   clear(){this.epoch++;this.id='';this.observer?.disconnect();for(const e of this.entries.values())for(const c of [...(e.band??[]),...(e.pieces??[]),...(e.canvas?[e.canvas]:[]),...(e.block?[e.block]:[])])c.width=c.height=0;this.entries.clear();}
   matchesScale(scale:number,ratio:number){return Math.abs(this.scale-scale)<1e-7&&Math.abs(this.ratio-ratio)<1e-7;}

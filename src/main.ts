@@ -286,7 +286,14 @@ async function build(sourceText?:string,automatic=sourceText!==undefined) {
 function updateAppMenu(){Menu.setApplicationMenu(appMenu(state,(action,value)=>send({type:'menuAction',action,value})));if(window&&!window.isDestroyed()){window.setAutoHideMenuBar(false);window.setMenuBarVisibility(true);}}
 async function handle(method:string,args:unknown[]) {
   switch(method){
-    case 'previewPerformance': return {standby:controller?.standbyReport,localReady:localPreview.ready,localBusy:localPreview.busy};
+    case 'previewPerformance': return {standby:controller?.standbyReport,localReady:localPreview.ready,localBusy:localPreview.busy,localRange:localPreview.preparedRange};
+    case 'localRefresh': {
+      if(process.env.PERSISTENT_TEX_MULTI_BLOCK==='1'){
+        if(localPreview.hasLocalChanges){localPreview.stop();if(controller)void build(undefined,true).catch(e=>setStatus(String(e)));}
+        else localPreview.refresh();
+      }
+      return true;
+    }
     case 'localAck': {const entry=localWaiting.get(String(args[0]));if(entry){clearTimeout(entry.timer);localWaiting.delete(String(args[0]));const reply=args[1] as LocalVerification;entry.resolve(reply===true?true:reply&&typeof reply==='object'&&Number.isFinite(reply.dx)&&Number.isFinite(reply.dy)&&Math.abs(reply.dx)<=.01&&Math.abs(reply.dy)<=.01?reply:false);}return true;}
     case 'localCursor': {if(typeof args[0]==='string'&&typeof args[1]==='number'&&Number.isSafeInteger(args[1])&&args[1]>=0&&state.docs.some(doc=>doc.path===args[0])){controller?.noteActivity('cursor');state.lastCursor={file:args[0],at:args[1]};localPreview.move(args[0],args[1]);}return true;}
     case 'localWarm': {if(typeof args[0]==='string'&&typeof args[1]==='string'&&args[0]===state.root&&args[2]===latestEditId){localPreview.prepareNextEdit(args[0],args[1]);if(typeof args[3]==='number'&&Number.isFinite(args[3]))tracePreview({event:'local-displayed',editId:args[2],elapsedMs:args[3],layout:args[4]});}return true;}

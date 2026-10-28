@@ -1,4 +1,5 @@
 const {test}=require('node:test'),assert=require('node:assert/strict'),{createHash}=require('node:crypto');
+const os=require('node:os');os.setPriority(0,os.constants.priority.PRIORITY_BELOW_NORMAL);
 const {LocalPreview}=require('../dist/local-preview'),{ResidentCompiler}=require('../dist/resident');
 const delay=ms=>new Promise(r=>setTimeout(r,ms)),hash=s=>createHash('sha256').update(s).digest('hex');
 test('Independent paragraph eligibility rejects active characters and immediate file writes',{timeout:90000},async t=>{
@@ -23,8 +24,8 @@ test('A single resident worker carries proved ordinary edits across paragraph ch
  const local=new LocalPreview(async()=>true,async c=>{frames.push(c);return true;},id=>fallbacks.push(id),()=>{},s=>logs.push(s));t.after(()=>{local.stop();compiler.stop();});
  local.setContinuous(true);local.setLecture(true);local.setBasis({source,compilerSource:source,pdf,project,bundle:{id:'original'},options:{root:'main.tex'},takeCompiler:()=>borrowed?undefined:(borrowed=true,compiler)});
  let editor=source;const workerBefore=()=>compiler.worker;
- async function edit(marker,insert,id){const at=editor.indexOf(marker)+marker.length;local.move('main.tex',at);await until(()=>local.ready);const worker=workerBefore();editor=editor.slice(0,at)+insert+editor.slice(at);local.move('main.tex',at+insert.length,true);assert.equal(local.request('main.tex',editor,id),true);await until(()=>frames.some(f=>f.editId===id)||fallbacks.includes(id));const frame=frames.find(f=>f.editId===id);assert.ok(frame,logs.join(''));assert.ok(frame.neutralBlock,logs.join(''));assert.equal(frame.sourceHash,hash(editor));assert.equal(compiler.worker,worker);return frame;}
- const a=await edit('Alpha',' added','a'),worker=compiler.worker,b=await edit('Beta',' extra','b'),again=await edit('Alpha added',' again','again');
+ async function edit(marker,insert,id,prepared=true){const at=editor.indexOf(marker)+marker.length;if(prepared){local.move('main.tex',at);await until(()=>local.ready);}const worker=workerBefore();editor=editor.slice(0,at)+insert+editor.slice(at);local.move('main.tex',at+insert.length,true);assert.equal(local.request('main.tex',editor,id),true);await until(()=>frames.some(f=>f.editId===id)||fallbacks.includes(id));const frame=frames.find(f=>f.editId===id);assert.ok(frame,logs.join(''));assert.ok(frame.neutralBlock,logs.join(''));assert.equal(frame.sourceHash,hash(editor));assert.equal(compiler.worker,worker);return frame;}
+ const a=await edit('Alpha',' added','a'),worker=compiler.worker,b=await edit('Beta',' extra','b',false),again=await edit('Alpha added',' again','again');
  assert.equal(compiler.worker,worker);assert.deepEqual(b.neutralBlock.prior,[a.neutralBlock.id]);assert.equal(again.neutralBlock.ranges.length,2);assert.deepEqual(fallbacks,[]);assert.ok(logs.some(s=>s.includes('cache hit')),'A revisit reuses its region checkpoint');
  const at=editor.indexOf('Beta')+4;local.move('main.tex',at);await until(()=>local.ready);editor=editor.slice(0,at)+'\\global\\advance\\count20 by1 '+editor.slice(at);local.move('main.tex',at+29,true);local.request('main.tex',editor,'state-change');await until(()=>fallbacks.includes('state-change'));assert.ok(!frames.some(f=>f.editId==='state-change'),'Stateful edits cannot reuse independent overlays');assert.ok(compiler.initialized);
 });

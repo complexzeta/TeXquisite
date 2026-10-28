@@ -5,6 +5,7 @@ test('Neutral block projection retains every other edit and maps offsets',()=>{
  let blocks=new NeutralBlocks(source);blocks=blocks.proposed(a,'Alpha expanded words.\n\n');
  const at=blocks.actual(b);assert.equal(at.from,b.from+9);const editor=blocks.source().slice(0,at.from)+'Beta changed words.\n\n'+blocks.source().slice(at.to),p=blocks.project(editor,b);assert.ok(p);assert.match(p.source,/Alpha words.*Beta changed/s);assert.doesNotMatch(p.source,/Alpha expanded/);
  blocks=blocks.proposed(b,p.text);assert.equal(blocks.source(),editor);assert.equal(blocks.basePosition(blocks.actual(b).from+2),b.from+2);assert.equal(blocks.project(editor+'outside',b),undefined);
+ assert.equal(blocks.editStart(editor),undefined);assert.equal(blocks.editStart(editor.replace('Beta changed','Beta newly changed')),editor.indexOf('changed'));
  assert.equal(blocks.project(editor,{from:1,to:b.to}),undefined,'Overlapping blocks cannot reuse independent contexts');
  const restored=blocks.proposed(a,source.slice(a.from,a.to));assert.equal(restored.dirty.length,1);assert.match(restored.source(),/Alpha words.*Beta changed/s);
 });

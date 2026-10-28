@@ -54,7 +54,7 @@ const lineOffset=(source:string,line:number)=>{let at=0;while(line-->0){at=sourc
 type Request={source:string;fullSource?:string;editId:string;at:number;};
 type DiskInput={file:string;mtime:number;ctime:number;ino:number;size:number;};
 type Slot={neutralLast?:boolean;cancelWork?:()=>void;epoch?:number;cancelled?:boolean;regionKey?:string;edited?:boolean;latestSource?:string;file?:string;input?:IncludedInput;sourceText?:string;otherResources?:string;basis:LocalBasis;range:RegionRange;liveEnd:number;compiledRange:RegionRange;compiler:ResidentCompiler;compositor?:RegionCompositor;ready:boolean;abort:AbortController;diskInputs:DiskInput[];pageMode?:boolean;pageReady?:boolean;pageCostMs?:number;proofPage?:number;sourcePages?:PageSpan;baselineSpan?:PageSpan;continuation?:string;verifyPageRange?:()=>Promise<void>;};
-export interface LocalCandidate {neutralBlock?:{id:string;prior:string[];ranges:{id:string;from:number;to:number}[];caretY?:number};sourceFile?:string;root:string;baseId:string;editId:string;sourceHash:string;pdf:Uint8Array;page:number;timing:unknown;fragmentPdf?:Uint8Array;fragment?:RegionFragment;inkTopSp?:number;flowOutput?:{stateChanged?:boolean;locations?:ReturnType<typeof flowLocations>;baseRangeTo?:number;caretY?:number;rect:{x:number;y:number;width:number;height:number};leading:number;baselineLeading:number;fragmentRect:{x:number;y:number;width:number;height:number}};rangeFrom:number;rangeTo:number;footprint?:{x:number;y:number;width:number;height:number};pageOutput?:boolean;pageSpan?:PageSpan;sourcePages?:PageSpan;proofPage?:number;cursorPage?:number;cursorPosition?:ReturnType<typeof cursorPosition>;baselineSpan?:PageSpan;continuation?:string;}
+export interface LocalCandidate {neutralBlock?:{id:string;prior:string[];ranges:{id:string;from:number;to:number;baseFrom:number;baseTo:number}[];locations:ReturnType<typeof flowLocations>;caretY?:number};sourceFile?:string;root:string;baseId:string;editId:string;sourceHash:string;pdf:Uint8Array;page:number;timing:unknown;fragmentPdf?:Uint8Array;fragment?:RegionFragment;inkTopSp?:number;flowOutput?:{stateChanged?:boolean;locations?:ReturnType<typeof flowLocations>;baseRangeTo?:number;caretY?:number;rect:{x:number;y:number;width:number;height:number};leading:number;baselineLeading:number;fragmentRect:{x:number;y:number;width:number;height:number}};rangeFrom:number;rangeTo:number;footprint?:{x:number;y:number;width:number;height:number};pageOutput?:boolean;pageSpan?:PageSpan;sourcePages?:PageSpan;proofPage?:number;cursorPage?:number;cursorPosition?:ReturnType<typeof cursorPosition>;baselineSpan?:PageSpan;continuation?:string;}
 async function selectPages(pdf:Uint8Array,span:PageSpan){
   const partial=await PDFDocument.load(pdf,{throwOnInvalidObject:true}),selected=await PDFDocument.create();
   // Stable container metadata allows exact-byte reuse of a previously checked
@@ -65,15 +65,18 @@ async function selectPages(pdf:Uint8Array,span:PageSpan){
   return selected.save({useObjectStreams:false,objectsPerTick:1000});
 }
 export class LocalPreview{
+  get retainedBlocks(){return !!this.neutral?.ids.length;}
+  get hasLocalChanges(){return this.retainedBlocks||!!this.slot?.edited||!!this.pending||this.running;}
   private neutral?:NeutralBlocks;
   private editorSource?:string;
   private editorCursor?:{file:string;at:number};
   private readonly neutralEnabled=process.env.PERSISTENT_TEX_MULTI_BLOCK==='1';
   get ready(){return !!this.slot?.ready;}
+  get preparedRange(){const s=this.slot;if(!s)return;const range=this.neutral?.actual(s.range)??{from:s.range.from,to:s.liveEnd};return {file:s.file??s.basis.options.root,...range};}
   get busy(){return !!this.pending||this.running||!!this.slot&&!this.slot.ready;}
   private continuous=false;
   private lecture=false;
-  setLecture(enabled:boolean){if(this.lecture===enabled)return;this.lecture=enabled;if(!enabled)this.neutral=undefined;this.refresh();}
+  setLecture(enabled:boolean){if(this.lecture===enabled)return;this.lecture=enabled;if(!enabled)this.neutral=undefined;else if(this.neutralEnabled&&this.continuous&&this.basis&&this.editorSource===this.basis.source)this.neutral=new NeutralBlocks(this.basis.source);this.refresh();}
   setContinuous(enabled:boolean){if(this.continuous===enabled)return;this.continuous=enabled;if(!enabled)this.neutral=undefined;this.parked=[];this.idleAttempts.clear();this.disarm(true);this.schedule();}
   refresh(){this.parked=[];this.idleAttempts.clear();this.disarm(true);this.schedule();}
   private basis?:LocalBasis;
@@ -189,13 +192,14 @@ export class LocalPreview{
   setBasis(basis:LocalBasis){
     if(this.compositionBase?.id!==basis.bundle.id)this.compositionBase=undefined;
     const prior=this.basis;
-    if(prior?.bundle.id!==basis.bundle.id){this.neutral=this.neutralEnabled&&this.lecture&&this.continuous?new NeutralBlocks(basis.source):undefined;this.editorSource=basis.source;}
+    const replaced=prior?.bundle.id!==basis.bundle.id||this.neutralEnabled&&!!prior&&(prior.source!==basis.source||prior.compilerSource!==basis.compilerSource||prior.options.root!==basis.options.root||prior.project.resourceKey!==basis.project.resourceKey||prior.project.environmentKey!==basis.project.environmentKey);
+    if(replaced){this.neutral=this.neutralEnabled&&this.lecture&&this.continuous?new NeutralBlocks(basis.source):undefined;this.editorSource=basis.source;}
     if(prior?.bundle.id!==basis.bundle.id&&this.slot)this.rememberVisit();
     if(prior&&(prior.options.root!==basis.options.root||prior.project.environmentKey!==basis.project.environmentKey))this.visits=[];
-    this.cancelIdle();if(prior?.bundle.id!==basis.bundle.id){this.parked=[];this.idleAttempts.clear();}
+    this.cancelIdle();if(replaced){this.parked=[];this.idleAttempts.clear();}
     this.basis=basis;
     const s=this.slot;
-    if(s&&this.sameContext(s,basis)){const next=this.sourceFor(basis,s.file??s.basis.options.root);if(next&&this.regionText(s,next.text)!==undefined){this.scheduleIdle();return;}}
+    if(s&&!(this.neutralEnabled&&replaced)&&this.sameContext(s,basis)){const next=this.sourceFor(basis,s.file??s.basis.options.root);if(next&&this.regionText(s,next.text)!==undefined){this.scheduleIdle();return;}}
     const compatible=!!prior&&prior.options.root===basis.options.root&&prior.project.resourceKey===basis.project.resourceKey&&prior.project.environmentKey===basis.project.environmentKey;
     this.disarm(compatible);
     this.schedule();
@@ -416,8 +420,16 @@ export class LocalPreview{
   request(file:string,source:string,editId:string){
     const fullSource=source;this.editorSource=source;
     if(this.neutral&&file===this.basis?.options.root){
-      const range=this.slot?.range??(this.cursor&&paragraphAt(this.neutral.base,this.cursor.at)),projected=range&&this.neutral.project(source,range);
-      if(!projected){this.releaseForFull();return false;}source=projected.source;
+      let range=this.slot?.range??(this.cursor&&paragraphAt(this.neutral.base,this.cursor.at)),projected=range&&this.neutral.project(source,range);
+      if(!projected){
+        // A newly inserted word can put the caret past the ORIGINAL paragraph
+        // end while a cursor move is still warming. Anchor at the actual edit,
+        // and prove the complete substitution before switching checkpoints.
+        const start=this.neutral.editStart(source),changed=start===undefined?undefined:paragraphAt(this.neutral.base,this.neutral.basePosition(start));
+        const next=changed&&this.neutral.project(source,changed);
+        if(next){const ledger=this.neutral,cursor=this.editorCursor;this.editorSource=ledger.source();this.move(file,start!,false);this.editorCursor=cursor;this.editorSource=fullSource;if(this.neutral!==ledger)return false;range=changed;projected=next;}
+      }
+      if(!projected){this.log('Retained projection rejected: '+JSON.stringify({range,cursor:this.cursor,slot:!!this.slot,sourceLength:source.length,expectedLength:this.neutral.source().length})+'\n');this.releaseForFull();return false;}source=projected.source;
     }
     if(this.verifyingWithOwner)return false;
     this.cancelIdle();
@@ -432,7 +444,8 @@ export class LocalPreview{
       // The first keystroke can beat the scheduled preparation after a cursor
       // move. Queue it against the checked baseline instead of cold-building
       // the whole document while its warm compiler sits here unused.
-      this.pending={source,fullSource,editId,at:cursor.at};this.schedule();return !!this.neutral||!basis.canBuildAlongside?.();
+      const at=this.neutral&&this.editorCursor?range.from+this.editorCursor.at-this.neutral.actual(range).from:cursor.at;
+      this.pending={source,fullSource,editId,at};this.schedule();return !!this.neutral||!basis.canBuildAlongside?.();
     }
     slot.latestSource=source;
     if(source!==(slot.sourceText??slot.basis.source)){slot.edited=true;if(!this.neutral)this.parked=[];}
@@ -460,7 +473,8 @@ export class LocalPreview{
         if(flow){const y=flowCaretY(output.navigation,source,slot.compiledRange.from+request.at-slot.range.from,sourceName,output.fragment.page);
           if(this.neutral){
             const unchanged=request.source===(slot.sourceText??slot.basis.source)||plainTextChange(slot.sourceText??slot.basis.source,request.source);
-            if(unchanged&&!flow.stateChanged&&slot.compositor.neutralCompatible(output))return {kind:'neutral' as const,output,caretY:y===undefined?undefined:slot.compositor.y+y-(slot.compositor.inkTopSp(output)-output.fragment.paddingSp)*72/(72.27*65536)};
+            if(unchanged&&!flow.stateChanged&&slot.compositor.neutralCompatible(output))return {kind:'neutral' as const,output,locations:flowLocations(output.navigation,source,sourceName,output.fragment.page,range.from,range.to).map(g=>({...g,at:g.at-slot.compiledRange.from+slot.range.from,end:g.end-slot.compiledRange.from+slot.range.from,x:slot.compositor!.x+g.x,y:slot.compositor!.y+g.y-(slot.compositor!.inkTopSp(output)-output.fragment.paddingSp)*72/(72.27*65536)})),caretY:y===undefined?undefined:slot.compositor.y+y-(slot.compositor.inkTopSp(output)-output.fragment.paddingSp)*72/(72.27*65536)};
+            this.log('Retained block excluded: '+JSON.stringify(slot.compositor.neutralExclusions(output))+'\n');
             if(this.neutral.dirty.some(b=>b.id!==neutralId(slot.range)))throw new Error('A carried block changed layout or state.');
             this.neutral=undefined;
           }
@@ -528,7 +542,7 @@ export class LocalPreview{
           if(result.kind==='neutral'){
             if(!this.neutral)throw new Error('Neutral context expired.');proposed=this.neutral.proposed(slot.range,text);
             if(proposed.source()!==(request.fullSource??request.source))throw new Error('Neutral projection does not match the editor.');
-            candidate.neutralBlock={id:neutralId(slot.range),prior:this.neutral.ids,ranges:proposed.ranges,caretY:result.caretY};
+            candidate.neutralBlock={id:neutralId(slot.range),prior:this.neutral.ids,ranges:proposed.ranges,locations:result.locations.map(g=>({...g,at:g.at+rangeFrom-slot.range.from,end:g.end+rangeFrom-slot.range.from})),caretY:result.caretY};
           }
         }else{
           const output=result.output,span=output.pageSpan,old=slot.sourcePages!;
