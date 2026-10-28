@@ -3,7 +3,7 @@
 // PDF pages are lazy images here, not units of live pagination.
 export class ContinuousView{
   id='';private epoch=0;private observer?:IntersectionObserver;
-  private entries=new Map<number,{element:HTMLDivElement;canvas?:HTMLCanvasElement;pieces?:HTMLCanvasElement[];block?:HTMLCanvasElement;top?:number;bottom?:number;size:any;busy?:boolean;patched?:boolean;band?:HTMLCanvasElement[];coveredBy?:number}>();
+  private entries=new Map<number,{element:HTMLDivElement;canvas?:HTMLCanvasElement;pieces?:HTMLCanvasElement[];prefixInkBottom?:number;block?:HTMLCanvasElement;top?:number;bottom?:number;size:any;busy?:boolean;patched?:boolean;band?:HTMLCanvasElement[];coveredBy?:number}>();
   private pdf:any;private scale=1;private ratio=1;
   constructor(private host:HTMLElement,private viewport:HTMLElement){}
   // Capture immediately before a layout swap, so scrolling while a PDF is
@@ -117,16 +117,26 @@ export class ContinuousView{
     const e=this.entries.get(page);if(!e)throw new Error('Continuous baseline is unavailable.');
     const factor=this.scale*this.ratio,start=Math.max(0,Math.floor(flow.rect.y*factor)),end=Math.min(base.height,Math.ceil((flow.rect.y+flow.rect.height)*factor));
     if(end<=start||start>=base.height)throw new Error('Continuous block is outside its baseline.');
+    if(!Number.isFinite(flow.baselineLeading)||flow.baselineLeading<0||flow.baselineLeading>=200||!Number.isFinite(flow.leading)||flow.leading<0||flow.leading>=200)throw new Error('Invalid continuous block leading.');
+    const leading=Math.ceil(flow.leading*factor),prefixHeight=Math.min(end-start,Math.ceil((flow.rect.y+flow.baselineLeading)*factor)-start);
     const make=(height:number)=>{const c=document.createElement('canvas');c.width=base.width;c.height=height;c.style.width=e.size.originalWidth*this.scale+'px';c.style.height=height/this.ratio+'px';return c;};
     if(!e.pieces){
       const top=make(start),bottom=make(base.height-end);if(start)top.getContext('2d')!.drawImage(base,0,0,base.width,start,0,0,base.width,start);if(bottom.height)bottom.getContext('2d')!.drawImage(base,0,end,base.width,bottom.height,0,0,base.width,bottom.height);
-      e.pieces=[top,bottom];e.top=start;e.bottom=end;
+      // Interline glue is not necessarily blank: the preceding line's ink can
+      // extend into this slice. Retain its exact pixels before replacing it.
+      const prefix=make(prefixHeight);let inkBottom=0;
+      if(prefixHeight){const context=prefix.getContext('2d')!;context.drawImage(base,0,start,base.width,prefixHeight,0,0,base.width,prefixHeight);const pixels=context.getImageData(0,0,prefix.width,prefix.height).data;
+        outer:for(let y=prefix.height-1;y>=0;y--)for(let x=0;x<prefix.width;x++){const p=(y*prefix.width+x)*4;if(pixels[p]<250||pixels[p+1]<250||pixels[p+2]<250){inkBottom=y+1;break outer;}}
+      }
+      e.pieces=[top,bottom,prefix];e.prefixInkBottom=inkBottom;e.top=start;e.bottom=end;
     }else if(e.top!==start||e.bottom!==end)throw new Error('Continuous block baseline changed.');
-    const height=Math.max(1,Math.ceil(flow.leading*factor)+tile.patchHeight),oldBlock=e.block;
+    if(e.prefixInkBottom!>leading){tile.image?.close();throw new Error('Continuous block overlaps preceding ink; broader layout required.');}
+    const height=Math.max(1,leading+tile.patchHeight),oldBlock=e.block;
     const block=oldBlock?.height===height&&oldBlock.width===base.width?oldBlock:make(height),ctx=block.getContext('2d')!;
     const position=this.position(),oldCanvas=e.canvas;
     ctx.fillStyle='white';ctx.fillRect(0,0,block.width,block.height);
-    const draw=(image:CanvasImageSource)=>ctx.drawImage(image,tile.sourceX,tile.sourceY,tile.patchWidth,tile.patchHeight,Math.floor(flow.rect.x*factor),Math.ceil(flow.leading*factor),tile.patchWidth,tile.patchHeight);
+    const prefix=e.pieces[2],retained=Math.min(prefix.height,leading);if(retained)ctx.drawImage(prefix,0,0,prefix.width,retained,0,0,prefix.width,retained);
+    const draw=(image:CanvasImageSource)=>ctx.drawImage(image,tile.sourceX,tile.sourceY,tile.patchWidth,tile.patchHeight,Math.floor(flow.rect.x*factor),leading,tile.patchWidth,tile.patchHeight);
     if(tile.image){try{draw(tile.image);}finally{tile.image.close();}}
     else{
       const image=document.createElement('canvas');image.width=tile.width;image.height=tile.height;

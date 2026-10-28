@@ -100,7 +100,7 @@ export class RegionCompositor{
     if(!a.flowStateHash||!b.flowStateHash||!allowStateChanges&&(a.flowStateHash!==b.flowStateHash||b.lectureSideEffects)||a.widthSp!==b.widthSp||a.paddingSp!==b.paddingSp||![oldLeading,newLeading].every(v=>Number.isFinite(v)&&v>=0&&v<200))return;
     const rect={...foot,y:foot.y-oldLeading,height:foot.height+oldLeading};
     if(rect.y<0||rect.y+rect.height>this.base.getPage(this.page-1).getHeight())return;
-    return {rect,leading:newLeading,...(a.flowStateHash!==b.flowStateHash||b.lectureSideEffects?{stateChanged:true}:{}),fragmentRect:{x:b.paddingSp*spToBp-LOCAL_INK_BLEED_BP,y:b.paddingSp*spToBp-LOCAL_INK_BLEED_BP,width:b.widthSp*spToBp+2*LOCAL_INK_BLEED_BP,height:(b.heightSp+b.depthSp)*spToBp+2*LOCAL_INK_BLEED_BP}};
+    return {rect,leading:newLeading,baselineLeading:oldLeading,...(a.flowStateHash!==b.flowStateHash||b.lectureSideEffects?{stateChanged:true}:{}),fragmentRect:{x:b.paddingSp*spToBp-LOCAL_INK_BLEED_BP,y:b.paddingSp*spToBp-LOCAL_INK_BLEED_BP,width:b.widthSp*spToBp+2*LOCAL_INK_BLEED_BP,height:(b.heightSp+b.depthSp)*spToBp+2*LOCAL_INK_BLEED_BP}};
   }
   async compose(output:ParagraphOutput){
     if(!this.compatible(output))throw new Error('Paragraph layout or state changed; broader recomputation required.');
