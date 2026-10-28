@@ -2,7 +2,7 @@ const {test}=require('node:test'),assert=require('node:assert/strict'),fs=requir
 const {ResidentCompiler}=require('../dist/resident'),{LocalPreview}=require('../dist/local-preview');
 const hash=b=>createHash('sha256').update(b).digest('hex'),signal=()=>new AbortController().signal;
 test('Local preview invalidates disk dependencies and other open buffers before reusing a paragraph',{timeout:120000},async t=>{
- const directory=path.resolve('.test-output','local-inputs-'+randomUUID());await fs.mkdir(directory,{recursive:true});
+ const directory=require('../scripts/test-artifacts.cjs').testDirectory('local-inputs');
  const root=path.join(directory,'main.tex'),style=path.join(directory,'local-input.sty'),styleText='\\ProvidesPackage{local-input}\n\\def\\ContextWord{First context}\n';
  const source='\\documentclass{article}\n\\usepackage{local-input}\n\\begin{document}\n\n\\ContextWord: target paragraph with ordinary words.\n\nFollowing paragraph.\n\\end{document}\n';await fs.writeFile(root,source);await fs.writeFile(style,styleText);
  const compiler=new ResidentCompiler();let readyResolve,readyReject,fallbackResolve,published=0;

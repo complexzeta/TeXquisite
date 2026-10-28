@@ -14,12 +14,14 @@ test('A delayed local request keeps its warm compiler and the next edit remains 
  assert.equal(result.kind,'flow');assert.ok(result.output.timing.roundTripMs>=330,'The test must exceed the former 250 ms deadline');assert.equal(p.compiler.worker,worker);assert.ok(p.compiler.initialized);
  const nextResult=await p.lane.output(p.slot,{source:p.source,editId:'next',at:p.prefix.length+5});assert.equal(nextResult.kind,'flow');assert.equal(p.compiler.worker,worker);assert.ok(!p.messages.some(m=>m.includes('timed out')));
 });
-test('Nonterminating local TeX is still bounded and a full build can recover',{timeout:30000},async t=>{
+// These fixtures initialize a compiler, deliberately retire it, then initialize
+// another. Allow cold setup time without changing either local RPC deadline.
+test('Nonterminating local TeX is still bounded and a full build can recover',{timeout:90000},async t=>{
  const p=await prepared(t),next='Target \\def\\spin{\\spin}\\spin\n\n';await assert.rejects(p.lane.output(p.slot,{source:p.prefix+next+p.suffix,editId:'loop',at:p.prefix.length+8}));
  assert.ok(p.messages.some(m=>m.includes('Build timed out.')));assert.equal(p.compiler.initialized,false,'The hard timeout must stop the stuck owned worker');assert.ok((await p.compiler.compile(p.source,signal(),60000,()=>{},{characterMapping:true})).length>100);
 });
 
-test('A page with a measured higher cost survives a delay over one second without losing its checkpoint',{timeout:30000},async t=>{
+test('A page with a measured higher cost survives a delay over one second without losing its checkpoint',{timeout:90000},async t=>{
  const p=await prepared(t),range=p.slot.compiledRange,baseline=await p.compiler.previewRegionPage(p.source,range,1,signal(),10000,()=>{},{characterMapping:true},true),worker=p.compiler.worker,post=worker.postMessage.bind(worker);
  Object.assign(p.slot,{compositor:undefined,pageMode:true,pageReady:true,pageCostMs:1000,sourcePages:baseline.pageSpan,baselineSpan:baseline.pageSpan,continuation:baseline.timing.continuation});
  let delayed=false;worker.postMessage=(message,...args)=>{if(!delayed&&message.region?.action==='band'){delayed=true;setTimeout(()=>post(message,...args),1300);return;}return post(message,...args);};
@@ -34,4 +36,19 @@ test('Moving out of edited prose returns the warm worker and stale verification 
  const basis={...slot.basis,bundle:{id:'verified-but-behind'},source:p.source,replaceCompiler:()=>{replaced=true;return undefined;},returnCompiler:compiler=>{assert.equal(compiler,p.compiler);returned=true;return true;}};
  p.lane.basis=basis;p.lane.slot=slot;p.lane.scheduleIdle();await new Promise(r=>setTimeout(r,250));assert.equal(replaced,false);assert.equal(p.lane.slot,slot);
  p.lane.move('main.tex',p.source.indexOf('Following')+2);assert.equal(returned,true);assert.equal(p.lane.verifyingWithOwner,true,'A returned worker must keep new input on its full queue');assert.equal(p.lane.slot,undefined);assert.equal(p.compiler.worker,worker);assert.ok(p.compiler.initialized);p.lane.stop();
+});
+
+test('Rejected local pagination returns the live compiler before requesting full fallback',{timeout:60000},async t=>{
+ const p=await prepared(t),worker=p.compiler.worker;let returned=false,fallback;
+ p.slot.basis.bundle={id:'baseline-pagination'};
+ Object.assign(p.slot,{ready:true,sourceText:p.source,liveEnd:p.slot.range.to});
+ p.slot.basis.returnCompiler=compiler=>{assert.equal(compiler,p.compiler);assert.equal(compiler.worker,worker);assert.ok(compiler.initialized);returned=true;return true;};
+ p.lane.basis=p.slot.basis;p.lane.slot=p.slot;
+ p.lane.output=async()=>{throw Error('The affected page range changed without a verified continuation.');};
+ p.lane.fallback=id=>{assert.equal(returned,true);fallback=id;};
+ assert.equal(p.lane.request('main.tex',p.source.replace('Target','Changed'),'section-pagination'),true);
+ for(let i=0;i<100&&!fallback;i++)await new Promise(r=>setTimeout(r,10));
+ assert.equal(fallback,'section-pagination');assert.equal(p.lane.slot,undefined);assert.equal(p.lane.verifyingWithOwner,true);assert.equal(p.compiler.worker,worker);assert.ok(p.compiler.initialized);
+ const pdf=await p.compiler.compile(p.source.replace('Target','Changed'),signal(),15000,()=>{},{characterMapping:true});assert.ok(pdf.length>100);assert.equal(p.compiler.worker,worker,'Fallback compilation reuses the same worker');
+ p.lane.stop();
 });

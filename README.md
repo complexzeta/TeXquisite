@@ -4,7 +4,7 @@ A standalone LaTeX editor with source and compiled preview side by side. It save
 
 ## Download and try it
 
-**Early Windows x64 test release:** [Download TeXquisite 0.96.0](https://github.com/complexzeta/TeXquisite/releases/download/v0.96.0/TeXquisite-0.96.0-Windows.exe).
+**Early Windows x64 test release:** [Download TeXquisite 0.97.0](https://github.com/complexzeta/TeXquisite/releases/download/v0.97.0/TeXquisite-0.97.0-Windows.exe).
 
 1. Install TeX Live separately, including latexmk. TeXquisite does not bundle a full TeX distribution.
 2. Run the portable executable; no VS Code, Node.js or account is required to use it.

@@ -42,6 +42,19 @@ const hash=s=>createHash('sha256').update(s).digest('hex'),delay=ms=>new Promise
   result.privateMiBBeforeTyping=await app.evaluate(({app})=>Math.round(app.getAppMetrics().reduce((n,p)=>n+(p.memory.privateBytes??0),0)/1024));
   if(process.env.PERSISTENT_TEX_PAUSE_PROBE==='1'){
    const pause=Number(process.env.PERSISTENT_TEX_PAUSE_MS??500);if(![500,550,650].includes(pause))throw Error('Invalid pause probe duration');await ready();await page.evaluate(async root=>{const v=document.querySelector('.cm-content').cmTile.root.view,at=v.state.selection.main.head+1;v.dispatch({selection:{anchor:at},scrollIntoView:true});v.focus();await window.desktop.call('localCursor',root,at);},root);await delay(pause);await measure('resume-after-'+pause+'ms',()=>page.keyboard.type(' word',{delay:80}));
+  }else if(process.env.PERSISTENT_TEX_SECTION_PASTE==='1'){
+   await ready();
+   let lastSection;
+   for(const count of [1,4,12]){
+    await focus('LiveMark');
+    const section='\n\n\\section{A pasted lecture section '+count+'}\n\n'+Array.from({length:count},(_,i)=>'Inserted paragraph '+i+'. '+prose+'\n\n').join('');
+    await measure('paste-section-'+count,()=>page.evaluate(section=>{const v=document.querySelector('.cm-content').cmTile.root.view,at=v.state.selection.main.head,data=new DataTransfer();data.setData('text/plain',section);v.contentDOM.dispatchEvent(new ClipboardEvent('paste',{clipboardData:data,bubbles:true,cancelable:true}));},section));
+    assert.ok((await text()).includes(section),'Clipboard text must reach the editor exactly');lastSection=section;
+    await ready();
+   }
+   await measure('delete-pasted-section',async()=>{await page.evaluate(length=>{const v=document.querySelector('.cm-content').cmTile.root.view,at=v.state.doc.toString().indexOf('LiveMark')+8;v.dispatch({selection:{anchor:at,head:at+length},scrollIntoView:true});v.focus();},lastSection.length);await page.keyboard.press('Backspace');});
+   await ready();
+   await measure('restore-pasted-section',()=>page.evaluate(section=>{const v=document.querySelector('.cm-content').cmTile.root.view,data=new DataTransfer();data.setData('text/plain',section);v.contentDOM.dispatchEvent(new ClipboardEvent('paste',{clipboardData:data,bubbles:true,cancelable:true}));},lastSection));
   }else for(const mode of ['lecture','document']){
    if(process.env.PERSISTENT_TEX_BLOCK_TRANSITIONS==='1'){
     await page.locator('#previewMode').selectOption(mode);

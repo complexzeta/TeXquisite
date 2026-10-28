@@ -513,7 +513,13 @@ export class LocalPreview{
           // Keep the last displayed frame and restore this checkpoint for the
           // next character. Idle full verification can still report an error.
           this.log('Draft local TeX error; retaining the prepared context.\n');slot.compiler.prepareNextRegionEdit();
-        }else{const newest=this.newestId(request.editId);this.log('Broader layout required: '+String(error)+'\n');this.disarm();this.fallback(newest);}
+        }else{
+          const newest=this.newestId(request.editId);this.log('Broader layout required: '+String(error)+'\n');
+          // A failed layout proof retires the local frame, not a healthy TeX
+          // worker. Returning it through the controller's ownership checks
+          // avoids cold initialization when a section changes pagination.
+          this.releaseForFull();this.fallback(newest);
+        }
       }}
     }}finally{this.running=false;this.canPrefetch=false;this.scheduleIdle();}
   }
