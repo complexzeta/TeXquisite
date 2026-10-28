@@ -1,7 +1,8 @@
 # Experimental paragraph checkpoint reuse
 
-This is a bounded prototype, disabled by default. It is not included in a new
-portable release. Version 0.100.0 remains the published application.
+This is a bounded prototype, disabled by default. Version 0.100.0 remains the
+published application. The draft source identifies optional local test builds
+as 0.101.0; see [the lecture-document trial](LECTURE-DOCUMENT-RESULTS.md).
 
 The experiment tests whether independent paragraph checkpoints and retained
 page pixels can avoid a full-document refresh when moving between edited
