@@ -11,7 +11,7 @@ A standalone LaTeX editor with source and compiled preview side by side. It save
 3. In the first-run Build Settings check, confirm the detected TeX installation, or choose its installation/executable folder. Apply the settings.
 4. Open a .tex file, or choose the built-in mathematical example.
 
-[First-run guide](FIRST-RUN.md) · [Releases and checksums](https://github.com/complexzeta/TeXquisite/releases) · [Report a problem](https://github.com/complexzeta/TeXquisite/issues)
+[First-run guide](FIRST-RUN.md) · [Releases and checksums](https://github.com/complexzeta/TeXquisite/releases) · [Interactive latency results](LATENCY-RESULTS.md) · [Report a problem](https://github.com/complexzeta/TeXquisite/issues)
 
 ## Features
 
