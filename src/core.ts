@@ -15,6 +15,7 @@ import {makeNavigation,Navigation,sourceIdentities} from './navigation';
 import {capturePreviewFocus,PreviewFocus} from './navigation-query';
 import {textHash} from './navigation';
 import {emptyDocumentPreview} from './empty-document';
+import {previewRepair,recoverableTexError} from './preview-recovery';
 
 export const hash = (bytes: Uint8Array | string) => createHash('sha256').update(bytes).digest('hex');
 const legacyTkzLoader=/^[\t ]*\\usetkzobj\{all\}[\t ]*(?:%[^\r\n]*)?\r?$/m;
@@ -24,6 +25,7 @@ export interface Bundle {
   schema: 1; id: string; revision: number; root: string; engine: string;
   completed: string; pdfHash: string; pages: number; synctex: boolean;
   sourceHash?:string;
+  recovered?:boolean;
   navigationHash?:string;
 }
 export async function validatePdf(bytes: Uint8Array): Promise<number> {
@@ -60,7 +62,7 @@ export class ArtifactStore {
     if(!bundle.navigationHash)return;
     try{const bytes=await fs.readFile(path.join(path.dirname(this.pdf(bundle)),'navigation.json'));if(hash(bytes)===bundle.navigationHash)return JSON.parse(bytes.toString('utf8'));}catch{}
   }
-  async stage(pdf: Uint8Array, details: Pick<Bundle,'revision'|'root'|'engine'|'sourceHash'>, synctex?: Uint8Array,prepare?:(bundle:Bundle,pdf:Uint8Array,navigation?:Navigation)=>Promise<void>,navigation?:Navigation): Promise<Bundle> {
+  async stage(pdf: Uint8Array, details: Pick<Bundle,'revision'|'root'|'engine'|'sourceHash'|'recovered'>, synctex?: Uint8Array,prepare?:(bundle:Bundle,pdf:Uint8Array,navigation?:Navigation)=>Promise<void>,navigation?:Navigation): Promise<Bundle> {
     const pages = await validatePdf(pdf);
     await this.initialize();
     const mapping=navigation?JSON.stringify(navigation):undefined;
@@ -115,6 +117,7 @@ export class ArtifactStore {
     return result;
   }
   async export(bundle: Bundle, destination: string) {
+    if(bundle.recovered)throw new Error('This preview contains temporary LaTeX repairs. Fix the source errors before exporting a verified PDF.');
     const bytes = await fs.readFile(this.pdf(bundle));
     if (hash(bytes) !== bundle.pdfHash) throw new Error('Stored PDF failed its integrity check.');
     const temporary = destination+'.'+randomUUID()+'.tmp';
@@ -124,7 +127,7 @@ export class ArtifactStore {
 }
 
 export interface BuildOptions { focus?:{line:number;column:number}; root: string; engine: string; executable: string; timeoutMs: number; sourceRevision?:number; sourceText?:string; characterMapping?:boolean; sourceFiles?:Record<string,string>; supportFolders?:string[]; editId?:string; automatic?:boolean; }
-export interface DisplayTiming {editId?:string;backend:string;requestToCommitMs:number;}
+export interface DisplayTiming {editId?:string;backend:string;requestToCommitMs:number;recovered?:boolean;}
 export interface LocalBasis {bundle:Bundle;options:BuildOptions;source:string;compilerSource:string;project:ResidentContext;pdf:Uint8Array;canBuildAlongside?:()=>boolean;takeCompiler?:()=>ResidentCompiler|undefined;replaceCompiler?:(previous:ResidentCompiler)=>ResidentCompiler|undefined;returnCompiler?:(compiler:ResidentCompiler)=>boolean;claimAutomatic?:(editId:string,source:string,previous?:ResidentCompiler)=>ResidentCompiler|undefined;}
 export interface Viewer { prepare(bundle: Bundle,pdf?:Uint8Array,navigation?:Navigation,displayFocus?:PreviewFocus): Promise<void>; commit(bundle: Bundle,timing?:DisplayTiming): void; discard(bundle: Bundle): void; diagnostic?(issue:BuildDiagnostic):void; problems?(issues:BuildDiagnostic[],editId?:string):void; localBasis?(basis:LocalBasis):void; performance?(report:Record<string,unknown>):void; }
 export class BuildController {
@@ -134,6 +137,8 @@ export class BuildController {
   private retired=false;
   current?: Bundle;
   private active?: AbortController;
+  private activeDraft?:{identity:string;startedAt:number;automatic:boolean;compiling:boolean};
+  private staleDraftTimer?:NodeJS.Timeout;
   private pending?: BuildOptions;
   private pendingAt=0;
   private retryingNativeFor?:string;
@@ -236,6 +241,15 @@ export class BuildController {
     if(this.retired)return Promise.reject(new Error('Project closed.'));
     this.pendingAt=performance.now();
     this.pending = {...options,sourceFiles:options.sourceFiles?{...options.sourceFiles}:undefined};
+    clearTimeout(this.staleDraftTimer);
+    const draft=this.activeDraft;
+    if(draft?.automatic&&options.automatic&&draft.identity!==this.sourceIdentity(options)){
+      this.staleDraftTimer=setTimeout(()=>{
+        if(this.activeDraft!==draft||!draft.compiling||!this.pending?.automatic||this.sourceIdentity(this.pending)===draft.identity)return;
+        this.log('Stopping obsolete automatic typesetting so the newest edit can continue.\n');
+        this.active?.abort();this.residentTask?.abort.abort();
+      },Math.max(0,1000-(performance.now()-draft.startedAt)));this.staleDraftTimer.unref();
+    }
     // A capability retry for an obsolete draft must not hold newer input behind
     // a native process. Do not interrupt required external-processor builds.
     if(this.retryingNativeFor!==undefined&&options.automatic&&options.sourceText!==undefined&&this.sourceIdentity(options)!==this.retryingNativeFor)this.active?.abort();
@@ -245,7 +259,7 @@ export class BuildController {
     if (!this.loop) this.loop = this.drain().finally(()=>{this.loop=undefined;});
     return this.loop;
   }
-  cancel() { this.standbySeed=undefined;clearTimeout(this.standbyTimer);this.priming=undefined;this.generation++; this.pending=undefined; this.active?.abort();this.residentTask?.abort.abort();this.residentTask=undefined;this.canPrefetch=false;this.warm.stop();this.resident.stop();clearTimeout(this.pruneTimer); }
+  cancel() { clearTimeout(this.staleDraftTimer);this.standbySeed=undefined;clearTimeout(this.standbyTimer);this.priming=undefined;this.generation++; this.pending=undefined; this.active?.abort();this.residentTask?.abort.abort();this.residentTask=undefined;this.canPrefetch=false;this.warm.stop();this.resident.stop();clearTimeout(this.pruneTimer); }
   async dispose(){if(this.retired)return;this.retired=true;this.cancel();await this.loop?.catch(()=>{});await this.warm.stop();await this.pruneTask;BuildController.protectedDirectories.delete(path.join(this.store.directory,'cache',this.cacheSession));BuildController.protectedDirectories.delete(path.join(this.store.directory,'warm',this.cacheSession));const auxiliary=path.join(this.store.directory,'auxiliary'),users=(BuildController.auxiliaryUsers.get(auxiliary)??1)-1;if(users)BuildController.auxiliaryUsers.set(auxiliary,users);else BuildController.auxiliaryUsers.delete(auxiliary);}
   private async drain() {
     while (this.pending) {
@@ -264,6 +278,7 @@ export class BuildController {
     this.canPrefetch=false;
     const began=performance.now();
     const abort = new AbortController(); this.active=abort;
+    this.activeDraft={identity:this.sourceIdentity(options),startedAt:began,automatic:!!options.automatic,compiling:true};
     const generation=this.generation, revision=++this.revision;
     const check=()=>{if(abort.signal.aborted || generation!==this.generation) throw new Error('Build cancelled.');};
     // Reuse auxiliary state across edits, but never display this mutable output.
@@ -315,6 +330,7 @@ export class BuildController {
       let navigation:Navigation|undefined;
       let capabilityRetry=false;
       let backend='Native compilation.',warningLog='';
+      const recoveryIssues:BuildDiagnostic[]=[];
       if(residentEligible){
         let task=this.residentTask;
         if(task&&(task.source!==compilerSource||task.resourceKey!==project.resourceKey||task.characterMapping!==!!project.characterMapping)){await task.promise.catch(()=>{});if(this.residentTask===task)this.residentTask=undefined;task=undefined;check();}
@@ -322,19 +338,37 @@ export class BuildController {
         try{pdf=await task.promise;}
         catch(error){
           check();const message=String(error);
-          if(options.automatic&&error instanceof ResidentSourceError){this.log('Draft TeX error; retaining the resident checkpoint without a native retry.\n');throw error;}
-          capabilityRetry=true;
-          if(/I can't find file [`']tkz-obj-[^\r\n]+\.tex/.test(message)&&legacyTkzLoader.test(source)&&hasEuclide(source)){
-            this.log('Compatibility: modern tkz-euclide loads its objects automatically; the editor source remains unchanged.\n');
-            compilerSource=emptyDocumentPreview(withoutLegacyTkz(source));
-            try{pdf=await this.resident.compile(compilerSource,abort.signal,options.timeoutMs,this.log,project);capabilityRetry=false;if(pdf)this.legacyTkzCompatible=true;}
-            catch(retry){check();this.log('Resident capability check failed; checking the native engine. '+String(retry)+'\n');}
-          }else this.log('Resident capability check failed; checking the native engine. '+message+'\n');
+          if(options.automatic&&(error instanceof ResidentSourceError||recoverableTexError(message))){
+            let failure=error;const deadline=performance.now()+4000;
+            // A handful of known, local repairs may keep a lecture moving.
+            // New edits cancel recovery; repeated/unsafe errors never spin.
+            this.retryingNativeFor=this.sourceIdentity(options);
+            for(let attempt=0;attempt<3;attempt++){
+              check();
+              const parsed=parseDiagnostic(String(failure),diagnosticInputs);
+              if(parsed.file!==options.root)break;
+              const repair=previewRepair(compilerSource,String(failure));if(!repair||repair.source===compilerSource||performance.now()>=deadline)break;
+              recoveryIssues.push({...parsed,id:this.cacheSession+'-'+revision+'-recovery-'+attempt,root:options.root,editId:options.editId,severity:'error',sourceHash:hash(source.replace(/\r\n/g,'\n')),message:parsed.message+' '+repair.message+' Saved source is unchanged.'});
+              compilerSource=repair.source;this.log(repair.message+' Saved source is unchanged.\n');
+              this.status('Recovering the preview from a LaTeX error. You can keep editing.');
+              try{pdf=await this.resident.compile(compilerSource,abort.signal,Math.max(1,Math.min(options.timeoutMs,Math.ceil(deadline-performance.now()))),this.log,project);if(pdf)break;}
+              catch(next){failure=next;}
+            }
+            check();if(!pdf){this.log('Draft TeX error; keeping the last good preview. The next edit will retry automatically.\n');throw failure;}
+          }else{
+            capabilityRetry=true;
+            if(/I can't find file [`']tkz-obj-[^\r\n]+\.tex/.test(message)&&legacyTkzLoader.test(source)&&hasEuclide(source)){
+              this.log('Compatibility: modern tkz-euclide loads its objects automatically; the editor source remains unchanged.\n');
+              compilerSource=emptyDocumentPreview(withoutLegacyTkz(source));
+              try{pdf=await this.resident.compile(compilerSource,abort.signal,options.timeoutMs,this.log,project);capabilityRetry=false;if(pdf)this.legacyTkzCompatible=true;}
+              catch(retry){check();this.log('Resident capability check failed; checking the native engine. '+String(retry)+'\n');}
+            }else this.log('Resident capability check failed; checking the native engine. '+message+'\n');
+          }
         }finally{if(this.residentTask===task)this.residentTask=undefined;}
         if(pdf){
           warningLog=this.resident.diagnosticLog;
-          try{navigation=makeNavigation(this.resident.navigation,options.root,source,project.resources??[],captured.origins);}catch(e){this.log('Source navigation unavailable: '+String(e)+'\n');}
-          backend=this.resident.lastTiming?.preambleRebuilt?'Preamble initialized.':'Preamble cached.';this.warm.stop();this.log('Completed the document from a resident TeX checkpoint.\n');
+          if(!recoveryIssues.length)try{navigation=makeNavigation(this.resident.navigation,options.root,source,project.resources??[],captured.origins);}catch(e){this.log('Source navigation unavailable: '+String(e)+'\n');}
+          backend=recoveryIssues.length?'Recovered preview — temporary repairs; fix the reported LaTeX errors.':this.resident.lastTiming?.preambleRebuilt?'Preamble initialized.':'Preamble cached.';this.warm.stop();this.log('Completed the document from a resident TeX checkpoint.\n');
         }
       }
       if(!pdf){
@@ -362,6 +396,7 @@ export class BuildController {
       }
       if(!pdf){
         nativeAttempted=true;
+        if(options.automatic)this.retryingNativeFor=this.sourceIdentity(options);
         try{await runWithPreviewCompatibility(runProcess,options.executable,args,input,options.timeoutMs,abort.signal,nativeLog);}
         catch(error){
           const transcript=await fs.readFile(path.join(output,base+'.log'),'utf8').catch(()=>'');
@@ -379,6 +414,7 @@ export class BuildController {
       if(nativeAttempted)warningLog=await fs.readFile(path.join(output,base+".log"),"utf8").catch(()=>"");
       const warnings=parseWarnings(warningLog,diagnosticInputs,nativeTranscript).map((parsed,index):BuildDiagnostic=>{const text=parsed.file?diagnosticTexts.get(parsed.file):undefined;return {...parsed,id:this.cacheSession+"-"+revision+"-warning-"+index,root:options.root,editId:options.editId,...(text!==undefined?{sourceHash:hash(typeof text==="string"?text.replace(/\r\n/g,"\n"):Buffer.from(text).toString("utf8").replace(/\r\n/g,"\n"))}:{})};});
       compilerFinished=true;
+      if(this.activeDraft)this.activeDraft.compiling=false;
       if(mirror.selective&&!mirror.discoveryComplete)throw Error('Project input discovery did not complete. Check the discovery log; the previous preview has been retained.');
       this.canPrefetch=true;
       this.prefetchPending();
@@ -389,7 +425,7 @@ export class BuildController {
       pdf??=await fs.readFile(path.join(output,base+'.pdf'));
       const validatedAt=Date.now();
       let viewerMs=0;
-      bundle=await this.store.stage(pdf,{revision,root:options.root,engine:options.engine,sourceHash:hash(source)},sync,async(candidate,bytes,map)=>{
+      bundle=await this.store.stage(pdf,{revision,root:options.root,engine:options.engine,sourceHash:hash(source),...(recoveryIssues.length?{recovered:true}:{})},sync,async(candidate,bytes,map)=>{
         bundle=candidate;check();const began=performance.now();await this.viewer.prepare(candidate,bytes,map,capturePreviewFocus(map,options.root,source,options.focus,textHash));viewerMs=performance.now()-began;
       },navigation);
       const stagedAt=performance.now();
@@ -400,8 +436,9 @@ export class BuildController {
       await this.store.commit(bundle,check);
       const committedAt=performance.now();
       this.current=bundle;
-      this.viewer.commit(bundle,{editId:options.editId,backend,requestToCommitMs:committedAt-requestedAt});
-      this.viewer.problems?.(warnings,options.editId);
+      this.viewer.commit(bundle,{editId:options.editId,backend,requestToCommitMs:committedAt-requestedAt,recovered:!!recoveryIssues.length});
+      if(recoveryIssues.length)this.viewer.diagnostic?.(recoveryIssues[0]);
+      this.viewer.problems?.([...recoveryIssues,...warnings],options.editId);
       const acceptedBundle=bundle;let localHandoff=false;
       if(backend.startsWith('Preamble'))try{this.viewer.localBasis?.({bundle,options,source,compilerSource,project,pdf,canBuildAlongside:()=>this.independentLocalOwner,takeCompiler:()=>{
         // Transfer ownership only after publication and only while idle. Future
@@ -457,9 +494,10 @@ export class BuildController {
         const issue:BuildDiagnostic={...parsed,id:this.cacheSession+'-'+revision,root:options.root,editId:options.editId,...(text!==undefined?{sourceHash:hash(typeof text==='string'?text.replace(/\r\n/g,'\n'):Buffer.from(text).toString('utf8').replace(/\r\n/g,'\n'))}:{})};
         this.viewer.diagnostic?.(issue);
         this.viewer.problems?.([issue],options.editId);
-        this.status(`Build failed: ${issue.message} ${this.current?'Showing the last successful version.':'No successful preview yet.'}`);
+        this.status(`Build failed: ${issue.message} ${this.current?'Showing the last successful version.':'No successful preview yet.'} Keep editing; preview will retry automatically.`);
       }else this.status('Build cancelled. '+(this.current?'Showing the last successful version.':'No successful preview yet.'));
     } finally {
+      clearTimeout(this.staleDraftTimer);this.activeDraft=undefined;
       this.retryingNativeFor=undefined;
       this.active=undefined;
       if(bundle){this.store.releaseStage(bundle);if(this.current?.id!==bundle.id)await fs.rm(path.dirname(this.store.pdf(bundle)),{recursive:true,force:true}).catch(()=>{});}

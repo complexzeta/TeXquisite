@@ -9,6 +9,12 @@ const base=require('../scripts/test-artifacts.cjs').testDirectory('core');
 async function store(){return new ArtifactStore(path.join(base,randomUUID()));}
 async function pdf(text='one'){const d=await PDFDocument.create();d.addPage().drawText(text);return d.save();}
 const details={revision:1,root:'main.tex',engine:'pdflatex'};
+test('Recovered previews keep their label in history and cannot be exported as verified PDFs',async()=>{
+ const s=await store(),bundle=await s.stage(await pdf(),{...details,recovered:true});await s.commit(bundle);
+ assert.equal((await s.history())[0].recovered,true);
+ const destination=path.join(s.directory,'export.pdf');await assert.rejects(s.export(bundle,destination),/temporary LaTeX repairs/);
+ assert.equal(await fs.stat(destination).then(()=>true,()=>false),false);
+});
 
 for(const automatic of [false,true])test(automatic?'Automatic full work coalesces unstarted revisions while preserving the in-flight publication':'An already prefetched manual revision publishes once before the newest pending edit',async t=>{
  const s=await store(),project=path.join(s.directory,'source');await fs.mkdir(project,{recursive:true});const root=path.join(project,'main.tex');
@@ -56,19 +62,21 @@ for(const offer of ['takeCompiler','replaceCompiler'])test('An older '+offer+' o
  release();await next;assert.equal(transferred,undefined);assert.equal(controller.current.sourceHash,hash(options.sourceText.replace('Alpha','Beta')));
 });
 
-test('Automatic unfinished math retains the resident checkpoint without native retries; manual verification remains available',async t=>{
+test('Automatic unfinished math recovers or retains its preview without native retries; manual verification remains strict',async t=>{
  const s=await store(),project=path.join(s.directory,'source');await fs.mkdir(project,{recursive:true});
  const root=path.join(project,'main.tex'),source='\\documentclass{article}\n\\begin{document}\nMath: PLACEHOLDER\n\\end{document}\n';await fs.writeFile(root,source);
  const logs=[],controller=new BuildController(s,{prepare:async()=>{},commit:()=>{},discard:()=>{}},()=>{},m=>logs.push(m));t.after(()=>controller.cancel());
  let nativeRetries=0;controller.warm.compile=async()=>{nativeRetries++;throw Error('Native retry probe');};
  const options={root,engine:'pdflatex',executable:'latexmk',timeoutMs:30000,automatic:true};
  await controller.request({...options,sourceText:source.replace('PLACEHOLDER','')});const good=controller.current;assert.ok(good);
- for(const expression of ['$','$\\s','$\\sqrt','$\\sqrt\\p','$\\frac','$\\frac{','$\\frac{1}','$\\frac{1}{']){
-  await controller.request({...options,sourceText:source.replace('PLACEHOLDER',expression)});
-  assert.equal(controller.current.id,good.id,'Incomplete math must retain the accepted PDF');
+  let retained=good;
+  for(const expression of ['$','$\\s','$\\sqrt','$\\sqrt\\p','$\\frac','$\\frac{','$\\frac{1}','$\\frac{1}{']){
+   const draft=source.replace('PLACEHOLDER',expression);await controller.request({...options,sourceText:draft});
+   if(controller.current.id!==retained.id){assert.equal(controller.current.recovered,true,'A changed error preview must be labelled recovered');assert.equal(controller.current.sourceHash,hash(draft));}
+   retained=controller.current;
   assert.equal(nativeRetries,0,expression+'\n'+logs.join('').slice(-1600));
  }
- assert.equal(nativeRetries,0);assert.match(logs.join(''),/without a native retry/);
+  assert.equal(nativeRetries,0);assert.match(logs.join(''),/without a native retry|Preview temporarily/);
  const completed=source.replace('PLACEHOLDER','$\\sqrt\\pi$');await controller.request({...options,sourceText:completed});
  assert.equal(controller.current.sourceHash,hash(completed));assert.notEqual(controller.current.id,good.id);
  await controller.request({...options,automatic:false,sourceText:source.replace('PLACEHOLDER','$\\undefinedManualProbe$')});

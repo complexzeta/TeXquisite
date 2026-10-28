@@ -578,6 +578,10 @@ export class LocalPreview{
           // Keep the last displayed frame and restore this checkpoint for the
           // next character. Idle full verification can still report an error.
           this.log('Draft local TeX error; retaining the prepared context.\n');slot.compiler.prepareNextRegionEdit();
+          // Lecture mode suppresses ordinary idle verification. A failed draft
+          // needs an explicit recovery request, otherwise it stays invisible
+          // indefinitely while the UI still says it is updating.
+          this.fallback(this.newestId(request.editId));
         }else{
           const newest=this.newestId(request.editId);this.log('Broader layout required: '+String(error)+'\n');
           // A failed layout proof retires the local frame, not a healthy TeX

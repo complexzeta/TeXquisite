@@ -164,6 +164,7 @@ for(const button of el('mathTools').querySelectorAll<HTMLButtonElement>('button'
  button.addEventListener('mousedown',event=>event.preventDefault());button.addEventListener('click',()=>{if(previewSession?.math){previewChange('',false,false,button.dataset.math as MathAction);previewInput.focus({preventScroll:true});}});
 }
 function refreshPreviewStatus(){
+  if(current?.timing?.recovered&&current.timing.editId===latestEdit?.id){el('previewState').textContent='Recovered preview · LaTeX errors need attention';el('status').textContent=current.displayStatus+sourceWarning;previewUpdating=false;return;}
   if(localCanvas?.dataset.localLayout==='flow'&&localCanvas.dataset.localEditId===latestEdit?.id&&current?.timing?.editId===latestEdit?.id){el('previewState').textContent='Continuous scroll · paginated PDF verified';el('status').textContent=localStatus.replace('Paginated PDF verification pending.','Paginated PDF verified.')+sourceWarning;previewUpdating=false;return;}
   if(localCanvas){const newer=localCanvas.dataset.localEditId!==latestEdit?.id,lecture=model.previewMode==='lecture';el('previewState').textContent=(lecture?'Lecture preview · ':'Local paragraph preview · ')+(newer?'newer edits pending':lecture?'full PDF updates on Build or Export':'full document verification pending');el('status').textContent=(lecture?localStatus.replace(/(?:Paginated PDF|Full document) verification pending\./g,'Full PDF updates on Build or Export.'):localStatus)+(newer?' Newer edits pending.':'')+sourceWarning;return;}
   const pending=!previewKnownCurrent||!!latestEdit&&current?.timing?.editId!==latestEdit.id;
@@ -1058,7 +1059,7 @@ api.on(async message=>{
       current.canvas.dataset.editLatencyMs=elapsed===undefined?'':String(elapsed);
       current.canvas.dataset.editId=message.timing?.editId??'';
       current.canvas.dataset.timingEndpoint=message.visible?'paint opportunity':'canvas (window hidden)';
-      current.displayStatus=localElapsed!==undefined?`Full document verified. Local preview appeared in ${localElapsed} ms from edit.`:elapsed===undefined?'Preview updated.':`Preview updated in ${elapsed} ms from edit.`;
+      current.displayStatus=message.timing?.recovered?'Recovered preview updated.':localElapsed!==undefined?`Full document verified. Local preview appeared in ${localElapsed} ms from edit.`:elapsed===undefined?'Preview updated.':`Preview updated in ${elapsed} ms from edit.`;
       if(message.timing?.backend)current.displayStatus+=' '+message.timing.backend;
       if(message.timing&&!message.visible)current.displayStatus+=' Window hidden; measured to canvas.';
       if(message.timing&&previewUpdating)refreshPreviewStatus();

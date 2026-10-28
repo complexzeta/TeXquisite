@@ -211,12 +211,12 @@ async function selectRoot(root:string,automaticBuild=true) {
   if(current) {
     const history=await store.history();
     for(const bundle of history) {
-      try{await prepare(bundle,store);if(generation!==rootGeneration){send({type:'discard',id:bundle.id});return;}displayed=bundle;send({type:'commit',id:bundle.id});setStatus('Restored last successful preview. Source may have changed.');break;}
+      try{await prepare(bundle,store);if(generation!==rootGeneration){send({type:'discard',id:bundle.id});return;}displayed=bundle;send({type:'commit',id:bundle.id,...(bundle.recovered?{timing:{recovered:true,backend:'Recovered preview — LaTeX errors need attention.',requestToCommitMs:0}}:{})});setStatus(bundle.recovered?'Restored a recovered preview with temporary LaTeX repairs. Fix the reported errors; source may have changed.':'Restored last successful preview. Source may have changed.');break;}
       catch(e){appendLog(String(e)+'\n');}
     }
   } else setStatus('No successful preview yet. Save your source, then build.');
   await persist();
-  if(state.onSave&&automaticBuild){void build().catch(e=>setStatus(String(e)));void saveAllAndBuild(true,true).catch(e=>setStatus(String(e)));}
+  if(state.onSave&&automaticBuild){void build(undefined,true).catch(e=>setStatus(String(e)));void saveAllAndBuild(true,true).catch(e=>setStatus(String(e)));}
 }
 async function openFile(file:string,keepRoot=false,expectedGeneration?:number) {
   file=path.resolve(file);
@@ -563,7 +563,7 @@ async function handle(method:string,args:unknown[]) {
       if(!controller)return false;clearTimeout(fullVerification);localPreview.stop();controller.cancel();
       const store=controller.store,history=await store.history(),previous=history.find(x=>x.id!==displayed?.id);
       if(!previous)throw new Error('No preceding successful preview is available.');
-      await prepare(previous,store);displayed=previous;send({type:'commit',id:previous.id});setStatus('Showing the preceding successful preview.');return true;
+      await prepare(previous,store);displayed=previous;send({type:'commit',id:previous.id,...(previous.recovered?{timing:{recovered:true,backend:'Recovered preview — LaTeX errors need attention.',requestToCommitMs:0}}:{})});setStatus(previous.recovered?'Showing a preceding recovered preview with temporary LaTeX repairs.':'Showing the preceding successful preview.');return true;
     }
     case 'close': return closeWindow();
     default: throw new Error('Unknown command.');
