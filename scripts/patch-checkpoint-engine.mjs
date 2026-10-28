@@ -1,7 +1,8 @@
 import {readFile,writeFile} from 'node:fs/promises';
 import {execFileSync} from 'node:child_process';
-const root='.research/swift-source/pdftex.wasm/';
-async function patch(file,from,to){const source=execFileSync('git',['show','HEAD:pdftex.wasm/'+file],{cwd:'.research/swift-source',encoding:'utf8'}).replace(/\r\n/g,'\n');if(!source.includes(from))throw new Error('Unexpected upstream source: '+file);const result=source.replace(from,to);if(await readFile(root+file,'utf8')!==result)await writeFile(root+file,result);}
+const root=(process.env.PERSISTENT_TEX_ENGINE_SOURCE_ROOT??'.research/swift-source/pdftex.wasm').replaceAll('\\','/').replace(/\/$/,'')+'/';
+const baseline=process.env.PERSISTENT_TEX_ENGINE_BASELINE??'.research/swift-source';
+async function patch(file,from,to){const source=execFileSync('git',['show','HEAD:pdftex.wasm/'+file],{cwd:baseline,encoding:'utf8'}).replace(/\r\n/g,'\n');if(!source.includes(from))throw new Error('Unexpected upstream source: '+file);const result=source.replace(from,to);if(await readFile(root+file,'utf8')!==result)await writeFile(root+file,result);}
 await patch('tex/pdftexd.h','#define TeX','#define TeX\n#ifdef WEBASSEMBLY_BUILD\nextern int persistent_tex_checkpoint_cs;\nextern int persistent_tex_resuming;\nvoid persistent_tex_register_checkpoint(void);\nint persistent_tex_should_checkpoint(void);\nint persistent_tex_should_boundary(void);\nvoid persistent_tex_suspend_boundary(void);\nvoid persistent_tex_suspend(void);\n#endif');
 await patch('tex/pdftex0.c','  if ( eqtb [27165 ].hh .v.RH != -268435455L ) \n  begintokenlist ( eqtb [27165 ].hh .v.RH , 12 ) ;\n  lab60: getxtoken () ;',`  #ifdef WEBASSEMBLY_BUILD
   if (!persistent_tex_resuming) persistent_tex_register_checkpoint();

@@ -18,6 +18,10 @@ int persistentRegionConfigure(int first, int last, int end) {
   persistent_region_nodes=-268435455L;return 0;
 }
 int persistentFlowConfigure(int first,int last,int end){persistentRegionConfigure(first,last,end);persistent_region_flow=1;persistent_region_live_tail=-268435455L;return 0;}
+/* Lecture fragments retain normal TeX section/counter processing. Only marks,
+   deferred writes and PDF destinations may accompany their visual nodes; inserts, open/close
+   operations and arbitrary whatsits still require ordinary page output. */
+int persistentLectureFlowConfigure(int first,int last,int end){persistentFlowConfigure(first,last,end);persistent_region_flow=2;return 0;}
 int persistent_flow_holds_page(void){return persistent_region_enabled&&persistent_region_flow&&persistent_region_count>0;}
 int persistent_region_stop(void) {
   /* Expanded PGF commands spend most of their time in restricted horizontal
@@ -41,9 +45,29 @@ static int persistent_region_safe(halfword p,int depth,int *budget) {
     if(type==0||type==1){if(!persistent_region_safe(zmem[p+5].hh.v.RH,depth+1,budget))return 0;}
     else if(type==6){if(!persistent_region_safe(zmem[p+1].hh.v.RH,depth+1,budget))return 0;}
     else if(type==10){if(zmem[p+1].hh.v.RH!=-268435455L)return 0;} /* no leaders */
+    else if((persistent_region_flow&2)&&(type==4||(type==8&&(zmem[p].hh.b1==1||zmem[p].hh.b1==17))))persistent_region_flow|=4;
     else if(type!=2&&type!=7&&type!=9&&type!=11&&type!=12)return 0;
   }
   return 1;
+}
+/* The real output routine establishes LaTeX's protected-write context. A
+   provisional visual fragment must not execute auxiliary/bookmark writes in
+   its place. Strip only these zero-width nodes from the final copied list;
+   original TeX lists and counter state remain intact for restoration. */
+static halfword persistent_region_visual(halfword head) {
+  halfword previous=-268435455L,p=head;
+  while(p!=-268435455L){
+    halfword next=zmem[p].hh.v.RH;
+    if(p<himemmin&&zmem[p].hh.b0==8&&zmem[p].hh.b1==1){
+      if(previous==-268435455L)head=next;else zmem[previous].hh.v.RH=next;
+      zmem[p].hh.v.RH=-268435455L;flushnodelist(p);
+    }else{
+      if(p<himemmin&&(zmem[p].hh.b0==0||zmem[p].hh.b0==1))zmem[p+5].hh.v.RH=persistent_region_visual(zmem[p+5].hh.v.RH);
+      previous=p;
+    }
+    p=next;
+  }
+  return head;
 }
 void persistent_region_paragraph(halfword previous,int display) {
   if(!persistent_region_enabled||line<persistent_region_first||line>persistent_region_last||inopen!=persistent_input_index()||!persistent_input_index())return;
@@ -80,10 +104,13 @@ int persistentRegionPdf(void) {
     halfword first=persistent_region_nodes;
     while(first!=-268435455L&&zmem[first].hh.b0!=0&&zmem[first].hh.b0!=1)first=zmem[first].hh.v.RH;
     if(first==-268435455L){fclose(info);return 102;}
-    halfword box=vpackage(copynodelist(first),0,1,1073741823L);
+    halfword visual=copynodelist(first);
+    if(persistent_region_flow&2)visual=persistent_region_visual(visual);
+    halfword box=vpackage(visual,0,1,1073741823L);
     scaled padding=1048576L; /* 16 TeX points; compositor crops this margin. */
     fprintf(info,"],\"lines\":%d,\"widthSp\":%ld,\"heightSp\":%ld,\"depthSp\":%ld,\"paddingSp\":%ld,\"page\":%ld",lines,(long)zmem[box+1].cint,(long)zmem[box+3].cint,(long)zmem[box+2].cint,(long)padding,(long)totalpages+1);
     if(persistent_region_flow){
+      fprintf(info,",\"lectureSideEffects\":%s",(persistent_region_flow&4)?"true":"false");
       fputs(",\"everypar\":[",info);halfword p=zeqtb[27160].hh.v.RH;int tokens=0;
       if(p!=-268435455L)p=zmem[p].hh.v.RH;
       while(p!=-268435455L){if(tokens>=100000){fclose(info);return 102;}if(tokens++)fputc(',',info);fprintf(info,"%ld",(long)zmem[p].hh.v.LH);p=zmem[p].hh.v.RH;}

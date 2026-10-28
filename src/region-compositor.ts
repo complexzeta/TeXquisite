@@ -95,12 +95,12 @@ export class RegionCompositor{
   inkTopSp(output:ParagraphOutput){return output.fragment.paddingSp+output.fragment.heightSp-this.original.fragment.heightSp;}
   flow(output:ParagraphOutput,allowStateChanges=false){
     const a=this.original.fragment,b=output.fragment;
-    const leading=(f:RegionFragment)=>{let value=0;for(const row of f.shape){if(row[0]===0||row[0]===1)break;if(row[0]===10||row[0]===11)value+=row[1];else if(row[0]!==12)return NaN;}return value*spToBp;};
+    const leading=(f:RegionFragment)=>{let value=0;for(const row of f.shape){if(row[0]===0||row[0]===1)break;if(row[0]===10||row[0]===11)value+=row[1];else if(row[0]!==12&&!(f.lectureSideEffects&&(row[0]===4||row[0]===8)))return NaN;}return value*spToBp;};
     const oldLeading=leading(a),newLeading=leading(b),foot=this.footprint;
-    if(!a.flowStateHash||!b.flowStateHash||!allowStateChanges&&a.flowStateHash!==b.flowStateHash||a.widthSp!==b.widthSp||a.paddingSp!==b.paddingSp||![oldLeading,newLeading].every(v=>Number.isFinite(v)&&v>=0&&v<200))return;
+    if(!a.flowStateHash||!b.flowStateHash||!allowStateChanges&&(a.flowStateHash!==b.flowStateHash||b.lectureSideEffects)||a.widthSp!==b.widthSp||a.paddingSp!==b.paddingSp||![oldLeading,newLeading].every(v=>Number.isFinite(v)&&v>=0&&v<200))return;
     const rect={...foot,y:foot.y-oldLeading,height:foot.height+oldLeading};
     if(rect.y<0||rect.y+rect.height>this.base.getPage(this.page-1).getHeight())return;
-    return {rect,leading:newLeading,...(a.flowStateHash!==b.flowStateHash?{stateChanged:true}:{}),fragmentRect:{x:b.paddingSp*spToBp-LOCAL_INK_BLEED_BP,y:b.paddingSp*spToBp-LOCAL_INK_BLEED_BP,width:b.widthSp*spToBp+2*LOCAL_INK_BLEED_BP,height:(b.heightSp+b.depthSp)*spToBp+2*LOCAL_INK_BLEED_BP}};
+    return {rect,leading:newLeading,...(a.flowStateHash!==b.flowStateHash||b.lectureSideEffects?{stateChanged:true}:{}),fragmentRect:{x:b.paddingSp*spToBp-LOCAL_INK_BLEED_BP,y:b.paddingSp*spToBp-LOCAL_INK_BLEED_BP,width:b.widthSp*spToBp+2*LOCAL_INK_BLEED_BP,height:(b.heightSp+b.depthSp)*spToBp+2*LOCAL_INK_BLEED_BP}};
   }
   async compose(output:ParagraphOutput){
     if(!this.compatible(output))throw new Error('Paragraph layout or state changed; broader recomputation required.');

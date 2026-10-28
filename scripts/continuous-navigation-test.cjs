@@ -40,7 +40,26 @@ const hash=s=>createHash('sha256').update(s).digest('hex'),delay=ms=>new Promise
   const staleScroll=await page.locator('#pdfViewport').evaluate(e=>e.scrollTop);await clickAt(5);await delay(250);
   assert.equal(await page.locator('.navigation-marker').count(),0,'Stale source must not navigate to obsolete mappings');assert.equal(await page.locator('#pdfViewport').evaluate(e=>e.scrollTop),staleScroll);
   assert.equal(await fs.readFile(root,'utf8'),expected,'Clicks must not edit source; paused changes must stay unsaved');assert.deepEqual(errors,[]);
-  const result={passed:true,directory,sourceClickWithFollowOff:true,staticPageNavigation:true,liveWrappedText:true,inlineMath:true,adjacentParagraph:true,unchangedSuffix:true,includedSource:true,liveBlockPreserved:true,staleSourceRejected:true,nearEnd};await fs.writeFile(path.join(directory,'result.json'),JSON.stringify(result,null,2));console.log(JSON.stringify(result));
+  // A Lecture section has state effects, but its own literal body must retain
+  // both navigation directions after nonvisual write nodes are filtered.
+  await page.keyboard.press('Control+z');assert.equal(await page.evaluate(()=>document.querySelector('.cm-content').cmTile.root.view.state.doc.toString()),expected);
+  await page.locator('#live').click();await page.locator('#previewMode').selectOption('lecture');
+  await page.waitForFunction(()=>document.body.dataset.previewMode==='lecture');
+  await clickAt(expected.indexOf('AfterMark')+'AfterMark'.length);await page.waitForFunction(()=>document.querySelector('#previewState').dataset.localState==='ready',null,{timeout:60000});
+  await page.keyboard.insertText('\n\n\\section{NavigationHeading}\\label{nav:section}\n\nSectionAnchor ordinary words.\n\n');
+  const sectionSource=await page.evaluate(()=>document.querySelector('.cm-content').cmTile.root.view.state.doc.toString());
+  await page.waitForFunction(h=>document.querySelector('[data-local-layout="flow"]')?.dataset.localSourceHash===h,hash(sectionSource),{timeout:15000});
+  const sectionPage=await page.locator('[data-local-layout="flow"]').evaluate(c=>Number(c.closest('[data-page]').dataset.page)),word=sectionSource.indexOf('SectionAnchor');
+  await clickAt(word+4);await marked(sectionPage);
+  const hit=await page.locator('.navigation-marker').evaluate(e=>{const r=e.getBoundingClientRect();return {x:r.left+r.width/2,y:r.top+r.height/2};});
+  await page.evaluate(at=>{const v=document.querySelector('.cm-content').cmTile.root.view;v.dispatch({selection:{anchor:at}});},word+'SectionAnchor ordinary '.length);
+  await page.mouse.click(hit.x,hit.y);await page.waitForFunction(({from,to})=>{const head=document.querySelector('.cm-content').cmTile.root.view.state.selection.main.head;return head>=from&&head<=to;},{from:word,to:word+'SectionAnchor'.length},{timeout:10000});
+  await page.locator('#live').click();
+  await page.evaluate(at=>{const v=document.querySelector('.cm-content').cmTile.root.view;v.dispatch({changes:{from:at,insert:'X'},selection:{anchor:0}});},word);
+  await page.mouse.click(hit.x,hit.y);await delay(150);
+  assert.equal(await page.evaluate(()=>document.querySelector('.cm-content').cmTile.root.view.state.selection.main.head),0,'A live canvas for different source text must not move the caret');
+  assert.deepEqual(errors,[]);
+  const result={passed:true,directory,sourceClickWithFollowOff:true,staticPageNavigation:true,liveWrappedText:true,inlineMath:true,adjacentParagraph:true,unchangedSuffix:true,includedSource:true,liveBlockPreserved:true,staleSourceRejected:true,lectureSectionSourceNavigation:true,lectureSectionInverseNavigation:true,staleLectureSectionRejected:true,nearEnd};await fs.writeFile(path.join(directory,'result.json'),JSON.stringify(result,null,2));console.log(JSON.stringify(result));
  }catch(error){await fs.writeFile(path.join(directory,'failure.log'),String(error)+'\n'+await page.locator('#navState').textContent()+'\n'+await page.locator('#status').textContent()+'\n'+await page.locator('#log').textContent());console.error(directory);throw error;}
  finally{await app.evaluate(({BrowserWindow,dialog})=>{dialog.showMessageBox=async()=>({response:0});BrowserWindow.getAllWindows()[0].close();}).catch(()=>{});}
 })().catch(e=>{console.error(e);process.exitCode=1;});

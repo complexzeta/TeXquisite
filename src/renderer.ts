@@ -18,7 +18,7 @@ import {imageTex} from './image-paste';
 import {loadPdf,renderCheckedPdfRegion,copyPdfRaster} from './pdf-viewer';
 import {BaselineCache} from './baseline-cache';
 import {ContinuousView} from './continuous-view';
-import {forwardPosition,backward,sourceLineHasOutput,previewFocusTarget,previewFocusPrefix,PreviewFocus} from './navigation-query';
+import {forwardPosition,backward,sourceLineHasOutput,previewFocusTarget,previewFocusPrefix,PreviewFocus,liveFlowPosition,LiveFlowFrame} from './navigation-query';
 import type {BuildDiagnostic} from './diagnostics';
 import {diagnosticAdvice} from './diagnostics';
 import type {Navigation,Region} from './navigation';
@@ -51,7 +51,7 @@ const verifiedPageOutputs=new Set<string>();
 let localDocument:{pdf:any;task:ReturnType<typeof loadPdf>;span:{first:number;last:number}}|undefined;
 function releaseLocalDocument(){const doc=localDocument;localDocument=undefined;void doc?.task.destroy();}
 type FlowLocation={at:number;end:number;x:number;y:number;width:number;height:number};
-let liveFlow:{file:string;stateChanged?:boolean;text:string;from:number;to:number;baseTo:number;page:number;canvas:HTMLCanvasElement;locations:FlowLocation[]}|undefined;
+let liveFlow:(LiveFlowFrame&{stateChanged?:boolean;baseTo:number;page:number;canvas:HTMLCanvasElement;locations:FlowLocation[]})|undefined;
 const continuousBases=new Map<string,{id:string;navigation:Navigation;text?:string;texts?:Record<string,string>}>();
 let continuousBasis:{id:string;navigation:Navigation;text?:string;texts?:Record<string,string>}|undefined;
 let localPatch:{x:number;y:number;width:number;height:number;page:number}|undefined;
@@ -321,7 +321,7 @@ function renderTabs(){
   projectSidebar.update(model);
   el<HTMLSelectElement>('previewMode').value=model.previewMode==='lecture'?'lecture':'document';
   document.body.dataset.previewMode=model.previewMode==='lecture'?'lecture':'document';
-  toolbarSelect('previewMode',model.previewMode==='lecture'?'lecture':'pages',model.previewMode==='lecture'?'Lecture mode: keep live editing ready; full PDF updates on Build or Export. Continuous scroll is recommended.':'Document mode: verify the full document after typing pauses.');
+  toolbarSelect('previewMode',model.previewMode==='lecture'?'lecture':'pages',model.previewMode==='lecture'?'Lecture mode: flowing blocks across page boundaries; full PDF updates on Build or Export. Continuous scroll is recommended.':'Document mode: verify the full document after typing pauses.');
   toolbarButton('autoClose','braces',model.autoClose!==false?'Match pairs: on. Match delimiters, wrap selections and synchronize environment names':'Match pairs: off. Enable delimiter matching and linked environment names');el('autoClose').setAttribute('aria-pressed',String(model.autoClose!==false));
   updateMathTools();
   toolbarButton('editPreview','edit',model.previewEditing?'Edit preview: on':'Edit verified text and math in preview');el('editPreview').setAttribute('aria-pressed',String(!!model.previewEditing));
@@ -590,8 +590,19 @@ el('editPreview').onclick=()=>void command(async()=>{navigationToken++;endPrevie
 el('locate').onclick=()=>void command(()=>locateSource(true));
 el('follow').onclick=()=>void command(async()=>{navigationToken++;const enabled=model.followPreview=!model.followPreview;renderTabs();await api.call('follow',enabled);if(enabled&&model.followPreview)await locateSource(true);});
 el('pages').addEventListener('click',event=>void command(async()=>{
-  if(localCanvas){el('navState').textContent='Local preview is awaiting full verification. Continue editing in the source pane.';return;}
   const target=event.target as HTMLElement,canvas=target instanceof HTMLCanvasElement?target:undefined;
+  if(localCanvas){
+    const flow=liveFlow;
+    if(model.continuousPreview&&flow&&canvas===flow.canvas&&localCanvas===flow.canvas&&canvas.isConnected&&view){
+      const rect=canvas.getBoundingClientRect(),at=liveFlowPosition(flow,{root:model.root,file:active,baseId:continuousView.id,sourceHash:canvas.dataset.localSourceHash,editId:canvas.dataset.localEditId,text:view.state.doc.toString()},flow.locations,(event.clientX-rect.left)/scale,(event.clientY-rect.top)/scale);
+      if(at!==undefined){
+        endPreview();navigationToken++;pageNumber=flow.page;suppressFollow=true;
+        try{view.dispatch({selection:{anchor:at},effects:EditorView.scrollIntoView(at,{y:'center'})});view.focus();}finally{suppressFollow=false;}
+        el('navState').textContent=`${flow.file.split(/[\\/]/).at(-1)} · line ${view.state.doc.lineAt(at).number}`;return;
+      }
+    }
+    el('navState').textContent='Local preview is awaiting full verification. Continue editing in the source pane.';return;
+  }
   const flowPage=model.continuousPreview?canvas?.closest<HTMLElement>('.flow-page'):undefined;
   const candidate=current&&flowPage?{...current,canvas,page:Number(flowPage.dataset.page)}:current;
   if(!candidate?.navigation||!canvas||canvas!==candidate.canvas||model.continuousPreview&&!flowPage)return;
@@ -786,7 +797,7 @@ api.on(async message=>{
           continuousSetup=continuousView.show(message.baseId,baseline,copy,message.page,scale,window.devicePixelRatio||1);await continuousSetup;
         }
         const canvas=continuousView.patch(message.page,proof.canvas,tile,message.flowOutput);localCanvas=canvas;localPatch=undefined;displayedSequence=input.sequence;
-        liveFlow={file:message.sourceFile??message.root,stateChanged:!!message.flowOutput.stateChanged,text:input.text,from:message.rangeFrom,to:message.rangeTo,baseTo:message.flowOutput.baseRangeTo,page:message.page,canvas,locations:message.flowOutput.locations??[]};
+        liveFlow={root:message.root,baseId:message.baseId,sourceHash:message.sourceHash,editId:message.editId,file:message.sourceFile??message.root,stateChanged:!!message.flowOutput.stateChanged,text:input.text,from:message.rangeFrom,to:message.rangeTo,baseTo:message.flowOutput.baseRangeTo,page:message.page,canvas,locations:message.flowOutput.locations??[]};
         canvas.dataset.renderScope='local';canvas.dataset.localLayout='flow';canvas.dataset.localStateChanged=String(!!message.flowOutput.stateChanged);canvas.dataset.localSourceHash=message.sourceHash;canvas.dataset.localEditId=message.editId;canvas.dataset.sourceHash=current?.canvas.dataset.sourceHash??'';
         canvas.dataset.localPipeline=JSON.stringify({compiler:message.timing,receiveMs:receivedAt-inputAt,checkedRegionMs:tiledAt-receivedAt,pdfWorker:{queueMs:tile.queueMs,loadMs:tile.loadMs,rasterMs:tile.rasterMs,checkMs:tile.checkMs,cropMs:tile.cropMs,workerMs:tile.workerMs,rasterPasses:tile.rasterPasses},canvasMs:performance.now()-tiledAt});
         if(model.followPreview&&Number.isFinite(message.flowOutput.caretY))continuousView.reveal(canvas,message.flowOutput.caretY);

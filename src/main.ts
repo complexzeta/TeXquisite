@@ -287,6 +287,7 @@ async function handle(method:string,args:unknown[]) {
     case 'previewMode': {
       const mode=args[0];if(mode!=='lecture'&&mode!=='document')throw Error('Choose Lecture or Document mode.');
       clearTimeout(fullVerification);fullVerification=undefined;state.previewMode=mode;
+      localPreview.setLecture(mode==='lecture');
       await persist();tracePreview({event:'preview-mode',mode});
       if(mode==='document'&&state.onSave&&latestEditId&&controller)scheduleFullVerification(latestEditId,0);
       return state;
@@ -344,6 +345,7 @@ async function handle(method:string,args:unknown[]) {
     case 'initialize': {
       void runBackup();
       localPreview.setContinuous(!!state.continuousPreview);
+      localPreview.setLecture(state.previewMode==='lecture');
       const savedRoot=activePreviewRoot();state.root='';
       if(state.lastCursor&&state.docs.some(doc=>doc.path===state.lastCursor!.file)&&Number.isSafeInteger(state.lastCursor.at)&&state.lastCursor.at>=0)localPreview.move(state.lastCursor.file,state.lastCursor.at);
       if(savedRoot)void selectRoot(savedRoot).catch(e=>setStatus(String(e)));

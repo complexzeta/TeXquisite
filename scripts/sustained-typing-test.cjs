@@ -44,11 +44,14 @@ const hash=s=>createHash('sha256').update(s).digest('hex'),delay=ms=>new Promise
    const pause=Number(process.env.PERSISTENT_TEX_PAUSE_MS??500);if(![500,550,650].includes(pause))throw Error('Invalid pause probe duration');await ready();await page.evaluate(async root=>{const v=document.querySelector('.cm-content').cmTile.root.view,at=v.state.selection.main.head+1;v.dispatch({selection:{anchor:at},scrollIntoView:true});v.focus();await window.desktop.call('localCursor',root,at);},root);await delay(pause);await measure('resume-after-'+pause+'ms',()=>page.keyboard.type(' word',{delay:80}));
   }else if(process.env.PERSISTENT_TEX_SECTION_PASTE==='1'){
    await ready();
+   const initialPageHeight=await page.evaluate(()=>Math.max(...[...document.querySelectorAll('#pages canvas')].map(c=>c.height)));
    let lastSection;
-   for(const count of [1,4,12]){
+   for(const count of process.env.PERSISTENT_TEX_SECTION_PASTE_GROW==='1'?[1,4,12,32]:[1,4,12]){
     await focus('LiveMark');
     const section='\n\n\\section{A pasted lecture section '+count+'}\n\n'+Array.from({length:count},(_,i)=>'Inserted paragraph '+i+'. '+prose+'\n\n').join('');
     await measure('paste-section-'+count,()=>page.evaluate(section=>{const v=document.querySelector('.cm-content').cmTile.root.view,at=v.state.selection.main.head,data=new DataTransfer();data.setData('text/plain',section);v.contentDOM.dispatchEvent(new ClipboardEvent('paste',{clipboardData:data,bubbles:true,cancelable:true}));},section));
+    if(process.env.PERSISTENT_TEX_EXPECT_SECTION_FLOW==='1')assert.ok(result.scenarios.at(-1).frames.some(f=>f.layout==='flow'&&f.visible),'A pasted section must use visible flowing output');
+    if(count===32&&process.env.PERSISTENT_TEX_EXPECT_SECTION_FLOW==='1')assert.ok(await page.evaluate(height=>[...document.querySelectorAll('#pages canvas')].some(c=>c.dataset.localLayout==='flow'&&c.height>height),initialPageHeight),'The lecture block must visibly grow taller than a PDF page');
     assert.ok((await text()).includes(section),'Clipboard text must reach the editor exactly');lastSection=section;
     await ready();
    }

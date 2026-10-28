@@ -652,7 +652,7 @@ async function compile(nextPreamble:string,body:string,resources:[string,Uint8Ar
   }
   return {log,reason:'Auxiliary files did not converge in five resident passes.'};
 }
-type RegionRequest={pictureFamily?:boolean;baselineProof?:boolean;retain?:string;idle?:boolean;prepared?:string;input?:IncludedInput;action:'prepare'|'render'|'nodes'|'flow'|'page'|'band';start:number;end:number;page?:number;provisional?:boolean;focus?:number};
+type RegionRequest={lecture?:boolean;pictureFamily?:boolean;baselineProof?:boolean;retain?:string;idle?:boolean;prepared?:string;input?:IncludedInput;action:'prepare'|'render'|'nodes'|'flow'|'page'|'band';start:number;end:number;page?:number;provisional?:boolean;focus?:number};
 type RegionState={editedDrawingPrefix?:Checkpoint;drawingPrefixes?:Checkpoint[];editedFamilyCheckpoint?:Checkpoint;familyCheckpoints?:Checkpoint[];baselinePage?:number;baselinePageCostMs?:number;baselinePageCheckpoint?:Checkpoint;anchorOffset:number;key:string;inputFile?:string;rootSource?:Buffer;inputCheckpoint?:boolean;boundedPageOnly?:boolean;checkpoint:Checkpoint;prefixCheckpoint?:Checkpoint;warmCheckpoint?:Checkpoint;source:Buffer;start:number;end:number;environment:string;resources:string;dependencies:Map<string,{mtime:number;ctime:number;ino:number;size:number;hash:string}>;directories:Map<string,{mtime:number;ctime:number;ino:number}>;flowTable?:{bytes:Buffer;rawTag:string;flowTag:string;tokens?:string}};
 let localRegion:RegionState|undefined;
 const regionCache=new Map<string,RegionState>();
@@ -951,7 +951,11 @@ async function renderRegion(source:string,request:RegionRequest,jobName:string,e
     if(!Module._persistentRegionConfigure||!Module._persistentRegionPdf)throw new Error('Live paragraph output requires the updated engine.');
     writeWork(request.input?.file??jobName+'.tex',bytes);Module._persistentEnableCharacters(characterMapping?1:0);
     const first=bytes.subarray(0,request.start).toString('utf8').split('\n').length,last=bytes.subarray(0,request.end).toString('utf8').split('\n').length;
-    if(request.action==='flow'){if(!Module._persistentFlowConfigure)throw new Error('Continuous output requires the updated engine.');Module._persistentFlowConfigure(first,last,request.end);}else Module._persistentRegionConfigure(first,last,request.end);Module._persistentEnableCheckpoint(1);
+    if(request.action==='flow'){
+      const configure=request.lecture?Module._persistentLectureFlowConfigure:Module._persistentFlowConfigure;
+      if(!configure)throw new Error('Continuous output requires the updated engine.');
+      configure(first,last,request.end);
+    }else Module._persistentRegionConfigure(first,last,request.end);Module._persistentEnableCheckpoint(1);
     const inputsAt=performance.now();let code=Module._persistentResume();
     while(code===100&&Module._persistentCheckpointKind()!==2)code=Module._persistentResume();
     if(code!==100)throw new SourceError((code===104?'Local paragraph needs input beyond its boundary.':'Local paragraph did not reach a safe boundary.')+'\n'+context.memlog);
@@ -963,7 +967,7 @@ async function renderRegion(source:string,request:RegionRequest,jobName:string,e
     if(request.provisional&&process.env.PERSISTENT_TEX_DISABLE_STREAM_CACHE!=='1')context.persistentCompress=(bytes:Uint8Array,level:number)=>streamCache.compress(bytes,level);
     let sealed:number;try{sealed=Module._persistentRegionPdf();}finally{sealStarted=0;context.persistentCompress=priorCompress;}
     const sealedAt=performance.now(),sealTiming={beforeStateMs:digestStarted?digestStarted-stoppedAt:undefined,stateMs:digestFinished-digestStarted,afterStateMs:digestFinished?sealedAt-digestFinished:undefined,totalMs:sealedAt-stoppedAt,streamCacheHits:streamCache.hits,streamCacheMisses:streamCache.misses,streamCacheMs:streamCache.milliseconds,streamCacheBytes:streamCache.retainedBytes};
-    if(sealed===102)throw new Error('This region requires broader layout: supported local output is one paragraph without display breaks, inserts or output side effects.');
+    if(sealed===102)throw new Error('This region requires broader layout: unsupported output nodes or an unsafe flow boundary.');
     if(sealed!==0)throw new Error('Could not seal paragraph output.\n'+context.memlog);
     const fragment=JSON.parse(FS.readFile('/work/.persistent-tex/region.json',{encoding:'utf8'}));
     const directStateHash=regionStateHash!==undefined;

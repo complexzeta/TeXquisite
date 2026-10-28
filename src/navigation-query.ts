@@ -1,4 +1,16 @@
 import type {Navigation,Region} from './navigation';
+export interface LiveFlowFrame {root:string;file:string;baseId:string;sourceHash:string;editId:string;text:string;from:number;to:number;}
+export function liveFlowPosition(frame:LiveFlowFrame,current:{root:string;file:string;baseId:string;sourceHash?:string;editId?:string;text:string},locations:readonly {at:number;end:number;x:number;y:number;width:number;height:number}[],x:number,y:number){
+ if(!frame.root||!frame.file||!frame.baseId||!frame.sourceHash||!frame.editId||(['root','file','baseId','sourceHash','editId','text'] as const).some(key=>frame[key]!==current[key]))return;
+ if(!Number.isInteger(frame.from)||!Number.isInteger(frame.to)||frame.from<0||frame.to<=frame.from||frame.to>frame.text.length||!Number.isFinite(x)||!Number.isFinite(y))return;
+ let closest:typeof locations[number]|undefined,distance=24*24;
+ for(const g of locations){
+  if(!Number.isInteger(g.at)||!Number.isInteger(g.end)||g.at<frame.from||g.end>frame.to||g.end<=g.at||![g.x,g.y,g.width,g.height].every(Number.isFinite)||g.width<=0||g.height<=0)continue;
+  const d=Math.max(g.x-x,0,x-g.x-g.width)**2+Math.max(g.y-y,0,y-g.y-g.height)**2;
+  if(d<distance){closest=g;distance=d;}
+ }
+ return closest?(x<closest.x+closest.width/2?closest.at:closest.end):undefined;
+}
 const sameFile=(a:string,b:string)=>a===b||a.replaceAll('\\','/').toLowerCase()===b.replaceAll('\\','/').toLowerCase();
 export function sourceLineHasOutput(source:string){
  return !!source.trim()&&!/^\s*%/.test(source)&&!/^\s*\\(?:end\s*\{\s*document\s*\}|begin\s*\{\s*document\s*\}|(?:newpage|clearpage|cleardoublepage)\b)\s*(?:%.*)?$/.test(source);

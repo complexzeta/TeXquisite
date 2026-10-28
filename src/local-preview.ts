@@ -67,6 +67,8 @@ export class LocalPreview{
   get ready(){return !!this.slot?.ready;}
   get busy(){return !!this.pending||this.running||!!this.slot&&!this.slot.ready;}
   private continuous=false;
+  private lecture=false;
+  setLecture(enabled:boolean){if(this.lecture===enabled)return;this.lecture=enabled;this.refresh();}
   setContinuous(enabled:boolean){if(this.continuous===enabled)return;this.continuous=enabled;this.parked=[];this.idleAttempts.clear();this.disarm(true);this.schedule();}
   refresh(){this.parked=[];this.idleAttempts.clear();this.disarm(true);this.schedule();}
   private basis?:LocalBasis;
@@ -295,7 +297,7 @@ export class LocalPreview{
         slot.pageMode=!!prepared.familyRange||pictureBlock||(preparation?.baselinePageCostMs??0)>200||!anchoredPages.length;
       }else if(anchoredPages.length){slot.pageMode=true;slot.sourcePages={first:Math.min(...anchoredPages),last:Math.max(...anchoredPages)};}
       let original:Awaited<ReturnType<ResidentCompiler['previewRegionNodes']>>|undefined;
-      try{if(!slot.pageMode)original=await (this.continuous?slot.compiler.previewRegionFlow(basis.compilerSource,compiledRange,slot.abort.signal,30000,()=>{},project,true,input):slot.compiler.previewRegionNodes(basis.compilerSource,compiledRange,slot.abort.signal,30000,()=>{},project,input));}
+      try{if(!slot.pageMode)original=await (this.continuous?slot.compiler.previewRegionFlow(basis.compilerSource,compiledRange,slot.abort.signal,30000,()=>{},project,true,input,this.lecture):slot.compiler.previewRegionNodes(basis.compilerSource,compiledRange,slot.abort.signal,30000,()=>{},project,input));}
       catch(error){if(background||expanded||!this.verifyPages||slot.abort.signal.aborted)throw error;slot.pageMode=true;}
       const nodesAt=performance.now();
       if(!valid())return;
@@ -439,7 +441,7 @@ export class LocalPreview{
     }
     if(this.continuous&&slot.compositor&&!slot.pageMode){
       try{
-        const output=await slot.compiler.previewRegionFlow(rootSource,range,slot.abort.signal,1000,()=>{},project,true,input),flow=slot.compositor.flow(output,true);
+        const output=await slot.compiler.previewRegionFlow(rootSource,range,slot.abort.signal,1000,()=>{},project,true,input,this.lecture),flow=slot.compositor.flow(output,true);
         if(flow){const y=flowCaretY(output.navigation,source,slot.compiledRange.from+request.at-slot.range.from,sourceName,output.fragment.page);return {kind:'flow' as const,output,flow:{...flow,baseRangeTo:slot.range.to,locations:flowLocations(output.navigation,source,sourceName,output.fragment.page,range.from,range.to).map(g=>({...g,at:g.at-slot.compiledRange.from+slot.range.from,end:g.end-slot.compiledRange.from+slot.range.from,x:flow.rect.x+g.x-flow.fragmentRect.x,y:flow.leading+g.y-flow.fragmentRect.y})),caretY:y===undefined?undefined:flow.leading+y-flow.fragmentRect.y}};}
       }catch(error){if(error instanceof ResidentSourceError||slot.abort.signal.aborted)throw error;this.log('Flow preview fallback: '+String(error)+'\n');}
       // Prove the original page band lazily when flow gains

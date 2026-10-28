@@ -8,7 +8,7 @@ const {forward,backward}=require('../dist/navigation-query');
 const {nativeForward,nativeBackward}=require('../dist/native-navigation');
 
 test('Resident line navigation follows included chapters, survives repair, and matches PDF text positions',async t=>{
- const directory=path.resolve('.test-output','navigation-'+randomUUID()),project=path.join(directory,'source'),root=path.join(project,'main.tex');await fs.mkdir(path.join(project,'chapters'),{recursive:true});
+ const directory=require('../scripts/test-artifacts.cjs').testDirectory('navigation'),project=path.join(directory,'source'),root=path.join(project,'main.tex');await fs.mkdir(path.join(project,'chapters'),{recursive:true});
  const one=path.join(project,'chapters','one.tex'),two=path.join(project,'chapters','two.tex');
  const source='\\documentclass{article}\n\\usepackage{amsmath}\n\\begin{document}\nRoot introduction.\n\\input{chapters/one}\n\\newpage\n\\input{chapters/two}\n\\end{document}\n';
  await fs.writeFile(root,source);await fs.writeFile(one,'\\section{First chapter}\nAlphaOnly source marker.\n\\[\\sqrt{\\pi}+1\\]\n');await fs.writeFile(two,'\\section{Second chapter}\nBetaOnly source marker.\n');
@@ -34,7 +34,7 @@ test('Resident line navigation follows included chapters, survives repair, and m
 });
 
 test('Native SyncTeX navigates captured source paths in both directions',async t=>{
- const directory=path.resolve('.test-output','native-navigation-'+randomUUID()),root=path.join(directory,'main.tex');await fs.mkdir(directory,{recursive:true});
+ const directory=require('../scripts/test-artifacts.cjs').testDirectory('native-navigation'),root=path.join(directory,'main.tex');
  const source='\\documentclass{article}\n\\begin{document}\nNativeAlpha source marker.\n\\newpage\nNativeBeta source marker.\n\\end{document}\n';await fs.writeFile(root,source);
  const executable=process.platform==='win32'?'latexmk.exe':(process.env.PATH.split(path.delimiter).map(dir=>path.join(dir,'latexmk')).find(file=>require('node:fs').existsSync(file)));
  const store=new ArtifactStore(path.join(directory,'.store')),logs=[],controller=new BuildController(store,{prepare:async()=>{},commit:()=>{},discard:()=>{}},()=>{},s=>logs.push(s));t.after(()=>controller.cancel());
