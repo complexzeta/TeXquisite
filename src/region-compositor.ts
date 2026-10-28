@@ -92,6 +92,7 @@ export class RegionCompositor{
     return a.stateHash===b.stateHash&&a.widthSp===b.widthSp&&a.depthSp===b.depthSp&&a.paddingSp===b.paddingSp&&
       (a.heightSp===b.heightSp&&JSON.stringify(a.shape)===JSON.stringify(b.shape)||sameSingleLinePlacement(a,b));
   }
+  neutralCompatible(output:ParagraphOutput){const a=this.original.fragment,b=output.fragment;return !!a.neutralCharacters&&!!a.neutralWriteFree&&!!b.neutralCharacters&&!!b.neutralWriteFree&&!b.lectureSideEffects&&a.flowStateHash===b.flowStateHash&&this.compatible(output);}
   inkTopSp(output:ParagraphOutput){return output.fragment.paddingSp+output.fragment.heightSp-this.original.fragment.heightSp;}
   flow(output:ParagraphOutput,allowStateChanges=false){
     const a=this.original.fragment,b=output.fragment;

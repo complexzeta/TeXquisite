@@ -55,6 +55,8 @@ let liveFlow:(LiveFlowFrame&{stateChanged?:boolean;baseTo:number;page:number;can
 const continuousBases=new Map<string,{id:string;navigation:Navigation;text?:string;texts?:Record<string,string>}>();
 let continuousBasis:{id:string;navigation:Navigation;text?:string;texts?:Record<string,string>}|undefined;
 let localPatch:{x:number;y:number;width:number;height:number;page:number}|undefined;
+let neutralBaseId='';const neutralPages=new Map<number,HTMLCanvasElement>(),neutralIds=new Set<string>();
+function clearNeutralMetadata(){for(const c of neutralPages.values()){delete c.dataset.localSourceHash;delete c.dataset.localEditId;delete c.dataset.localLayout;delete c.dataset.neutralActive;}neutralPages.clear();neutralIds.clear();neutralBaseId='';}
 function clearLocalProofs(){for(const proof of localProofs.values())proof.release();localProofs.clear();localPageProofs.clear();for(const held of localPageBaselines.values())held.release();localPageBaselines.clear();}
 let compileIssue:BuildDiagnostic|undefined;
 let projectProblems:BuildDiagnostic[]=[];
@@ -636,6 +638,7 @@ async function render(pdf:any,page:number,includePixels=false){
   const zoom=scale,ratio=window.devicePixelRatio||1,canvas=await pdf.render(page,zoom,ratio,includePixels);canvas.dataset.renderScale=String(zoom);canvas.dataset.renderRatio=String(ratio);canvas.dataset.pageWidth=String(parseFloat(canvas.style.width)/zoom);canvas.dataset.pageHeight=String(parseFloat(canvas.style.height)/zoom);return canvas;
 }
 function show(candidate:any,reconcileBands=false){
+  if(neutralBaseId!==candidate.id)clearNeutralMetadata();
   const rasterScale=Number(candidate.canvas.dataset.renderScale)||scale,rasterRatio=Number(candidate.canvas.dataset.renderRatio)||window.devicePixelRatio||1;
   candidate.canvas.style.width=Number(candidate.canvas.dataset.pageWidth)*scale+'px';candidate.canvas.style.height=Number(candidate.canvas.dataset.pageHeight)*scale+'px';
   if(!model.continuousPreview||continuousLease&&continuousLease.id!==candidate.id)releaseContinuousLease();
@@ -678,7 +681,7 @@ const pageProofKey=(message:any)=>{const span=message.baselineSpan??message.page
 function mayShowLocal(message:any){
   const file=message.sourceFile??message.root,input=localInputs.get(message.editId),latest=latestEdit&&localInputs.get(latestEdit.id),text=model.docs.find((doc:any)=>doc.path===file)?.text;
   if(!input||input.file!==file||latest?.file!==file||input.sequence<=displayedSequence||message.root!==model.root||model.previewEditing||!model.onSave||typeof text!=='string')return false;
-  if(!message.sourceFile&&current?.canvas.dataset.sourceHash===message.sourceHash&&!message.flowOutput)return false;
+  if(!message.sourceFile&&current?.canvas.dataset.sourceHash===message.sourceHash&&!message.flowOutput&&!message.neutralBlock)return false;
   if(!model.followPreview&&!message.flowOutput&&!(model.continuousPreview&&message.pageOutput)){const s=message.pageOutput?message.sourcePages:undefined;if(s?(pageNumber<s.first||pageNumber>s.last):pageNumber!==message.page)return false;}
   const {rangeFrom:from,rangeTo:to}=message;if(!Number.isSafeInteger(from)||!Number.isSafeInteger(to)||from<0||to<from||to>input.text.length)return false;
   const prefix=input.text.slice(0,from),suffix=input.text.slice(to);return text.length>=prefix.length+suffix.length&&text.startsWith(prefix)&&text.endsWith(suffix);
@@ -784,6 +787,7 @@ api.on(async message=>{
     const task=message.flowOutput?undefined:loadPdf(message.pdf,true);let keepTask=false;
     try{
       if(message.flowOutput){
+        clearNeutralMetadata();
         if(!model.continuousPreview)throw Error('Continuous preview was turned off.');
         const proof=localProofs.get(proofKey(message));if(!proof)throw Error('Continuous block needs a verified baseline.');
         const tile=await renderCheckedPdfRegion(message.pdf,message.fragment.page,message.flowOutput.fragmentRect,localInkBounds(message),scale,window.devicePixelRatio||1),tiledAt=performance.now();
@@ -863,6 +867,26 @@ api.on(async message=>{
       if(token===localRenderToken&&mayShowLocal(message)){
         if(!proof)throw Error('Local page baseline expired.');
         releaseLocalDocument();
+        if(message.neutralBlock){
+          if(!model.continuousPreview)throw Error('Neutral paragraphs require Continuous scroll.');
+          if(neutralBaseId!==message.baseId){clearNeutralMetadata();neutralBaseId=message.baseId;}
+          const block=message.neutralBlock;
+          if(block.prior.length!==neutralIds.size||block.prior.some((id:string)=>!neutralIds.has(id)))throw Error('Neutral display history does not match the source.');
+          await continuousSetup;
+          if(continuousView.id!==message.baseId||!continuousView.matchesScale(scale,window.devicePixelRatio||1)){
+            if(neutralIds.size)throw Error('Neutral display scale changed.');
+            const held=proof.retain(),baseline=await held.document;releaseContinuousLease();continuousLease={id:message.baseId,task:{destroy:async()=>held.release()}};
+            const copy=document.createElement('canvas');copy.width=proof.canvas.width;copy.height=proof.canvas.height;copy.style.width=proof.canvas.style.width;copy.style.height=proof.canvas.style.height;copy.getContext('2d')!.drawImage(proof.canvas,0,0);continuousSetup=continuousView.show(message.baseId,baseline,copy,message.page,scale,window.devicePixelRatio||1);await continuousSetup;
+          }
+          if(token!==localRenderToken||!mayShowLocal(message)){tile.image?.close();return;}
+          const region=tileCanvas(tile);let canvas:HTMLCanvasElement;try{canvas=continuousView.patchNeutral(message.page,proof.canvas,region,tile,block.id);}finally{region.width=region.height=0;}
+          neutralPages.set(message.page,canvas);neutralIds.add(block.id);
+          for(const c of neutralPages.values()){c.dataset.renderScope='local';c.dataset.localLayout='neutral-blocks';c.dataset.neutralActive=String(c===canvas);c.dataset.localSourceHash=message.sourceHash;c.dataset.localEditId=message.editId;c.dataset.sourceHash=current?.canvas.dataset.sourceHash??'';}
+          localCanvas=canvas;localPatch=undefined;liveFlow=undefined;displayedSequence=input.sequence;
+          canvas.dataset.localPipeline=JSON.stringify({compiler:message.timing,receiveMs:receivedAt-inputAt,loadAndInkMs:checkedAt-receivedAt,tileMs:tiledAt-checkedAt,canvasMs:performance.now()-tiledAt});
+          if(model.followPreview&&Number.isFinite(block.caretY))continuousView.revealPosition(message.page,block.caretY);
+          const latency=Math.ceil(performance.now()-inputAt);canvas.dataset.localLatencyMs=String(latency);canvas.dataset.localLatencyEditId=message.editId;localStatus=`Lecture blocks updated in ${latency} ms from edit. Full verification pending.`;refreshPreviewStatus();void api.call('localWarm',message.root,message.baseId,message.editId,latency,'neutral-blocks').catch(()=>{});return;
+        }
         let canvas=localCanvas;
         if(!canvas||canvas.dataset.localProofKey!==key||canvas.width!==tile.fullWidth||canvas.height!==tile.fullHeight){
           canvas=document.createElement('canvas');canvas.width=tile.fullWidth;canvas.height=tile.fullHeight;canvas.style.width=tile.originalWidth*scale+'px';canvas.style.height=tile.originalHeight*scale+'px';
@@ -926,7 +950,7 @@ api.on(async message=>{
     baselineCache.clear();
     verifiedPageOutputs.clear();
     releaseLocalDocument();
-    localProofToken++;localInputs.clear();displayedSequence=0;
+    localProofToken++;localInputs.clear();displayedSequence=0;clearNeutralMetadata();
     localRenderToken++;if(localCanvas)localCanvas.width=localCanvas.height=0;localCanvas=undefined;localStatus='';localPatch=undefined;clearLocalProofs();
     endPreview();
     navigationToken++;

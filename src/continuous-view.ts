@@ -3,7 +3,7 @@
 // PDF pages are lazy images here, not units of live pagination.
 export class ContinuousView{
   id='';private epoch=0;private observer?:IntersectionObserver;
-  private entries=new Map<number,{element:HTMLDivElement;canvas?:HTMLCanvasElement;pieces?:HTMLCanvasElement[];prefixInkBottom?:number;block?:HTMLCanvasElement;top?:number;bottom?:number;size:any;busy?:boolean;patched?:boolean;band?:HTMLCanvasElement[];coveredBy?:number}>();
+  private entries=new Map<number,{element:HTMLDivElement;canvas?:HTMLCanvasElement;neutral?:Map<string,{x:number;y:number;width:number;height:number}>;pieces?:HTMLCanvasElement[];prefixInkBottom?:number;block?:HTMLCanvasElement;top?:number;bottom?:number;size:any;busy?:boolean;patched?:boolean;band?:HTMLCanvasElement[];coveredBy?:number}>();
   private pdf:any;private scale=1;private ratio=1;
   constructor(private host:HTMLElement,private viewport:HTMLElement){}
   // Capture immediately before a layout swap, so scrolling while a PDF is
@@ -88,7 +88,7 @@ export class ContinuousView{
     const position=this.position();
     for(const [i,e]of entries.entries()){
       const old=[...(e.band??[]),...(e.pieces??[]),...(e.canvas?[e.canvas]:[]),...(e.block?[e.block]:[])];
-      e.canvas=canvases[i];e.patched=true;e.band=undefined;e.coveredBy=undefined;e.element.hidden=false;e.pieces=undefined;e.block=undefined;e.top=e.bottom=undefined;
+      e.canvas=canvases[i];e.neutral=undefined;e.patched=true;e.band=undefined;e.coveredBy=undefined;e.element.hidden=false;e.pieces=undefined;e.block=undefined;e.top=e.bottom=undefined;
       e.element.style.minHeight=e.size.originalHeight*this.scale+'px';e.element.replaceChildren(canvases[i]);this.observer?.unobserve(e.element);
       for(const canvas of old)if(canvas!==canvases[i])canvas.width=canvas.height=0;
     }
@@ -107,7 +107,7 @@ export class ContinuousView{
     if(position.page!==undefined&&position.page>=span.first&&position.page<=span.last){position.page=span.first;position.offset=first.element.getBoundingClientRect().top-this.viewport.getBoundingClientRect().top;}
     for(const [i,item]of entries.entries()){
       const e=item!,old=[...(e.band??[]),...(e.pieces??[]),...(e.canvas?[e.canvas]:[]),...(e.block?[e.block]:[])];
-      e.canvas=undefined;e.band=undefined;e.pieces=undefined;e.block=undefined;e.top=e.bottom=undefined;e.patched=true;e.coveredBy=i?span.first:undefined;
+      e.canvas=undefined;e.neutral=undefined;e.band=undefined;e.pieces=undefined;e.block=undefined;e.top=e.bottom=undefined;e.patched=true;e.coveredBy=i?span.first:undefined;
       e.element.hidden=i>0;e.element.replaceChildren();this.observer?.unobserve(e.element);
       for(const c of old)if(!canvases.includes(c))c.width=c.height=0;
     }
@@ -152,6 +152,16 @@ export class ContinuousView{
     this.restore(position);this.observer?.unobserve(e.element);
     if(oldBlock&&oldBlock!==block)oldBlock.width=oldBlock.height=0;if(oldCanvas)oldCanvas.width=oldCanvas.height=0;
     return block;
+  }
+  patchNeutral(page:number,base:HTMLCanvasElement,region:HTMLCanvasElement,tile:any,id:string){
+    const e=this.entries.get(page);if(!e||e.block||e.band||e.coveredBy!==undefined||tile.fullWidth!==base.width||tile.fullHeight!==base.height)throw Error('Neutral page baseline changed.');
+    const rect={x:tile.x,y:tile.y,width:tile.patchWidth,height:tile.patchHeight};
+    if(![...Object.values(rect),tile.sourceX,tile.sourceY].every(Number.isSafeInteger)||rect.x<0||rect.y<0||rect.width<=0||rect.height<=0||rect.x+rect.width>base.width||rect.y+rect.height>base.height||tile.sourceX<0||tile.sourceY<0||tile.sourceX+rect.width>region.width||tile.sourceY+rect.height>region.height)throw Error('Invalid neutral tile geometry.');
+    for(const [key,r]of e.neutral??[])if(key!==id&&rect.x<r.x+r.width&&r.x<rect.x+rect.width&&rect.y<r.y+r.height&&r.y<rect.y+rect.height)throw Error('Neutral paragraph footprints overlap.');
+    const old=e.neutral?.get(id);if(old&&JSON.stringify(old)!==JSON.stringify(rect))throw Error('Neutral paragraph footprint changed.');
+    const position=this.position();
+    if(!e.neutral){const previous=e.canvas,canvas=document.createElement('canvas');canvas.width=base.width;canvas.height=base.height;canvas.style.width=e.size.originalWidth*this.scale+'px';canvas.style.height=canvas.height/this.ratio+'px';canvas.getContext('2d')!.drawImage(base,0,0);e.canvas=canvas;e.neutral=new Map();e.element.replaceChildren(canvas);if(previous&&previous!==base)previous.width=previous.height=0;}
+    const canvas=e.canvas!;canvas.getContext('2d')!.drawImage(region,tile.sourceX,tile.sourceY,rect.width,rect.height,rect.x,rect.y,rect.width,rect.height);e.neutral.set(id,rect);e.patched=true;this.observer?.unobserve(e.element);this.restore(position);return canvas;
   }
   revealPosition(page:number,y:number){const e=this.entries.get(page);if(e&&!e.block&&!e.band&&e.coveredBy===undefined)this.reveal(e.element,y);}
   mark(page:number,box:{x:number;y:number;width:number;height:number},live=false){
