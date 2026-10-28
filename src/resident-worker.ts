@@ -3,6 +3,7 @@ import {TikzMathCache,buildTikzMathPlan} from './tikz-math-cache';
 import {includedEntry,IncludedInput} from './included-source';
 import {parentPort,workerData} from 'node:worker_threads';
 import * as fs from 'node:fs';
+import {residentConvergence} from './resident-convergence';
 import * as path from 'node:path';
 import * as vm from 'node:vm';
 import {execFileSync} from 'node:child_process';
@@ -636,7 +637,8 @@ async function compile(nextPreamble:string,body:string,resources:[string,Uint8Ar
     const inputs=new Map(resources);
     auxiliary=new Map([...workFiles()].filter(([name,bytes])=>name!==jobName+'.tex'&&name!==jobName+'.pdf'&&!name.startsWith('.persistent-tex/')&&!/\.(log|fls|fdb_latexmk|synctex(?:\.gz)?)$/i.test(name)&&(!inputs.has(name)||!Buffer.from(bytes).equals(Buffer.from(inputs.get(name)!)))));
     const after=auxSignature(auxiliary);
-    if(before===after&&! /undefined references|undefined citations|Please .*run Biber|No file .*\.(?:bbl|ind|gls|acr|nls)|No pages of output/i.test(result.log)){
+    const convergence=residentConvergence(before===after,result.log,auxiliary);
+    if(convergence==='ready'){
       if(!mathWarmed&&initialMathActive&&initialMathEntries===0&&(mathCache?.size??0)>=16){mathWarmed=true;auxiliaryCheckpoint=undefined;initial=bodyState=undefined;pass--;continue;}
       // Keep exactly this converged document available for local preparation.
       // Its PDF response is transferred, so the immutable baseline owns a copy.
@@ -648,7 +650,7 @@ async function compile(nextPreamble:string,body:string,resources:[string,Uint8Ar
     // pages can still share exact bytes with the next freshly executed state.
     auxiliaryPages=auxiliaryCheckpoint&&witnessExtraBytes(auxiliaryCheckpoint.state,initial)<=32*1024*1024?{pages:initial.pages}:undefined;
     initial=bodyState=undefined;passPageWitnesses=[];pageContinuation=undefined;continuationPages=undefined;
-    if(/Please .*run Biber|No file .*\.(?:bbl|ind|gls|acr|nls)/i.test(result.log))return {log,reason:'External bibliography or index processing is required.'};
+    if(convergence==='external')return {log,reason:'External bibliography or index processing is required.'};
   }
   return {log,reason:'Auxiliary files did not converge in five resident passes.'};
 }

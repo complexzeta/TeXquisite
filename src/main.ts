@@ -69,12 +69,14 @@ async function runBackup(manual=false){
   }catch(error){backupFailed=true;backupStatus='Backup failed: '+(error instanceof Error?error.message:String(error));send({type:'backupStatus',text:backupStatus,error:true});appendLog(backupStatus+'\n');if(manual)throw error;}
 }
 const previewTrace:Record<string,unknown>[]=[];
+let previewFallback:{time:number;kind:string;reason?:string}|undefined;
+let previewBackend:string|undefined;
 let previewTraceTimer:ReturnType<typeof setTimeout>|undefined;
 function tracePreview(event:Record<string,unknown>){
   previewTrace.push({time:Date.now(),...event});if(previewTrace.length>64)previewTrace.shift();clearTimeout(previewTraceTimer);
   // Small local diagnostics contain routing/timing metadata, never source text.
   // Flush after typing pauses, rather than adding a disk write to each edit.
-  previewTraceTimer=setTimeout(()=>{const text=JSON.stringify({version:app.getVersion(),events:previewTrace});void fs.writeFile(path.join(data(),'preview-diagnostics.json'),text).catch(()=>{});},250);previewTraceTimer.unref();
+  previewTraceTimer=setTimeout(()=>{const text=JSON.stringify({version:app.getVersion(),backend:previewBackend,fallback:previewFallback,events:previewTrace});void fs.writeFile(path.join(data(),'preview-diagnostics.json'),text).catch(()=>{});},250);previewTraceTimer.unref();
 }
 let lastActivity=Date.now(),lastCleanup=0,cleanupRequested=false,cleanupRunning:Promise<CacheCleanupResult>|undefined;
 const cleanupIdle=()=>!closing&&!controller?.busy&&Date.now()-lastActivity>=5000;
@@ -121,7 +123,12 @@ const localPreview=new LocalPreview(
   (basis,pdf,pageSpan,continuation)=>localMessage({type:'localVerifyPages',continuation,root:basis.options.root,baseId:basis.bundle.id,basePdf:new Uint8Array(basis.pdf),pdf:new Uint8Array(pdf),pageSpan}).then(result=>result===true),
   (basis,page,fragmentPdf,fragment,calibration)=>localMessage({type:'localPlacement',root:basis.options.root,baseId:basis.bundle.id,basePdf:new Uint8Array(basis.pdf),page,fragmentPdf:new Uint8Array(fragmentPdf),fragment,calibration}));
 const setStatus=(text:string)=>{const conflict=conflicts.values().next().value;status=text+(conflict&&!/changed outside|externally changed|changed on disk/i.test(text)?' '+path.basename(conflict)+' changed outside the app; its draft is preserved. Select its tab and use Save copy or Reload disk.':'');send({type:'status',text:status,conflict:conflict?path.basename(conflict):undefined});};
-const appendLog=(text:string)=>{send({type:'log',text:text.slice(-2_000_000),append:true});if(text.startsWith('Resident compiler unavailable:')&&toolchain){toolchain.fast={available:false,mismatches:[],reason:text.trim().replace(/^Resident compiler unavailable: /,'Native compilation only: ')};send({type:'toolchainStatus',report:toolchain});}};
+const appendLog=(text:string)=>{
+  send({type:'log',text:text.slice(-2_000_000),append:true});
+  if(text.startsWith('Resident fallback:')||text.startsWith('Resident compiler unavailable:')){previewFallback={time:Date.now(),kind:text.startsWith('Resident fallback:')?'fallback':'unavailable',reason:text.split('\n')[0].slice(0,300)};tracePreview({event:'compiler-fallback',kind:previewFallback.kind});}
+  else if(text.startsWith('Resident capability check failed;')){previewFallback={time:Date.now(),kind:'capability'};tracePreview({event:'compiler-fallback',kind:'capability'});}
+  if(text.startsWith('Resident compiler unavailable:')&&toolchain){toolchain.fast={available:false,mismatches:[],reason:text.trim().replace(/^Resident compiler unavailable: /,'Native compilation only: ')};send({type:'toolchainStatus',report:toolchain});}
+};
 function persist() {
   const captured=JSON.stringify(state);
   persistChain=persistChain.catch(()=>{}).then(async()=>{
@@ -184,7 +191,7 @@ async function selectRoot(root:string,automaticBuild=true) {
   void controller?.dispose().catch(error=>appendLog('Previous project cleanup deferred: '+String(error)+'\n')); displayed=undefined;currentDiagnostic=undefined;currentProblems=[];
   const generation=++rootGeneration;
   latestEditId=documentEditIds.get(root);
-  state.root=root;rememberDocumentRoot(root,root);send({type:'reset',root});send({type:'root',root});
+  state.root=root;previewFallback=undefined;previewBackend=undefined;rememberDocumentRoot(root,root);send({type:'reset',root});send({type:'root',root});
   const store=new ArtifactStore(path.join(data(),'projects',hash(path.resolve(root).toLowerCase()).slice(0,32)));
   const next=new BuildController(store,{
     performance:report=>{if(generation===rootGeneration&&!closing)tracePreview({event:'standby',...report});},
@@ -195,7 +202,7 @@ async function selectRoot(root:string,automaticBuild=true) {
       localPreview.setBasis(basis);const doc=state.docs.find(doc=>doc.path===state.root);
       if(process.env.PERSISTENT_TEX_DISABLE_AUTOMATIC_HANDOFF!=='1'&&doc&&latestEditId&&localPreview.resumeAutomatic(doc.path,doc.text,latestEditId))scheduleFullVerification(latestEditId);
     }},
-    commit:(bundle,timing)=>{if(generation===rootGeneration){currentDiagnostic=undefined;displayed=bundle;send({type:'commit',id:bundle.id,timing,visible:window.isVisible()&&!window.isMinimized()});}},
+    commit:(bundle,timing)=>{if(generation===rootGeneration){previewBackend=timing?.backend;if(previewBackend?.startsWith('Preamble'))previewFallback=undefined;tracePreview({event:'full-committed',backend:previewBackend});currentDiagnostic=undefined;displayed=bundle;send({type:'commit',id:bundle.id,timing,visible:window.isVisible()&&!window.isMinimized()});}},
     discard:bundle=>send({type:'discard',id:bundle.id})
   },s=>{if(generation===rootGeneration)setStatus(s);},appendLog);
   controller=next;

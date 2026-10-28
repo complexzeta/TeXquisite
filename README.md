@@ -4,7 +4,7 @@ A standalone LaTeX editor with source and compiled preview side by side. It save
 
 ## Download and try it
 
-**Early Windows x64 test release:** [Download TeXquisite 0.98.0](https://github.com/complexzeta/TeXquisite/releases/download/v0.98.0/TeXquisite-0.98.0-Windows.exe).
+**Early Windows x64 test release:** [Download TeXquisite 0.99.0](https://github.com/complexzeta/TeXquisite/releases/download/v0.99.0/TeXquisite-0.99.0-Windows.exe).
 
 1. Install TeX Live separately, including latexmk. TeXquisite does not bundle a full TeX distribution.
 2. Run the portable executable; no VS Code, Node.js or account is required to use it.
@@ -24,6 +24,7 @@ A standalone LaTeX editor with source and compiled preview side by side. It save
 - Persistent pdfTeX state and guarded local preview updates for supported edits.
 - Compatible queued plain-text edits can switch to local preparation after a full preview, avoiding repeated full builds while typing.
 - Reuses loaded packages across reference/bookmark convergence passes when the pre-auxiliary state and its inputs are unchanged.
+- Unresolved cross-references retain their warnings without forcing repeated native builds once auxiliary files have stabilized.
 - Native compilation for XeLaTeX, LuaLaTeX, PostScript workflows and incompatible fast-preview formats.
 
 ## Current limits
