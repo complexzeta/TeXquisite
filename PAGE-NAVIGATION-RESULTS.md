@@ -24,3 +24,10 @@ page, including the compatibility-preamble case. Original user documents and
 the running session were not modified. This does not claim that unsupported
 compiler-expanded source has an exact map or that paged local previews gained
 the same mapping support.
+
+The packaged 0.102 runtime passed the copied-lecture navigation test, including
+the unchanged earlier page and stale-click rejection. Eleven navigation unit
+guards passed. The existing retained-paragraph integration suite also passed
+navigation, undo/redo, zoom, fit width, panel/layout/mode changes, file switching
+and export preservation. Packaged runtime assets matched independent builds;
+the archive contained no private projects, profiles or source maps.
