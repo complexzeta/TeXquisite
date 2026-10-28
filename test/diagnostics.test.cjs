@@ -22,7 +22,7 @@ test('Native file-line diagnostics map only captured aliases, and generic failur
 test('Real resident and native diagnostics retain captured chapter identity and leave the accepted PDF intact',{timeout:90000},async t=>{
  const fs=require('node:fs/promises'),path=require('node:path'),{randomUUID}=require('node:crypto');
  const {ArtifactStore,BuildController,hash}=require('../dist/core');
- const directory=path.resolve('.test-output','diagnostic-build-'+randomUUID()),project=path.join(directory,'source');await fs.mkdir(project,{recursive:true});
+ const directory=require('../scripts/test-artifacts.cjs').testDirectory('diagnostic-build'),project=path.join(directory,'source');await fs.mkdir(project,{recursive:true});
  const root=path.join(project,'main.tex'),chapter=path.join(project,'chapter.tex'),source='\\documentclass{article}\n\\begin{document}\nRoot.\n\\input{chapter}\n\\end{document}\n';await fs.writeFile(root,source);await fs.writeFile(chapter,'Good chapter.');
  const issues=[],store=new ArtifactStore(path.join(directory,'resident')),controller=new BuildController(store,{prepare:async()=>{},commit:()=>{},discard:()=>{},diagnostic:issue=>issues.push(issue)},()=>{},()=>{});t.after(()=>controller.cancel());
  const options={root,sourceText:source,engine:'pdflatex',executable:'latexmk',automatic:true,timeoutMs:60000};await controller.request(options);const good=controller.current;assert.ok(good);
@@ -40,7 +40,7 @@ test('Real resident and native diagnostics retain captured chapter identity and 
 
 test('Cancelling a captured build does not publish a compiler error diagnostic',{timeout:10000},async t=>{
  const fs=require('node:fs/promises'),path=require('node:path'),{randomUUID}=require('node:crypto'),{ArtifactStore,BuildController}=require('../dist/core');
- const directory=path.resolve('.test-output','cancel-diagnostic-'+randomUUID()),project=path.join(directory,'source');await fs.mkdir(project,{recursive:true});const root=path.join(project,'main.tex');await fs.writeFile(root,'Root');
+ const directory=require('../scripts/test-artifacts.cjs').testDirectory('cancel-diagnostic'),project=path.join(directory,'source');await fs.mkdir(project,{recursive:true});const root=path.join(project,'main.tex');await fs.writeFile(root,'Root');
  const issues=[],statuses=[];let started;const ready=new Promise(resolve=>started=resolve);
  const controller=new BuildController(new ArtifactStore(path.join(directory,'store')),{prepare:async()=>{},commit:()=>{},discard:()=>{},diagnostic:issue=>issues.push(issue)},s=>statuses.push(s),()=>{});t.after(()=>controller.cancel());
  controller.resident.compile=(_source,signal)=>new Promise((_resolve,reject)=>{signal.addEventListener('abort',()=>reject(Error('Build cancelled.')),{once:true});started();});

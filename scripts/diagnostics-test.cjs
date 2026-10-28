@@ -3,10 +3,10 @@ const fs=require('node:fs/promises'),path=require('node:path'),os=require('node:
 const {randomUUID,createHash}=require('node:crypto');
 const hash=s=>createHash('sha256').update(s).digest('hex');
 (async()=>{
- const directory=path.resolve('.test-output','diagnostics-ui-'+randomUUID()),project=path.join(directory,'source');await fs.mkdir(project,{recursive:true});
- const profile=await fs.mkdtemp(path.join(os.tmpdir(),'persistent-tex-diagnostics-')),root=path.join(project,'main.tex'),chapter=path.join(project,'chapter.tex');
+ const directory=require('./test-artifacts.cjs').testDirectory('diagnostics-ui'),project=path.join(directory,'source');await fs.mkdir(project,{recursive:true});
+ const profile=path.join(directory,'profile'),root=path.join(project,'main.tex'),chapter=path.join(project,'chapter.tex');
  const source='\\documentclass{article}\n\\usepackage{amsmath}\n\\begin{document}\nRootMarker.\n\\input{chapter}\n\\end{document}\n',chapterText='\\newpage\nChapterMarker.\n';
- await fs.writeFile(root,source);await fs.writeFile(chapter,chapterText);
+ await fs.mkdir(profile);await fs.writeFile(root,source);await fs.writeFile(chapter,chapterText);
  await fs.writeFile(path.join(profile,'session.json'),JSON.stringify({docs:[{path:root,text:source,diskHash:hash(source),dirty:false,eol:'\n'}],root,active:root,onSave:true,liveVersion:2,engine:'pdflatex',latexmk:'latexmk'}));
  const launch=()=>electron.launch({...(process.env.PERSISTENT_TEX_EXECUTABLE?{executablePath:process.env.PERSISTENT_TEX_EXECUTABLE,args:[]}:{args:['.']}),env:{...process.env,PERSISTENT_TEX_TEST_DATA:profile,PERSISTENT_TEX_TEST_HIDDEN:'1'}});
  let app=await launch(),page=await app.firstWindow();const errors=[];page.on('pageerror',e=>errors.push(String(e)));

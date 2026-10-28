@@ -15,6 +15,7 @@
     "test:session": "node scripts/editing-session-test.cjs",
     "test:close": "node scripts/close-test.cjs",
     "test:conflict": "node scripts/conflict-test.cjs",
+    "test:reliability": "npm run build && node scripts/reliability-test.cjs",
     "package": "npm run build && electron-builder --win portable --publish never && powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/archive-builds.ps1"
   },
   "dependencies": {

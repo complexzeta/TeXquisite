@@ -64,6 +64,14 @@ node --test test/toolchain.test.cjs test/footer-navigation.test.cjs test/flow-na
 
 Integration tests require installed TeX and write disposable artifacts. Set PERSISTENT_TEX_TEST_ARTIFACTS and process-local TEMP/TMP to a suitable directory when running a large campaign. Do not commit documents, profiles, generated PDFs, caches or test output.
 
+Run the bounded reliability campaign with `npm run test:reliability`. It checks saving/conflicts, backups, diagnostics, tab selection, closing/recovery and a 24-cycle diagram/math session in a spaced and accented path.
+
+On Windows it uses Kingston when present and refuses an automatic system-drive fallback; set `PERSISTENT_TEX_TEST_ARTIFACTS` explicitly for another location or CI. Child temporary files stay in the campaign too. Successful fixtures are removed after reports are copied and verified; failed fixtures are kept for diagnosis.
+
+`node scripts/reliability-test.cjs --only=units,backups` runs selected checks after building. Set `PERSISTENT_TEX_EXECUTABLE` to test an extracted portable instead of the development runtime.
+
+The [0.96 reliability results](https://github.com/complexzeta/TeXquisite/blob/main/RELIABILITY-RESULTS.md) describe the checks and their limits.
+
 ## License and source
 
 TeXquisite application code is licensed under [AGPL-3.0-only](LICENSE). Third-party components retain their respective licenses; see [THIRD-PARTY-NOTICES.txt](THIRD-PARTY-NOTICES.txt). The modified SwiftLaTeX/pdfTeX compiler is accompanied by its upstream source, patch/build scripts and license. Corresponding source for each downloadable version is available from the matching Git tag and the source archives on its release page.

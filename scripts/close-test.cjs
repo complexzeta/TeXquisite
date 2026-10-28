@@ -5,7 +5,7 @@ const assert=require('node:assert/strict');
 const {createHash,randomUUID}=require('node:crypto');
 
 async function scenario(mode){
-  const directory=path.resolve('.test-output','close-'+mode+'-'+randomUUID());
+  const directory=require('./test-artifacts.cjs').testDirectory('close-'+mode);
   await fs.mkdir(directory,{recursive:true});
   const file=path.join(directory,'draft.tex'),original='Original source\n';
   await fs.writeFile(file,original);
@@ -42,7 +42,7 @@ async function scenario(mode){
     assert.match(recovered.docs[0].text,/Unsaved draft/);
     assert.equal(recovered.docs[0].dirty,true);
     assert.equal(await fs.readFile(file,'utf8'),mode==='conflict'?'External source\n':original);
-    console.log(mode+': native close exits and retains the draft');
+    return {passed:true,mode,directory,draftRetained:true,externalSourceProtected:true};
   }finally{if(!exited)await app.evaluate(({app})=>app.exit(1)).catch(()=>{});}
 }
-(async()=>{for(const mode of ['conflict','cancel','crashed'])await scenario(mode);})().catch(error=>{console.error(error);process.exitCode=1;});
+(async()=>{const scenarios=[];for(const mode of ['conflict','cancel','crashed'])scenarios.push(await scenario(mode));console.log(JSON.stringify({passed:true,scenarios}));})().catch(error=>{console.error(error);process.exitCode=1;});
