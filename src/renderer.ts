@@ -791,19 +791,24 @@ api.on(async message=>{
     }catch{ok=false;}finally{baseline.release();void task.destroy().catch(()=>{});await api.call('localAck',message.token,ok);}return;
   }
   if(message.type==='localVerify'){
+    const proofStarted=performance.now();let loadedAt=proofStarted,readAt=proofStarted,comparedAt=proofStarted,tileAt=proofStarted;
     let ok=false,reply:boolean|{dx:number;dy:number}=false;const proofToken=localProofToken,key=proofKey(message),baseline=acceptedBaseline(message),tasks=[loadPdf(message.pdf,true),loadPdf(message.fragmentPdf,true)];
     let cached:Awaited<ReturnType<typeof baseline.page>>|undefined;
     try{if(message.root===model.root){const [base,composed,fragment]=await Promise.all([baseline.document,...tasks.map(task=>task.promise)]);
+      loadedAt=performance.now();
       if(proofToken!==localProofToken||key!==proofKey(message)||message.root!==model.root)return;
       // Submit the independent proof reads together. Otherwise an idle page
       // render can start between each round trip and delay the same proof
       // repeatedly. PDFium still executes each request serially.
       const reads=[baseline.page(message.page).then(frame=>cached=frame),composed.renderPixels(1,scale,window.devicePixelRatio||1),localInkFits(message,fragment),composed.regionPixels(1,message.footprint,scale,window.devicePixelRatio||1)] as const;
       const [frame,composedRaster,ink,tile]=await Promise.all(reads).catch(async error=>{await Promise.allSettled(reads);throw error;});
+      readAt=performance.now();
       const a=frame.value.canvas,pa=frame.value.pixels,pb=composedRaster.pixels;
       const factor=scale*(window.devicePixelRatio||1),box=message.footprint,result=matchLocalPatchRaster(pa,pb,a.width,a.height,{x:box.x*factor,y:box.y*factor,width:box.width*factor,height:box.height*factor},(message.calibration?.calibratedGlyphs??[]).map((g:any)=>({x:g.x*factor,y:g.y*factor,width:g.width*factor,height:g.height*factor})));
       ok=ink&&a.width===composedRaster.width&&a.height===composedRaster.height&&result.ok;
+      comparedAt=performance.now();
       if(ok)ok=await tileMatchesFull(composed,message.footprint,composedRaster,pb,tile);
+      tileAt=performance.now();
       console.debug('Local raster verification',JSON.stringify({ink,...result,scale,ratio:window.devicePixelRatio}));
       ok=ok&&proofToken===localProofToken&&key===proofKey(message)&&message.root===model.root;
       if(ok){
@@ -813,6 +818,7 @@ api.on(async message=>{
         localProofs.get(key)?.release();localProofs.set(key,{canvas:a,page:message.page,release:frame.release,retain:baseline.retain});cached=undefined;
       }
       reply=ok?true:ink&&proofToken===localProofToken&&key===proofKey(message)?await localCorrection(message,base,fragment):false;
+      console.debug('Local paragraph proof',JSON.stringify({loadMs:loadedAt-proofStarted,readMs:readAt-loadedAt,compareMs:comparedAt-readAt,tileMs:tileAt-comparedAt,correctionMs:performance.now()-tileAt,totalMs:performance.now()-proofStarted,ok,correction:typeof reply==='object'}));
     }}catch{reply=false;}finally{cached?.release();baseline.release();void Promise.all(tasks.map(task=>task.destroy())).catch(()=>{});await api.call('localAck',message.token,reply);}
     return;
   }

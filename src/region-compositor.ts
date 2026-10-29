@@ -15,15 +15,28 @@ export function sameSingleLinePlacement(a:RegionFragment,b:RegionFragment){
     Math.abs(a.heightSp-b.heightSp)*spToBp<=LOCAL_INK_BLEED_BP;
 }
 type Glyph=[string,number,number,number,number,number,number,number,number,number?];
-function glyphs(raw:string,page?:number){
+// Preparation and navigation repeatedly read the same immutable compiler
+// transcript. Bound both retained text and entry count; key by the complete
+// transcript so a new revision can never inherit another revision's glyphs.
+type GlyphData={rows:Glyph[];index?:Map<string,Glyph[]>};
+const glyphCache=new Map<string,GlyphData>();let glyphCacheCharacters=0;
+function glyphData(raw:string):GlyphData{
+  const cached=glyphCache.get(raw);
+  if(cached){glyphCache.delete(raw);glyphCache.set(raw,cached);return cached;}
   const rows:Glyph[]=[];
   for(const line of raw.split('\n')){if(!line)continue;const value=JSON.parse(line),row=value.glyph??value.mathGlyph;
-    if(Array.isArray(row)&&(page===undefined||row[3]===page))rows.push(row as Glyph);}
-  return rows;
+    if(Array.isArray(row))rows.push(row as Glyph);}
+  const data={rows};if(raw.length<=2000000&&rows.length<=50000){
+    while(glyphCache.size>=4||glyphCacheCharacters+raw.length>4000000){const oldest=glyphCache.keys().next().value!;glyphCacheCharacters-=oldest.length;glyphCache.delete(oldest);}
+    glyphCache.set(raw,data);glyphCacheCharacters+=raw.length;
+  }
+  return data;
 }
+function glyphs(raw:string,page?:number){const rows=glyphData(raw).rows;return page===undefined?rows:rows.filter(row=>row[3]===page);}
 const key=(g:Glyph)=>JSON.stringify([g[0],g[1],g[2],g[8],g[9]??1]);
+function glyphIndex(raw:string){const data=glyphData(raw);if(!data.index){data.index=new Map();for(const row of data.rows){const k=key(row),list=data.index.get(k)??[];list.push(row);data.index.set(k,list);}}return data.index;}
 export function paragraphPages(navigation:string,original:ParagraphOutput):PageSpan{
-  const byKey=new Map<string,Glyph[]>();for(const row of glyphs(navigation)){const k=key(row),list=byKey.get(k)??[];list.push(row);byKey.set(k,list);}
+  const byKey=glyphIndex(navigation);
   const pages:number[]=[];for(const row of glyphs(original.navigation,original.fragment.page)){const matches=byKey.get(key(row));if(matches?.length!==1)throw new Error('Paragraph source anchors are ambiguous.');pages.push(matches[0][3]);}
   if(!pages.length)throw new Error('Paragraph has no exact source anchors.');
   return {first:Math.min(...pages),last:Math.max(...pages)};
@@ -69,8 +82,7 @@ export function flowLocations(navigation:string,source:string,jobName:string,pag
 export class RegionCompositor{
   private constructor(private base:PDFDocument,private original:ParagraphOutput,readonly page:number,public x:number,public y:number,readonly anchors:ParagraphAnchor[]){}
   static async create(pdf:Uint8Array|PDFDocument,navigation:string,original:ParagraphOutput){
-    const all=glyphs(navigation),byKey=new Map<string,Glyph[]>();
-    for(const row of all){const k=key(row),list=byKey.get(k)??[];list.push(row);byKey.set(k,list);}
+    const byKey=glyphIndex(navigation);
     const offsets:{page:number;x:number;y:number}[]=[];
     const anchors:ParagraphAnchor[]=[];
     for(const row of glyphs(original.navigation,original.fragment.page)){
