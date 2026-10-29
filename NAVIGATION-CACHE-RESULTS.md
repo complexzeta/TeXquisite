@@ -1,7 +1,8 @@
 # Navigation preparation follow-up
 
-This is a development follow-up to 0.109, not a new portable release.
-The existing 0.109 executable remains the recommended local build.
+This pass was a development follow-up to 0.109; it did not create a portable
+release. Its cache is subsequently included in 0.110, whose additional change
+and packaged measurements are described in WINDOW-PAGE-RESULTS.md.
 
 The compositor parsed the same immutable compiler navigation transcript for
 paragraph-page matching, placement, caret lookup and each affected page's source

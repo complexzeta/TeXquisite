@@ -295,7 +295,7 @@ async function build(sourceText?:string,automatic=sourceText!==undefined) {
 function updateAppMenu(){Menu.setApplicationMenu(appMenu(state,(action,value)=>send({type:'menuAction',action,value})));if(window&&!window.isDestroyed()){window.setAutoHideMenuBar(false);window.setMenuBarVisibility(true);}}
 async function handle(method:string,args:unknown[]) {
   switch(method){
-    case 'previewPerformance': return {standby:controller?.standbyReport,localReady:localPreview.ready,localBusy:localPreview.busy,localRange:localPreview.preparedRange};
+    case 'previewPerformance': return {standby:controller?.standbyReport,localReady:localPreview.ready,localBusy:localPreview.busy,localRange:localPreview.preparedRange,...(args[0]===true?{trace:previewTrace.slice()}: {})};
     case 'localRefresh': {
       if(process.env.PERSISTENT_TEX_MULTI_BLOCK==='1'){
         if(localPreview.hasLocalChanges){localPreview.stop();if(controller)void build(undefined,true).catch(e=>setStatus(String(e)));}

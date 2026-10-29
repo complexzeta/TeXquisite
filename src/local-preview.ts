@@ -390,8 +390,9 @@ export class LocalPreview{
           verified=await checkPlacement();if(!valid())return;
         }
         if(verified!==true){
-          if(background||expanded)throw new Error('Adjacent-paragraph baseline needs a narrower region.');
+          if(background||expanded&&(!this.continuous||process.env.PERSISTENT_TEX_DISABLE_WINDOW_PAGE_FALLBACK==='1'))throw new Error('Adjacent-paragraph baseline needs a narrower region.');
           if(!this.verifyPages)throw new Error('The composed baseline did not match the accepted page.');
+          if(expanded)this.log('Adjacent-paragraph raster mismatch uses verified page output before narrowing.\n');
           slot.compositor=undefined;slot.pageMode=true;await pageWork;
           if(this.continuous)await verifyPageRange();
         }
