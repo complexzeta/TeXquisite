@@ -164,6 +164,7 @@ for(const button of el('mathTools').querySelectorAll<HTMLButtonElement>('button'
  button.addEventListener('mousedown',event=>event.preventDefault());button.addEventListener('click',()=>{if(previewSession?.math){previewChange('',false,false,button.dataset.math as MathAction);previewInput.focus({preventScroll:true});}});
 }
 function refreshPreviewStatus(){
+  if(localCanvas?.dataset.localRecovered==='true'&&localCanvas.dataset.localEditId===latestEdit?.id){el('previewState').textContent='Recovered local preview · details in Problems';el('status').textContent=localStatus+' Temporary preview repair; saved source is unchanged.'+sourceWarning;previewUpdating=false;return;}
   if(current?.timing?.recovered&&current.timing.editId===latestEdit?.id){el('previewState').textContent='Recovered preview · LaTeX errors need attention';el('status').textContent=current.displayStatus+sourceWarning;previewUpdating=false;return;}
   if(localCanvas?.dataset.localLayout==='flow'&&localCanvas.dataset.localEditId===latestEdit?.id&&current?.timing?.editId===latestEdit?.id){el('previewState').textContent='Continuous scroll · paginated PDF verified';el('status').textContent=localStatus.replace('Paginated PDF verification pending.','Paginated PDF verified.')+sourceWarning;previewUpdating=false;return;}
   if(localCanvas){const newer=localCanvas.dataset.localEditId!==latestEdit?.id,lecture=model.previewMode==='lecture';el('previewState').textContent=(lecture?'Lecture preview · ':'Local paragraph preview · ')+(newer?'newer edits pending':lecture?'full PDF updates on Build or Export':'full document verification pending');el('status').textContent=(lecture?localStatus.replace(/(?:Paginated PDF|Full document) verification pending\./g,'Full PDF updates on Build or Export.'):localStatus)+(newer?' Newer edits pending.':'')+sourceWarning;return;}
@@ -188,7 +189,7 @@ function renderProblems(){
  const summary=`${errors} error${errors===1?'':'s'} · ${warnings} warning${warnings===1?'':'s'}`;
  el('problemSummary').textContent=summary;
  const toggle=el<HTMLButtonElement>('toggleProblems');toggle.title='Project problems: '+summary;toggle.setAttribute('aria-label',toggle.title);toggle.dataset.count=issues.length?String(issues.length):'';toggle.classList.toggle('has-problems',!!issues.length);
- const stale=issues.some(i=>i.editId!==latestEdit?.id);el('problemState').textContent=stale?'Source changed · waiting for the next full build':issues.length?'Latest full build':'No problems reported by the latest full build';
+ const stale=issues.some(i=>i.editId!==latestEdit?.id);el('problemState').textContent=stale?'Source changed · waiting for preview':issues.some(i=>i.id.startsWith('local-recovery-'))?'Current local preview':issues.length?'Latest full build':'No problems reported by the latest full build';
  const list=el('problemList');list.replaceChildren();const filter=el<HTMLSelectElement>('problemFilter').value;
  for(const issue of issues.filter(i=>filter==='all'||(i.severity??'error')===filter)){
   const row=document.createElement('div');row.className='problem-row';row.setAttribute('role','listitem');row.dataset.severity=issue.severity??'error';
@@ -225,7 +226,9 @@ function syncErrorMarker(){
 function renderIssue(){
   renderProblems();
   syncErrorMarker();
-  const panel=el('diagnostics');panel.hidden=!compileIssue;if(!compileIssue)return;
+  // Automatic diagnostics stay in the stable Problems badge/list and gutter.
+  // Opening/closing a top banner resized CodeMirror on every error revision.
+  const panel=el('diagnostics');panel.hidden=true;if(!compileIssue)return;
   const stale=compileIssue.editId!==latestEdit?.id;
   el('diagnosticMessage').textContent=compileIssue.message;
   el('diagnosticHint').textContent=diagnosticAdvice(compileIssue.message)??'';
@@ -561,6 +564,7 @@ function markLocation(row:Region,highlight=true){
   el('navState').textContent=`${row[0].split(/[\\/]/).at(-1)} · line ${row[1]}`;
 }
 async function locateContinuous(explicit:boolean){
+  if(localCanvas?.dataset.localRecovered==='true'){if(explicit)el('navState').textContent='Source navigation resumes after correcting the preview error.';return;}
   const token=++navigationToken,file=active,text=view!.state.doc.toString(),at=view!.state.selection.main.head;
   await continuousSetup;
   const valid=()=>token===navigationToken&&model.continuousPreview&&active===file&&view?.state.doc.toString()===text&&view.state.selection.main.head===at;
@@ -618,6 +622,7 @@ el('pages').addEventListener('click',event=>void command(async()=>{
     el('navState').textContent='No current mapped output here; wait for the preview to update.';return;
   }
   if(localCanvas){
+    if(localCanvas.dataset.localRecovered==='true'){el('navState').textContent='Source navigation resumes after correcting the preview error.';return;}
     const pages=currentLivePages(),mapped=pages?.pages.find(p=>(p.canvas??continuousView.canvasForPage(p.page))===canvas);
     if(pages&&mapped&&canvas&&view){
       const rect=canvas.getBoundingClientRect(),at=liveFlowPosition(pages,{root:model.root,file:active,baseId:continuousView.id,sourceHash:pages.sourceHash,editId:pages.editId,text:view.state.doc.toString()},mapped.locations,(event.clientX-rect.left)/scale,(event.clientY-rect.top)/scale);
@@ -833,6 +838,7 @@ api.on(async message=>{
         const canvas=continuousView.patch(message.page,proof.canvas,tile,message.flowOutput);localCanvas=canvas;localPatch=undefined;displayedSequence=input.sequence;
         livePages=undefined;liveFlow={root:message.root,baseId:message.baseId,sourceHash:message.sourceHash,editId:message.editId,file:message.sourceFile??message.root,stateChanged:!!message.flowOutput.stateChanged,text:input.text,from:message.rangeFrom,to:message.rangeTo,baseTo:message.flowOutput.baseRangeTo,page:message.page,canvas,locations:message.flowOutput.locations??[]};
         canvas.dataset.renderScope='local';canvas.dataset.localLayout='flow';canvas.dataset.localStateChanged=String(!!message.flowOutput.stateChanged);canvas.dataset.localSourceHash=message.sourceHash;canvas.dataset.localEditId=message.editId;canvas.dataset.sourceHash=current?.canvas.dataset.sourceHash??'';
+        canvas.dataset.localRecovered=String(!!message.recovery);if(message.recovery){liveFlow=undefined;livePages=undefined;}
         canvas.dataset.localPipeline=JSON.stringify({compiler:message.timing,receiveMs:receivedAt-inputAt,checkedRegionMs:tiledAt-receivedAt,pdfWorker:{queueMs:tile.queueMs,loadMs:tile.loadMs,rasterMs:tile.rasterMs,checkMs:tile.checkMs,cropMs:tile.cropMs,workerMs:tile.workerMs,rasterPasses:tile.rasterPasses},canvasMs:performance.now()-tiledAt});
         if(model.followPreview&&Number.isFinite(message.flowOutput.caretY))continuousView.reveal(canvas,message.flowOutput.caretY);
         const finish=()=>{if(token!==localRenderToken||localCanvas!==canvas)return;const latency=Math.ceil(performance.now()-inputAt);input.displayedLatencyMs??=latency;canvas.dataset.localLatencyMs=String(latency);canvas.dataset.localLatencyEditId=message.editId;canvas.dataset.timingEndpoint=message.visible?'paint opportunity':'canvas (window hidden)';void api.call('localWarm',message.root,message.baseId,message.editId,Math.ceil(performance.now()-inputAt),canvas.dataset.localLayout).catch(()=>{});localStatus=`Continuous block updated in ${latency} ms from edit. Paginated PDF verification pending.`;refreshPreviewStatus();};
@@ -871,6 +877,7 @@ api.on(async message=>{
             livePages=message.pageLocations?{root:message.root,file:message.sourceFile??message.root,baseId:message.baseId,editId:message.editId,sourceHash:message.sourceHash,text:input.text,from:0,to:input.text.length,pages:message.pageLocations.map((p:any)=>({...p,canvas:canvases[p.page-proof.span.first]})).filter((p:any)=>!!p.canvas)}:undefined;
             const baselineText=continuousBasis?.texts?.[input.file]??(input.file===model.root?continuousBasis?.text:undefined);
             if(livePages&&continuousBasis&&baselineText!==undefined)livePages.pages.push(...unchangedPageLocations(continuousBasis.navigation,input.file,baselineText,input.text,{first:span.first,last:proof.span.last}).map(p=>({...p,canvas:p.page>=proof.span.first&&p.page<span.first?canvases[p.page-proof.span.first]:undefined})));
+            for(const c of canvases)c.dataset.localRecovered=String(!!message.recovery);if(message.recovery)livePages=undefined;
             for(const c of canvases){c.dataset.renderScope='local';c.dataset.localLayout='continuous-pages';c.dataset.localSourceHash=message.sourceHash;c.dataset.localEditId=message.editId;c.dataset.localFirstPage=String(proof.span.first);c.dataset.localLastPage=String(span.last);c.dataset.localPipeline=JSON.stringify({compiler:message.timing,receiveMs:receivedAt-inputAt,loadRenderMs:performance.now()-receivedAt});}
             if(model.followPreview){
               const page=Math.max(span.first,Math.min(span.last,message.cursorPage??span.first)),target=message.cursorPosition;
@@ -888,6 +895,7 @@ api.on(async message=>{
         localPatch={x:0,y:0,width:canvas.width,height:canvas.height,page};displayedSequence=input.sequence;
         canvas.dataset.renderScope='local';canvas.dataset.localLayout='page';canvas.dataset.localProofKey=proofKey(message);canvas.dataset.localSourceHash=message.sourceHash;canvas.dataset.localEditId=message.editId;canvas.dataset.sourceHash=current?.canvas.dataset.sourceHash??'';
         canvas.dataset.localFirstPage=String(span.first);canvas.dataset.localLastPage=String(span.last);el('pages').replaceChildren(canvas);el('empty').hidden=true;pageNumber=page;el('pageLabel').textContent=`${pageNumber} / …`;
+        canvas.dataset.localRecovered=String(!!message.recovery);
         if(model.followPreview&&message.cursorPosition)continuousView.reveal(canvas,message.cursorPosition.y+message.cursorPosition.height,scale);
         const finish=()=>{if(token!==localRenderToken||localCanvas!==canvas||canvas.dataset.localEditId!==message.editId)return;void api.call('localWarm',message.root,message.baseId,message.editId,Math.ceil(performance.now()-inputAt),canvas.dataset.localLayout).catch(()=>{});const latency=Math.ceil(performance.now()-inputAt);input.displayedLatencyMs??=latency;canvas.dataset.localLatencyMs=String(latency);canvas.dataset.localLatencyEditId=message.editId;canvas.dataset.timingEndpoint=message.visible?'paint opportunity':'canvas (window hidden)';localStatus=`Affected ${span.last>span.first?'pages':'page'} updated in ${latency} ms from edit. Full document verification pending.`+(!message.visible?' Window hidden; measured to canvas.':'');refreshPreviewStatus();};
         if(message.visible)requestAnimationFrame(()=>requestAnimationFrame(finish));else finish();return;
@@ -935,6 +943,7 @@ api.on(async message=>{
         localPatch={x:tile.x,y:tile.y,width:tile.patchWidth,height:tile.patchHeight,page:message.page};
         displayedSequence=input.sequence;
         canvas.dataset.renderScope='local';canvas.dataset.localLayout='paragraph';canvas.dataset.localProofKey=key;canvas.dataset.localSourceHash=message.sourceHash;canvas.dataset.localEditId=message.editId;canvas.dataset.sourceHash=current?.canvas.dataset.sourceHash??'';canvas.dataset.localRasterMs=String(tile.rasterMs);
+        canvas.dataset.localRecovered=String(!!message.recovery);
         canvas.dataset.localPipeline=JSON.stringify({compiler:message.timing,receiveMs:receivedAt-inputAt,loadAndInkMs:checkedAt-receivedAt,tileMs:tiledAt-checkedAt,canvasMs:performance.now()-tiledAt});
         if(canvas.parentElement!==el('pages'))el('pages').replaceChildren(canvas);el('empty').hidden=true;pageNumber=message.page;el('pageLabel').textContent=`${pageNumber} / ${current?.pdf.numPages??'?'}`;
         const finish=()=>{if(token!==localRenderToken||localCanvas!==canvas||canvas.dataset.localEditId!==message.editId)return;void api.call('localWarm',message.root,message.baseId,message.editId,Math.ceil(performance.now()-inputAt),canvas.dataset.localLayout).catch(()=>{});const latency=Math.ceil(performance.now()-inputAt);input.displayedLatencyMs??=latency;canvas.dataset.localLatencyMs=String(latency);canvas.dataset.localLatencyEditId=message.editId;canvas.dataset.timingEndpoint=message.visible?'paint opportunity':'canvas (window hidden)';localStatus=`Local paragraph updated in ${latency} ms from edit. Full document verification pending.`+(!message.visible?' Window hidden; measured to canvas.':'');refreshPreviewStatus();};
@@ -970,6 +979,7 @@ api.on(async message=>{
     if(message.issue.root!==model.root||message.issue.editId!==latestEdit?.id)return;
     compileIssue=message.issue;projectProblems=[message.issue];previewKnownCurrent=false;previewUpdating=false;renderIssue();
   }
+  if(message.type==='localRecovered'&&message.root===model.root&&message.editId===latestEdit?.id){compileIssue=undefined;projectProblems=[];renderIssue();}
   if(message.type==='log'){
     const log=el('log');
     if(!message.append){log.textContent=message.text;logLength=message.text.length;}
@@ -1029,7 +1039,7 @@ api.on(async message=>{
     }catch(e){void task?.destroy();await api.call('ack',message.bundle.id,String(e));}
   }
   if(message.type==='commit'&&prepared?.id===message.id){
-    const fullSequence=localInputs.get(message.timing?.editId)?.sequence??0,retainLocal=!!message.timing&&!!localCanvas&&(fullSequence<displayedSequence||!canonicalRequested&&model.continuousPreview&&localCanvas.dataset.localLayout==='flow'&&localCanvas.dataset.localStateChanged!=='true'&&fullSequence===displayedSequence);
+    const fullSequence=localInputs.get(message.timing?.editId)?.sequence??0,recoveryVerified=current?.timing?.recovered&&message.timing&&!message.timing.recovered&&fullSequence>=displayedSequence,retainLocal=!!message.timing&&!recoveryVerified&&!!localCanvas&&(fullSequence<displayedSequence||!canonicalRequested&&model.continuousPreview&&localCanvas.dataset.localLayout==='flow'&&localCanvas.dataset.localStateChanged!=='true'&&fullSequence===displayedSequence);
     renderToken++;const old=current;current=prepared;prepared=undefined;if(!retainLocal){show(current,!!localCanvas&&localCanvas.dataset.localSourceHash===current.canvas.dataset.sourceHash);canonicalRequested=false;}
     if(retainLocal&&localCanvas?.dataset.localLayout==='paragraph'&&localPatch&&current.page===localPatch.page&&current.canvas.width===localCanvas.width&&current.canvas.height===localCanvas.height){
       const p=localPatch,saved=document.createElement('canvas');saved.width=p.width;saved.height=p.height;saved.getContext('2d')!.drawImage(localCanvas,p.x,p.y,p.width,p.height,0,0,p.width,p.height);const ctx=localCanvas.getContext('2d')!;ctx.drawImage(current.canvas,0,0);ctx.drawImage(saved,p.x,p.y);saved.width=saved.height=0;

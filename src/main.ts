@@ -115,7 +115,16 @@ const localPreview=new LocalPreview(
     // Expensive local calculations can outlast the original idle deadline.
     // Start a fresh idle interval after display instead of immediately launching
     // a cold full worker while the user types or moves to the next block.
-    if(accepted&&state.onSave&&candidate.root===state.root&&candidate.editId===latestEditId)scheduleFullVerification(candidate.editId);
+    if(accepted&&state.onSave&&candidate.root===state.root&&candidate.editId===latestEditId){
+      if(candidate.recovery){
+        const issue:BuildDiagnostic={id:'local-recovery-'+candidate.editId,root:candidate.root,editId:candidate.editId,file:candidate.sourceFile??candidate.root,line:candidate.recovery.line,kind:'tex',severity:'error',sourceHash:candidate.sourceHash,message:candidate.recovery.message+' Saved source is unchanged.'};
+        currentDiagnostic=issue;currentProblems=[issue];send({type:'diagnostic',issue});send({type:'problems',root:candidate.root,editId:candidate.editId,issues:[issue]});
+      }else{
+        const resolvedStaleSourceError=currentDiagnostic&&currentDiagnostic.editId!==candidate.editId&&(!currentDiagnostic.file||currentDiagnostic.file===(candidate.sourceFile??candidate.root))&&!candidate.flowOutput?.stateChanged;
+        if(currentDiagnostic?.id.startsWith('local-recovery-')||candidate.recoveredBasis||resolvedStaleSourceError){currentDiagnostic=undefined;currentProblems=[];send({type:'localRecovered',root:candidate.root,editId:candidate.editId});}
+        scheduleFullVerification(candidate.editId);
+      }
+    }
     return accepted;
   }),
   editId=>{if(state.onSave&&editId===latestEditId)scheduleFullVerification(editId,0);},

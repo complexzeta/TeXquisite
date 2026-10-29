@@ -8,6 +8,7 @@ import {PDFDocument} from 'pdf-lib';
 import {ResidentCompiler,ResidentSourceError,ResidentSupersededError,RegionRange,RegionFragment,PageSpan} from './resident';
 import type {LocalBasis} from './core';
 import {RegionCompositor,ParagraphAnchor,paragraphPages,cursorPosition,flowCaretY,flowLocations} from './region-compositor';
+import {previewRepair} from './preview-recovery';
 type CalibrationGlyph={x:number;y:number;width:number;height:number};
 export type LocalVerification=boolean|{dx:number;dy:number;calibratedGlyphs?:CalibrationGlyph[]};
 export interface LocalCalibration {x:number;y:number;anchors:ParagraphAnchor[];calibratedGlyphs?:CalibrationGlyph[];}
@@ -51,7 +52,8 @@ export function flowWindowAt(source:string,at:number):RegionRange|undefined{
   return next&&next.from===current.to&&next.to-current.from<=768?{from:current.from,to:next.to}:current;
 }
 const lineOffset=(source:string,line:number)=>{let at=0;while(line-->0){at=source.indexOf('\n',at);if(at<0)return -1;at++;}return at;};
-type Request={source:string;fullSource?:string;editId:string;at:number;};
+type Request={source:string;fullSource?:string;editId:string;at:number;recovery?:{message:string;line:number};};
+export interface LocalCandidate {recovery?:{message:string;line:number};recoveredBasis?:boolean;}
 export interface LocalCandidate {pageLocations?:{page:number;locations:ReturnType<typeof flowLocations>}[];}
 type DiskInput={file:string;mtime:number;ctime:number;ino:number;size:number;};
 type Slot={neutralLast?:boolean;cancelWork?:()=>void;epoch?:number;cancelled?:boolean;regionKey?:string;edited?:boolean;latestSource?:string;file?:string;input?:IncludedInput;sourceText?:string;otherResources?:string;basis:LocalBasis;range:RegionRange;liveEnd:number;compiledRange:RegionRange;compiler:ResidentCompiler;compositor?:RegionCompositor;ready:boolean;abort:AbortController;diskInputs:DiskInput[];pageMode?:boolean;pageReady?:boolean;pageCostMs?:number;proofPage?:number;sourcePages?:PageSpan;baselineSpan?:PageSpan;continuation?:string;verifyPageRange?:()=>Promise<void>;};
@@ -91,7 +93,7 @@ export class LocalPreview{
   private running=false;
   private verifyingWithOwner=false;
   private canPrefetch=false;
-  private prefetched?:{request:Request;slot:Slot;epoch:number;promise:ReturnType<LocalPreview['output']>};
+  private prefetched?:{request:Request;slot:Slot;epoch:number;promise:ReturnType<LocalPreview['recoverOutput']>};
   private timer?:NodeJS.Timeout;
   private preparation:Promise<void>=Promise.resolve();
   private inflight?:Promise<unknown>;
@@ -194,7 +196,7 @@ export class LocalPreview{
     if(this.compositionBase?.id!==basis.bundle.id)this.compositionBase=undefined;
     const prior=this.basis;
     const replaced=prior?.bundle.id!==basis.bundle.id||this.neutralEnabled&&!!prior&&(prior.source!==basis.source||prior.compilerSource!==basis.compilerSource||prior.options.root!==basis.options.root||prior.project.resourceKey!==basis.project.resourceKey||prior.project.environmentKey!==basis.project.environmentKey);
-    if(replaced){this.neutral=this.neutralEnabled&&this.lecture&&this.continuous?new NeutralBlocks(basis.source):undefined;this.editorSource=basis.source;}
+    if(replaced){this.neutral=!basis.bundle.recovered&&this.neutralEnabled&&this.lecture&&this.continuous?new NeutralBlocks(basis.source):undefined;this.editorSource=basis.source;}
     if(prior?.bundle.id!==basis.bundle.id&&this.slot)this.rememberVisit();
     if(prior&&(prior.options.root!==basis.options.root||prior.project.environmentKey!==basis.project.environmentKey))this.visits=[];
     this.cancelIdle();if(replaced){this.parked=[];this.idleAttempts.clear();}
@@ -472,7 +474,7 @@ export class LocalPreview{
       try{
         const output=await slot.compiler.previewRegionFlow(rootSource,range,slot.abort.signal,1000,()=>{},project,true,input,this.lecture),flow=slot.compositor.flow(output,true);
         if(flow){const y=flowCaretY(output.navigation,source,slot.compiledRange.from+request.at-slot.range.from,sourceName,output.fragment.page);
-          if(this.neutral){
+          if(this.neutral&&!request.recovery){
             const unchanged=request.source===(slot.sourceText??slot.basis.source)||plainTextChange(slot.sourceText??slot.basis.source,request.source);
             if(unchanged&&!flow.stateChanged&&slot.compositor.neutralCompatible(output))return {kind:'neutral' as const,output,locations:flowLocations(output.navigation,source,sourceName,output.fragment.page,range.from,range.to).map(g=>({...g,at:g.at-slot.compiledRange.from+slot.range.from,end:g.end-slot.compiledRange.from+slot.range.from,x:slot.compositor!.x+g.x,y:slot.compositor!.y+g.y-(slot.compositor!.inkTopSp(output)-output.fragment.paddingSp)*72/(72.27*65536)})),caretY:y===undefined?undefined:slot.compositor.y+y-(slot.compositor.inkTopSp(output)-output.fragment.paddingSp)*72/(72.27*65536)};
             this.log('Retained block excluded: '+JSON.stringify(slot.compositor.neutralExclusions(output))+'\n');
@@ -532,8 +534,25 @@ export class LocalPreview{
   }
   private newestId(fallback:string){return this.pending?.editId??this.prefetched?.request.editId??fallback;}
   private runOutput(slot:Slot,request:Request){
-    const promise=this.speculation?this.speculation.catch(()=>{}).then(()=>this.output(slot,request)):this.output(slot,request);this.inflight=promise;
+    const promise=this.speculation?this.speculation.catch(()=>{}).then(()=>this.recoverOutput(slot,request)):this.recoverOutput(slot,request);this.inflight=promise;
     void promise.finally(()=>{if(this.inflight===promise)this.inflight=undefined;}).catch(()=>{});return promise;
+  }
+  private async recoverOutput(slot:Slot,request:Request){
+    const deadline=performance.now()+1200;let next=request;
+    for(let attempt=0;;attempt++){
+      try{return {...await this.output(slot,next),recovery:next.recovery};}
+      catch(error){
+        if(error instanceof ResidentSourceError&&this.pending&&this.pending.editId!==request.editId)throw new ResidentSupersededError('A newer draft superseded local recovery.');
+        if(!(error instanceof ResidentSourceError)||slot.input||this.neutral?.dirty.length||attempt>=2||performance.now()>deadline||slot.abort.signal.aborted)throw error;
+        const repair=previewRepair(next.source,String(error));
+        // A repair beyond this proved region must use ordinary full recovery.
+        // Never mutate the editor source or retain an approximate neutral block.
+        if(!repair||this.regionText(slot,repair.source)===undefined)throw error;
+        this.neutral=undefined;
+        next={...request,source:repair.source,recovery:{message:repair.message,line:repair.line}};
+        this.log('Local recovery: '+repair.message+'\n');
+      }
+    }
   }
   private async drain(){
     this.running=true;
@@ -547,7 +566,7 @@ export class LocalPreview{
         this.canPrefetch=true;this.prefetch();if(!this.prefetched)slot.compiler.prepareNextRegionEdit();
         const text=this.regionText(slot,request.source)!;
         const actual=this.neutral?.actual(slot.range),rangeFrom=actual?.from??slot.range.from;
-        const identity={sourceFile:slot.file,root:slot.basis.options.root,baseId:slot.basis.bundle.id,editId:request.editId,sourceHash:hash(request.fullSource??request.source),rangeFrom,rangeTo:rangeFrom+text.length};
+        const identity={sourceFile:slot.file,recoveredBasis:!!slot.basis.bundle.recovered,root:slot.basis.options.root,baseId:slot.basis.bundle.id,editId:request.editId,sourceHash:hash(request.fullSource??request.source),rangeFrom,rangeTo:rangeFrom+text.length};
         let candidate:LocalCandidate;
         let proposed:NeutralBlocks|undefined;
         if(result.kind==='flow'){
@@ -566,6 +585,7 @@ export class LocalPreview{
           candidate={...identity,pageLocations:result.pageLocations,pdf:await selectPages(output.pdf,span),page:span.first,pageSpan:span,sourcePages:slot.sourcePages,proofPage:slot.proofPage,cursorPage:result.cursorPage,cursorPosition:result.cursorPosition,timing:output.timing,pageOutput:true,baselineSpan:slot.baselineSpan,continuation:slot.continuation};
         }
         if(epoch!==this.epoch)continue;
+        if(result.recovery){candidate.recovery=result.recovery;candidate.pageLocations=undefined;delete candidate.neutralBlock;}
         const accepted=await this.publish(candidate);
         if(!accepted)throw new Error('The local page could not be displayed.');
         if(this.neutralEnabled&&epoch!==this.epoch)continue;

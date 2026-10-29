@@ -15,6 +15,18 @@ test('Recovered previews keep their label in history and cannot be exported as v
  const destination=path.join(s.directory,'export.pdf');await assert.rejects(s.export(bundle,destination),/temporary LaTeX repairs/);
  assert.equal(await fs.stat(destination).then(()=>true,()=>false),false);
 });
+test('Recovered local baselines use only actual compiled bytes and preserve approximate provenance',async t=>{
+ for(const lengthChanging of [false,true]){
+  const s=await store(),project=path.join(s.directory,'source');await fs.mkdir(project,{recursive:true});const root=path.join(project,'main.tex');
+  const source=lengthChanging?'\\documentclass{article}\n\\begin{document}\n\nMath $x\n\n\\end{document}\n':'\\documentclass{article}\n\\begin{document}\n\nTarget \\broken words.\n\n\\end{document}\n';await fs.writeFile(root,source);
+  let basis;const bytes=Buffer.from(await pdf()),controller=new BuildController(s,{prepare:async()=>{},commit:()=>{},discard:()=>{},localBasis:b=>basis=b},()=>{},()=>{});t.after(()=>controller.dispose());
+  let calls=0;controller.resident.compile=async()=>{if(calls++===0)throw Error(lengthChanging?'Build failed.\n! Missing $ inserted.\nl.5 \n':'Build failed.\n! Undefined control sequence.\nl.4 Target \\broken\n');return bytes;};
+  await controller.request({root,engine:'pdflatex',executable:'latexmk',timeoutMs:30000,automatic:true,sourceText:source});
+  assert.equal(controller.current.recovered,true);assert.equal(controller.current.sourceHash,hash(source));
+  if(lengthChanging)assert.equal(basis,undefined,'Offset-changing full repairs cannot seed local source positions');
+  else{assert.equal(basis.source,source.replace('\\broken','       '));assert.equal(basis.compilerSource,basis.source);assert.equal(basis.options.sourceText,source);assert.equal(basis.bundle.recovered,true);assert.equal(basis.bundle.navigationHash,undefined);}
+ }
+});
 
 for(const automatic of [false,true])test(automatic?'Automatic full work coalesces unstarted revisions while preserving the in-flight publication':'An already prefetched manual revision publishes once before the newest pending edit',async t=>{
  const s=await store(),project=path.join(s.directory,'source');await fs.mkdir(project,{recursive:true});const root=path.join(project,'main.tex');

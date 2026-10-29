@@ -331,15 +331,23 @@ export class BuildController {
       let capabilityRetry=false;
       let backend='Native compilation.',warningLog='';
       const recoveryIssues:BuildDiagnostic[]=[];
+      let localSource=source,localRecoveryEligible=true;
       if(residentEligible){
         let task=this.residentTask;
         if(task&&(task.source!==compilerSource||task.resourceKey!==project.resourceKey||task.characterMapping!==!!project.characterMapping)){await task.promise.catch(()=>{});if(this.residentTask===task)this.residentTask=undefined;task=undefined;check();}
         task??=this.startResident(compilerSource,options.timeoutMs,project);
         try{pdf=await task.promise;}
         catch(error){
-          check();const message=String(error);
-          if(options.automatic&&(error instanceof ResidentSourceError||recoverableTexError(message))){
-            let failure=error;const deadline=performance.now()+4000;
+          check();let failure=error,compatibilityResolved=false;
+          if(/I can't find file [`']tkz-obj-[^\r\n]+\.tex/.test(String(failure))&&legacyTkzLoader.test(source)&&hasEuclide(source)){
+            this.log('Compatibility: modern tkz-euclide loads its objects automatically; the editor source remains unchanged.\n');
+            compilerSource=emptyDocumentPreview(withoutLegacyTkz(source));
+            try{pdf=await this.resident.compile(compilerSource,abort.signal,options.timeoutMs,this.log,project);compatibilityResolved=true;}
+            catch(retry){check();failure=retry;}
+            if(pdf||recoverableTexError(String(failure)))this.legacyTkzCompatible=true;
+          }
+          if(!pdf&&options.automatic&&(failure instanceof ResidentSourceError||recoverableTexError(String(failure)))){
+            const deadline=performance.now()+4000;
             // A handful of known, local repairs may keep a lecture moving.
             // New edits cancel recovery; repeated/unsafe errors never spin.
             this.retryingNativeFor=this.sourceIdentity(options);
@@ -348,6 +356,9 @@ export class BuildController {
               const parsed=parseDiagnostic(String(failure),diagnosticInputs);
               if(parsed.file!==options.root)break;
               const repair=previewRepair(compilerSource,String(failure));if(!repair||repair.source===compilerSource||performance.now()>=deadline)break;
+              const editorRepair=previewRepair(localSource,String(failure));
+              if(!editorRepair||editorRepair.source.length!==localSource.length)localRecoveryEligible=false;
+              else localSource=editorRepair.source;
               recoveryIssues.push({...parsed,id:this.cacheSession+'-'+revision+'-recovery-'+attempt,root:options.root,editId:options.editId,severity:'error',sourceHash:hash(source.replace(/\r\n/g,'\n')),message:parsed.message+' '+repair.message+' Saved source is unchanged.'});
               compilerSource=repair.source;this.log(repair.message+' Saved source is unchanged.\n');
               this.status('Recovering the preview from a LaTeX error. You can keep editing.');
@@ -355,14 +366,9 @@ export class BuildController {
               catch(next){failure=next;}
             }
             check();if(!pdf){this.log('Draft TeX error; keeping the last good preview. The next edit will retry automatically.\n');throw failure;}
-          }else{
+          }else if(!pdf&&!compatibilityResolved){
             capabilityRetry=true;
-            if(/I can't find file [`']tkz-obj-[^\r\n]+\.tex/.test(message)&&legacyTkzLoader.test(source)&&hasEuclide(source)){
-              this.log('Compatibility: modern tkz-euclide loads its objects automatically; the editor source remains unchanged.\n');
-              compilerSource=emptyDocumentPreview(withoutLegacyTkz(source));
-              try{pdf=await this.resident.compile(compilerSource,abort.signal,options.timeoutMs,this.log,project);capabilityRetry=false;if(pdf)this.legacyTkzCompatible=true;}
-              catch(retry){check();this.log('Resident capability check failed; checking the native engine. '+String(retry)+'\n');}
-            }else this.log('Resident capability check failed; checking the native engine. '+message+'\n');
+            this.log('Resident capability check failed; checking the native engine. '+String(failure)+'\n');
           }
         }finally{if(this.residentTask===task)this.residentTask=undefined;}
         if(pdf){
@@ -440,7 +446,10 @@ export class BuildController {
       if(recoveryIssues.length)this.viewer.diagnostic?.(recoveryIssues[0]);
       this.viewer.problems?.([...recoveryIssues,...warnings],options.editId);
       const acceptedBundle=bundle;let localHandoff=false;
-      if(backend.startsWith('Preamble'))try{this.viewer.localBasis?.({bundle,options,source,compilerSource,project,pdf,canBuildAlongside:()=>this.independentLocalOwner,takeCompiler:()=>{
+      // A length-preserving recovered source can seed approximate LOCAL output
+      // from exactly the bytes actually compiled. It is never a proof of the
+      // unmodified editor source; that source must still pass region checks.
+      if(backend.startsWith('Preamble')||recoveryIssues.length&&localRecoveryEligible)try{this.viewer.localBasis?.({bundle,options,source:recoveryIssues.length?localSource:source,compilerSource,project,pdf,canBuildAlongside:()=>this.independentLocalOwner,takeCompiler:()=>{
         // Transfer ownership only after publication and only while idle. Future
         // full verification gets its own worker; local edits cannot race it.
         // A failed local page proof may stop its transferred worker. That
@@ -448,12 +457,12 @@ export class BuildController {
         // its newly converged compiler. A live owner still transfers once.
         // A newer build owns it from source capture, before its RPC exists.
         if(this.localCompilerTransferred&&this.transferredCompiler?.initialized||this.current!==bundle||this.pending||this.active&&this.active!==abort||this.residentTask||this.resident.busy||abort.signal.aborted||generation!==this.generation)return;
-        const compiler=this.resident;this.resident=new ResidentCompiler();this.localCompilerTransferred=true;this.transferredCompiler=compiler;this.prepareStandby(acceptedBundle,compilerSource,project);return compiler;
+        const compiler=this.resident;this.resident=new ResidentCompiler();this.localCompilerTransferred=true;this.transferredCompiler=compiler;if(!bundle!.recovered)this.prepareStandby(acceptedBundle,compilerSource,project);return compiler;
       },replaceCompiler:previous=>{
         // Explicitly replace the idle local owner with this newly converged
         // publication. Preserve the ordinary one-time transfer guard.
         if(this.transferredCompiler!==previous||previous.busy||!previous.initialized||this.current!==bundle||this.retired||this.pending||this.active&&this.active!==abort||this.residentTask||this.resident.busy||!this.resident.initialized||abort.signal.aborted||generation!==this.generation)return;
-        const compiler=this.resident;this.resident=new ResidentCompiler();this.transferredCompiler=compiler;this.localCompilerTransferred=true;previous.stop();this.prepareStandby(acceptedBundle,compilerSource,project);return compiler;
+        const compiler=this.resident;this.resident=new ResidentCompiler();this.transferredCompiler=compiler;this.localCompilerTransferred=true;previous.stop();if(!bundle!.recovered)this.prepareStandby(acceptedBundle,compilerSource,project);return compiler;
       },claimAutomatic:(editId,nextSource,previous)=>{
         // An explicit local handoff may consume only the exact compatible
         // automatic revision. Ordinary ownership offers never consume work.
@@ -461,7 +470,7 @@ export class BuildController {
         if(!pending?.automatic||pending.editId!==editId||pending.sourceText!==nextSource||pending.root!==options.root||pending.engine!==options.engine||pending.executable!==options.executable||!!pending.characterMapping!==!!options.characterMapping||JSON.stringify(pending.sourceFiles)!==JSON.stringify(options.sourceFiles)||JSON.stringify(pending.supportFolders)!==JSON.stringify(options.supportFolders))return;
         if(this.current!==bundle||this.retired||this.active&&this.active!==abort||this.residentTask||this.resident.busy||!this.resident.initialized||abort.signal.aborted||generation!==this.generation)return;
         if(previous?this.transferredCompiler!==previous||previous.busy||!previous.initialized:this.localCompilerTransferred&&this.transferredCompiler?.initialized)return;
-        const compiler=this.resident;this.pending=undefined;localHandoff=true;this.resident=new ResidentCompiler();this.transferredCompiler=compiler;this.localCompilerTransferred=true;previous?.stop();this.prepareStandby(acceptedBundle,compilerSource,project);return compiler;
+        const compiler=this.resident;this.pending=undefined;localHandoff=true;this.resident=new ResidentCompiler();this.transferredCompiler=compiler;this.localCompilerTransferred=true;previous?.stop();if(!bundle!.recovered)this.prepareStandby(acceptedBundle,compilerSource,project);return compiler;
       },returnCompiler:compiler=>{
         // An unsupported block must not strand the only warm engine locally.
         // Reclaim it only before a replacement worker has begun any request.
