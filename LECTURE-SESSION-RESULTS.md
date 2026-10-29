@@ -1,4 +1,50 @@
-# Mixed lecture editing (0.107)
+# Mixed lecture editing
+
+## Page-baseline verification (0.109)
+
+Profiling separated native typesetting, page extraction and viewer verification.
+In one slow two-page case those stages took about 111, 2 and 859 ms respectively.
+The full-page comparison now runs as one serialized PDF-worker job instead of
+returning each raster to a large renderer callback for a byte-by-byte loop.
+An aligned RGBA buffer is compared four bytes at a time in a small helper; odd
+offsets and trailing bytes retain an exact byte comparison. This changes no
+pixel tolerance, color/alpha criterion or source/continuation check. Only copies
+of immutable accepted rasters are transferred. Leases remain held until the
+check finishes, and obsolete proofs are rejected before publishing results.
+
+An intermediate two-page verification fell from about 859 to 175 ms, with native
+typesetting still about 110 ms. Ten zoom/DPI combinations and five output cases
+give 50 differential checks against the old byte loop: unchanged synthetic and
+native TeX pages, altered middle pages, reordered pages and altered native pages.
+Malformed input is refused, later valid checks still work, and accepted rasters
+remain usable. Unit tests cover aligned/unaligned views, trailing bytes and every
+RGBA channel. These checks retain exact whole-page equality.
+
+The final development mixed session completed 132 actions / 183 complete frames:
+90 ms median, 309 ms at the 95th percentile and 676 ms maximum. A fresh control
+using the unchanged public 0.108 runtime and the same harness completed 186
+frames: 106/306/1,037 ms. Thus the new run improved the median and maximum but
+did not improve that control's 95th percentile. The earlier packaged 0.108 run
+was 96/376/1,482 ms. Sequential local runs vary; this is not a universal speedup
+or a claim that the 300 ms consistency target has been achieved.
+
+The packaged 0.109 run completed 132 actions / 183 complete frames: 81 ms
+median, 306 ms at the 95th percentile and 698 ms maximum. Typing bursts took
+289 ms median / 698 ms maximum; paragraph pastes 83/304 ms and deleting those
+pastes 81/631 ms. Autosave, strict PDF export containing the latest text and
+normal close/reopen passed. These are synthetic hidden-window timings to a
+matching canvas, not measurements of physical display latency or BaKoMa parity.
+Packaged cross-page navigation, file switching and ten-case math recovery also
+passed; the latter updated in 42–75 ms without full rebuilds or moving the source
+pane. Seventeen focused guards passed in both source checkouts, and 16 packaged
+runtime assets matched the independent builds.
+
+The remaining stalls include preparing an unfamiliar paragraph and rendering
+multiple affected pages. Paragraph-check batching was also investigated but
+reverted because it did not consistently help typing. The shipped change is
+limited to full-page verification, exact pixel comparison and earlier refusal
+of obsolete proof work. Native TeX, saved source, export and lecture layout
+semantics are unchanged.
 
 ## Live page scheduling (0.108)
 

@@ -780,11 +780,12 @@ api.on(async message=>{
     const baseline=acceptedBaseline(message),task=loadPdf(message.pdf,true);
     try{const [base,partial]=await Promise.all([baseline.document,task.promise]);
       ok=message.root===model.root&&Number.isSafeInteger(span.first)&&Number.isSafeInteger(span.last)&&span.first>=1&&span.last>=span.first&&span.last-span.first<3&&span.last<=base.numPages&&partial.numPages===span.last-span.first+1;
-      for(let page=span.first;ok&&page<=span.last;page++){
-        const cached=await baseline.page(page),a=cached.value.canvas;
-        try{const raster=await partial.renderPixels(page-span.first+1,scale,window.devicePixelRatio||1),pb=raster.pixels,pa=cached.value.pixels;ok=a.width===raster.width&&a.height===raster.height&&pa.length===pb.length;for(let i=0;ok&&i<pa.length;i++)if(pa[i]!==pb[i])ok=false;}
-        finally{cached.release();}
-      }
+      const pages:Awaited<ReturnType<typeof baseline.page>>[]=[];
+      try{
+        for(let page=span.first;ok&&currentProof()&&page<=span.last;page++)pages.push(await baseline.page(page));
+        ok=ok&&currentProof()&&pages.length===span.last-span.first+1;
+        if(ok){const proof=await partial.verifyPageBand(pages.map(frame=>({width:frame.value.canvas.width,height:frame.value.canvas.height,pixels:frame.value.pixels.slice()})),scale*(window.devicePixelRatio||1));ok=proof.ok;console.debug('Page baseline verification',JSON.stringify(proof));}
+      }finally{for(const page of pages)page.release();}
       ok=ok&&currentProof();
       if(ok){retainPageBaseline(baseline);localPageProofs.add(key);if(verifiedPageOutputs.size>=8)verifiedPageOutputs.delete(verifiedPageOutputs.values().next().value!);verifiedPageOutputs.add(fingerprint);}console.debug('Local page range verification',JSON.stringify({ok,reused:false,span,scale,ratio:window.devicePixelRatio}));
     }catch{ok=false;}finally{baseline.release();void task.destroy().catch(()=>{});await api.call('localAck',message.token,ok);}return;
@@ -793,6 +794,7 @@ api.on(async message=>{
     let ok=false,reply:boolean|{dx:number;dy:number}=false;const proofToken=localProofToken,key=proofKey(message),baseline=acceptedBaseline(message),tasks=[loadPdf(message.pdf,true),loadPdf(message.fragmentPdf,true)];
     let cached:Awaited<ReturnType<typeof baseline.page>>|undefined;
     try{if(message.root===model.root){const [base,composed,fragment]=await Promise.all([baseline.document,...tasks.map(task=>task.promise)]);
+      if(proofToken!==localProofToken||key!==proofKey(message)||message.root!==model.root)return;
       // Submit the independent proof reads together. Otherwise an idle page
       // render can start between each round trip and delay the same proof
       // repeatedly. PDFium still executes each request serially.

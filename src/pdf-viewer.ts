@@ -49,6 +49,10 @@ export function loadPdf(bytes:Uint8Array,interactive=false,live=false){
         return {canvas,pixels};
       };
     return {
+      async verifyPageBand(frames:{pixels:Uint8ClampedArray;width:number;height:number}[],scale:number){
+        if(closed)throw new Error('PDF was closed.');
+        return call('verifyPageBand',{documentId,frames,scale},frames.map(frame=>frame.pixels.buffer as ArrayBuffer));
+      },
       glyphs(page:number):Promise<PdfCharacter[]>{if(closed)return Promise.reject(new Error('PDF was closed.'));let result=glyphCache.get(page);if(!result){result=call('glyphs',{documentId,page});glyphCache.set(page,result);}return result;},
       numPages:result.numPages,
       sizes(interactive=false){if(closed)return Promise.reject(new Error('PDF was closed.'));return pageSizes??(pageSizes=call('sizes',{documentId,interactive}));},

@@ -346,10 +346,11 @@ export class LocalPreview{
       const verifyPageRange=async()=>{if(this.verifyPages){const started=performance.now();try{
         const attempts=background?[true]:preparation?.baselinePageCostMs!==undefined?[true,false]:[false];
         for(const baselineProof of attempts){try{
-          const baseline=await slot.compiler.previewRegionPage(basis.compilerSource,compiledRange,slot.sourcePages!.first,slot.abort.signal,30000,()=>{},project,this.continuous,input,baselineProof),pdf=await selectPages(baseline.pdf,baseline.pageSpan);
+          const proofStarted=performance.now(),baseline=await slot.compiler.previewRegionPage(basis.compilerSource,compiledRange,slot.sourcePages!.first,slot.abort.signal,30000,()=>{},project,this.continuous,input,baselineProof),nativeDone=performance.now(),pdf=await selectPages(baseline.pdf,baseline.pageSpan),selectedAt=performance.now();
           slot.pageCostMs=Math.max(baseline.timing?.roundTripMs??baseline.timing?.totalMs??0,baseline.timing?.baselinePageCostMs??0);
           if(!valid())return;
-          if(!await Promise.race([this.verifyPages!(basis,pdf,baseline.pageSpan,baseline.timing?.continuation),cancelled]))throw new Error('Affected-page baseline did not match accepted pages.');
+          const verified=await Promise.race([this.verifyPages!(basis,pdf,baseline.pageSpan,baseline.timing?.continuation),cancelled]);this.log('Page baseline proof: '+JSON.stringify({nativeMs:nativeDone-proofStarted,selectMs:selectedAt-nativeDone,viewerMs:performance.now()-selectedAt,pages:baseline.pageSpan,...(baseline.timing?{timing:baseline.timing}:{})})+'\n');
+          if(!verified)throw new Error('Affected-page baseline did not match accepted pages.');
           if(!valid())return;
           slot.pageReady=true;slot.proofPage=baseline.pageSpan.first;slot.baselineSpan={...baseline.pageSpan};slot.continuation=baseline.timing?.continuation;pageBaselineFromWitness=!!baseline.timing?.baselineCheckpointReused;break;
         }catch(error){if(background||!baselineProof||!valid()||slot.abort.signal.aborted)throw error;this.log('Post-picture baseline unavailable; retrying original checkpoint: '+String(error)+'\n');}}
@@ -358,7 +359,7 @@ export class LocalPreview{
       const pageWork=background&&!target?.recent||this.continuous&&slot.compositor?Promise.resolve():verifyPageRange();
       // A parallel rejection must be observed even while raster proof awaits.
       void pageWork.catch(()=>{});
-      let paragraphElapsed=0,preflightMs=0,preflightApplied=false,rasterAttempts=0,calibratedGlyphs:CalibrationGlyph[]|undefined;
+      let paragraphElapsed=0,paragraphComposeMs=0,paragraphRasterWaitMs=0,preflightMs=0,preflightApplied=false,rasterAttempts=0,calibratedGlyphs:CalibrationGlyph[]|undefined;
       try{if(slot.compositor){
         const origin={x:slot.compositor.x,y:slot.compositor.y};
         // A retained focused checkpoint commonly already matches the accepted
@@ -371,7 +372,7 @@ export class LocalPreview{
           // proof below must still authorize this exact composed output.
           if(typeof correction==='object'){c.adjust(correction.dx,correction.dy);calibratedGlyphs=correction.calibratedGlyphs;preflightApplied=true;}
         }
-        const verify=async()=>{rasterAttempts++;const c=slot.compositor!,check=await c.compose(original!);return this.verify(basis,check.pdf,check.page,original!.pdf,original!.fragment,check.footprint,{x:c.x,y:c.y,anchors:c.anchors,calibratedGlyphs});};
+        const verify=async()=>{rasterAttempts++;const c=slot.compositor!,started=performance.now(),check=await c.compose(original!),composedAt=performance.now();paragraphComposeMs+=composedAt-started;try{return await this.verify(basis,check.pdf,check.page,original!.pdf,original!.fragment,check.footprint,{x:c.x,y:c.y,anchors:c.anchors,calibratedGlyphs});}finally{paragraphRasterWaitMs+=performance.now()-composedAt;}};
         const checkPlacement=async()=>{
           let result=await Promise.race([verify(),cancelled]);if(!valid())return false;
           if(typeof result==='object'){
@@ -396,7 +397,7 @@ export class LocalPreview{
         }
       }}finally{paragraphElapsed=performance.now()-placedAt;await pageWork;}
       if(!slot.compositor&&!slot.pageReady)throw new Error('This paragraph requires verified page-range output.');
-      if(!valid())return;slot.ready=true;if(!background)this.state('ready');this.log('Local preparation: '+JSON.stringify({readyMs:performance.now()-started,rangeFrom:range.from,rangeTo:range.to,adjacentParagraph:expanded,compilerFromPublishedBuild:slot.compiler===this.publishedCompiler,compilerInitiallyWarm,pageBaselineFromWitness,placementMs:placedAt-nodesAt,preflightMs,preflightApplied,rasterAttempts,paragraphVerificationMs:paragraphElapsed,pageVerificationMs:pageElapsed,parallelVerification:true,...preparation})+'\n');
+      if(!valid())return;slot.ready=true;if(!background)this.state('ready');this.log('Local preparation: '+JSON.stringify({readyMs:performance.now()-started,rangeFrom:range.from,rangeTo:range.to,adjacentParagraph:expanded,compilerFromPublishedBuild:slot.compiler===this.publishedCompiler,compilerInitiallyWarm,pageBaselineFromWitness,placementMs:placedAt-nodesAt,preflightMs,preflightApplied,rasterAttempts,paragraphComposeMs,paragraphRasterWaitMs,paragraphVerificationMs:paragraphElapsed,pageVerificationMs:pageElapsed,parallelVerification:true,...preparation})+'\n');
       if(background){this.rememberSlot(slot);this.log(target?.recent?'Local recent region prepared.\n':'Local neighbor prepared.\n');}
       else{if(!this.pending&&!this.running){slot.compiler.useRegion(slot.regionKey);slot.compiler.prepareNextRegionEdit();this.scheduleIdle();}
       if(this.pending&&!this.running)void this.drain();}

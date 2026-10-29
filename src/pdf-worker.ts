@@ -1,5 +1,5 @@
 import {PDFiumLibrary,PDFiumDocument} from '@hyzyla/pdfium';
-import {inkFitsRaster,flowInkBounds} from './local-raster';
+import {inkFitsRaster,flowInkBounds,rasterBytesEqual} from './local-raster';
 import {PdfWorkQueue,pdfWorkPriority} from './pdf-work-queue';
 
 const library=PDFiumLibrary.init({wasmUrl:new URL('./vendor/pdfium.wasm',import.meta.url).href});
@@ -39,6 +39,15 @@ worker.onmessage=event=>{
             worker.postMessage({id,result:{width:bitmap.width,height:bitmap.height,originalWidth:bitmap.originalWidth,originalHeight:bitmap.originalHeight,image,...(args.includePixels?{data:bitmap.data}:{}),rasterMs,workerMs:performance.now()-started}},args.includePixels?[image,bitmap.data.buffer as ArrayBuffer]:[image]);
           }else worker.postMessage({id,result:{...bitmap,rasterMs,workerMs:performance.now()-started}},[bitmap.data.buffer as ArrayBuffer]);
         }finally{page.close();}
+      }else if(method==='verifyPageBand'){
+        const document=documents.get(args.documentId),frames=args.frames;if(!document)throw Error('PDF was closed.');
+        if(!Number.isFinite(args.scale)||args.scale<=0||args.scale>16||!Array.isArray(frames)||frames.length<1||frames.length>3||frames.length!==document.getPageCount()||frames.some(f=>!f||!Number.isSafeInteger(f.width)||!Number.isSafeInteger(f.height)||f.width<1||f.height<1||f.width*f.height>16000000||!(f.pixels instanceof Uint8ClampedArray)||f.pixels.length!==f.width*f.height*4))throw Error('Invalid page proof.');
+        const started=performance.now();let ok=true,pagesChecked=0,rasterMs=0,compareMs=0;
+        for(let i=0;ok&&i<frames.length;i++){
+          const page=document.getPage(i),frame=frames[i];
+          try{const size=(page as any).getSize({scale:args.scale});if(size.width*size.height>16000000)throw Error('Proof raster is too large.');const renderAt=performance.now(),raster=await page.render({scale:args.scale,colorSpace:'RGBA',transparent:false}),comparedAt=performance.now();rasterMs+=comparedAt-renderAt;ok=frame.width===raster.width&&frame.height===raster.height&&rasterBytesEqual(frame.pixels,raster.data);compareMs+=performance.now()-comparedAt;pagesChecked++;}finally{page.close();}
+        }
+        worker.postMessage({id,result:{ok,pagesChecked,queueMs,rasterMs,compareMs,workerMs:performance.now()-started}});
       }else if(method==='checkedRegion'){
         // A local flow fragment has no persistent viewer owner. Load, validate,
         // rasterize and crop in one serialized operation, and release it here.

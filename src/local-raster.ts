@@ -1,4 +1,11 @@
 export const LOCAL_INK_BLEED_BP=1;
+// RGBA rasters are normally aligned. Compare all four channels at once without
+// copying or changing the exact-byte criterion; odd-offset views use bytes.
+export function rasterBytesEqual(a:Uint8Array|Uint8ClampedArray,b:Uint8Array|Uint8ClampedArray){
+ if(a.length!==b.length)return false;let at=0;
+ if(a.byteOffset%4===0&&b.byteOffset%4===0){const count=Math.floor(a.length/4),aa=new Uint32Array(a.buffer,a.byteOffset,count),bb=new Uint32Array(b.buffer,b.byteOffset,count);for(let i=0;i<count;i++)if(aa[i]!==bb[i])return false;at=count*4;}
+ for(;at<a.length;at++)if(a[at]!==b[at])return false;return true;
+}
 
 // Calibration asks about the same page hundreds of times. Group by character
 // once, then find the two nearest candidates without allocating or sorting.
