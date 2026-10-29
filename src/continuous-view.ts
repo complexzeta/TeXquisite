@@ -120,6 +120,7 @@ export class ContinuousView{
     if(end<=start||start>=base.height)throw new Error('Continuous block is outside its baseline.');
     if(!Number.isFinite(flow.baselineLeading)||flow.baselineLeading<0||flow.baselineLeading>=200||!Number.isFinite(flow.leading)||flow.leading<0||flow.leading>=200)throw new Error('Invalid continuous block leading.');
     const requestedLeading=Math.ceil(flow.leading*factor),prefixHeight=Math.min(end-start,Math.ceil((flow.rect.y+flow.baselineLeading)*factor)-start);
+    if(Math.floor(flow.rect.x*factor)<0||Math.floor(flow.rect.x*factor)+tile.patchWidth>base.width){tile.image?.close();throw Error('Continuous block ink exceeds the page width.');}
     const make=(height:number)=>{const c=document.createElement('canvas');c.width=base.width;c.height=height;c.style.width=e.size.originalWidth*this.scale+'px';c.style.height=height/this.ratio+'px';return c;};
     if(!e.pieces){
       const top=make(start),bottom=make(base.height-end);if(start)top.getContext('2d')!.drawImage(base,0,0,base.width,start,0,0,base.width,start);if(bottom.height)bottom.getContext('2d')!.drawImage(base,0,end,base.width,bottom.height,0,0,base.width,bottom.height);

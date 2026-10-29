@@ -24,6 +24,21 @@ export function inkFitsRaster(data:Uint8Array|Uint8ClampedArray,width:number,hei
   for(let y=0;y<height;y++){const start=y*width*4;if(y<top||y>=bottom){if(!clear(start,start+width*4))return false;}else if(!clear(start,start+left*4)||!clear(start+right*4,start+width*4))return false;}
   return true;
 }
+
+// Live pageless flow may contain a slightly overfull TeX line. Capture its
+// actual rightmost ink in the fragment's blank margin, rather than cropping it
+// or rejecting the whole paragraph. Baseline proofs keep inkFitsRaster strict.
+export function flowInkBounds(data:Uint8Array|Uint8ClampedArray,width:number,height:number,bounds:{left:number;top:number;right:number;bottom:number},allowance:number){
+ if(inkFitsRaster(data,width,height,bounds))return bounds;
+ if(!Number.isFinite(allowance)||allowance<=0||allowance>256)return;
+ const limit=Math.min(width-1,Math.ceil(bounds.right+allowance));
+ if(limit<=bounds.right||!inkFitsRaster(data,width,height,{...bounds,right:limit}))return;
+ let right=Math.ceil(bounds.right);
+ for(let y=Math.max(0,Math.floor(bounds.top));y<Math.min(height,Math.ceil(bounds.bottom));y++)for(let x=right;x<limit;x++){
+  const p=(y*width+x)*4;if(data[p]<250||data[p+1]<250||data[p+2]<250)right=x+1;
+ }
+ return {...bounds,right:Math.min(limit,right+1)};
+}
 type RasterRect={x:number;y:number;width:number;height:number};
 export function matchLocalRaster(a:Uint8ClampedArray,b:Uint8ClampedArray,width:number,height:number,rect:RasterRect){return matchRaster(a,b,width,height,rect,false);}
 export function matchLocalPatchRaster(a:Uint8ClampedArray,b:Uint8ClampedArray,width:number,height:number,rect:RasterRect,calibratedGlyphs:RasterRect[]=[]){return matchRaster(a,b,width,height,rect,true,calibratedGlyphs);}

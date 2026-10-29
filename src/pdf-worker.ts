@@ -1,5 +1,5 @@
 import {PDFiumLibrary,PDFiumDocument} from '@hyzyla/pdfium';
-import {inkFitsRaster} from './local-raster';
+import {inkFitsRaster,flowInkBounds} from './local-raster';
 import {PdfWorkQueue} from './pdf-work-queue';
 
 const library=PDFiumLibrary.init({wasmUrl:new URL('./vendor/pdfium.wasm',import.meta.url).href});
@@ -56,11 +56,12 @@ worker.onmessage=event=>{
             const size=raw.getSize({scale:args.scale}),actual=page.getOriginalSize();
             if(!Number.isSafeInteger(size.width)||!Number.isSafeInteger(size.height)||size.width<1||size.height<1||size.width>32768||size.height>32768||size.width*size.height>16000000)throw new Error('Paragraph ink raster is too large.');
             const sx=size.width/actual.originalWidth,sy=size.height/actual.originalHeight;
-            const x=Math.max(0,Math.floor(rect.x*sx)),y=Math.max(0,Math.floor(rect.y*sy)),right=Math.min(size.width,Math.ceil((rect.x+rect.width)*sx)),bottom=Math.min(size.height,Math.ceil((rect.y+rect.height)*sy));
+            const x=Math.max(0,Math.floor(rect.x*sx)),y=Math.max(0,Math.floor(rect.y*sy)),bottom=Math.min(size.height,Math.ceil((rect.y+rect.height)*sy));let right=Math.min(size.width,Math.ceil((rect.x+rect.width)*sx));
             if(right<=x||bottom<=y)throw new Error('PDF tile is outside the page.');
             const bitmap=await page.render({scale:args.scale,colorSpace:'RGBA',transparent:false}),renderedAt=performance.now();
             if(bitmap.width!==size.width||bitmap.height!==size.height)throw new Error('Checked raster geometry changed.');
-            const safe=inkFitsRaster(bitmap.data,bitmap.width,bitmap.height,bounds),checkedAt=performance.now();
+            const checkedBounds=flowInkBounds(bitmap.data,bitmap.width,bitmap.height,bounds,12*args.scale),safe=!!checkedBounds,checkedAt=performance.now();
+            if(checkedBounds)right=Math.max(right,Math.ceil(checkedBounds.right));
             const timing={queueMs,loadMs:loadedAt-started,rasterMs:renderedAt-loadedAt,checkMs:checkedAt-renderedAt,rasterPasses:1};
             if(!safe){worker.postMessage({id,result:{safe:false,...timing,workerMs:performance.now()-started}});}
             else{
