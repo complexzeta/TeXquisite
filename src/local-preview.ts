@@ -56,7 +56,7 @@ type Request={source:string;fullSource?:string;editId:string;at:number;recovery?
 export interface LocalCandidate {recovery?:{message:string;line:number};recoveredBasis?:boolean;}
 export interface LocalCandidate {pageLocations?:{page:number;locations:ReturnType<typeof flowLocations>}[];}
 type DiskInput={file:string;mtime:number;ctime:number;ino:number;size:number;};
-type Slot={neutralLast?:boolean;cancelWork?:()=>void;epoch?:number;cancelled?:boolean;regionKey?:string;edited?:boolean;latestSource?:string;file?:string;input?:IncludedInput;sourceText?:string;otherResources?:string;basis:LocalBasis;range:RegionRange;liveEnd:number;compiledRange:RegionRange;compiler:ResidentCompiler;compositor?:RegionCompositor;ready:boolean;abort:AbortController;diskInputs:DiskInput[];pageMode?:boolean;pageReady?:boolean;pageCostMs?:number;proofPage?:number;sourcePages?:PageSpan;baselineSpan?:PageSpan;continuation?:string;verifyPageRange?:()=>Promise<void>;};
+type Slot={pageProbe?:{source:string;range:RegionRange;output:Awaited<ReturnType<ResidentCompiler['previewRegionPage']>>};neutralLast?:boolean;cancelWork?:()=>void;epoch?:number;cancelled?:boolean;regionKey?:string;edited?:boolean;latestSource?:string;file?:string;input?:IncludedInput;sourceText?:string;otherResources?:string;basis:LocalBasis;range:RegionRange;liveEnd:number;compiledRange:RegionRange;compiler:ResidentCompiler;compositor?:RegionCompositor;ready:boolean;abort:AbortController;diskInputs:DiskInput[];pageMode?:boolean;pageReady?:boolean;pageCostMs?:number;proofPage?:number;sourcePages?:PageSpan;baselineSpan?:PageSpan;continuation?:string;verifyPageRange?:()=>Promise<void>;};
 export interface LocalCandidate {neutralBlock?:{id:string;prior:string[];ranges:{id:string;from:number;to:number;baseFrom:number;baseTo:number}[];locations:ReturnType<typeof flowLocations>;caretY?:number};sourceFile?:string;root:string;baseId:string;editId:string;sourceHash:string;pdf:Uint8Array;page:number;timing:unknown;fragmentPdf?:Uint8Array;fragment?:RegionFragment;inkTopSp?:number;flowOutput?:{stateChanged?:boolean;locations?:ReturnType<typeof flowLocations>;baseRangeTo?:number;caretY?:number;rect:{x:number;y:number;width:number;height:number};leading:number;baselineLeading:number;fragmentRect:{x:number;y:number;width:number;height:number}};rangeFrom:number;rangeTo:number;footprint?:{x:number;y:number;width:number;height:number};pageOutput?:boolean;pageSpan?:PageSpan;sourcePages?:PageSpan;proofPage?:number;cursorPage?:number;cursorPosition?:ReturnType<typeof cursorPosition>;baselineSpan?:PageSpan;continuation?:string;}
 async function selectPages(pdf:Uint8Array,span:PageSpan){
   const partial=await PDFDocument.load(pdf,{throwOnInvalidObject:true}),selected=await PDFDocument.create();
@@ -344,6 +344,20 @@ export class LocalPreview{
       if(background&&target?.recent&&!slot.compositor&&preparation?.baselineCheckpointAvailable!==true)throw new Error('Recent region has no full-build page witness.');
       let pageElapsed=0,pageBaselineFromWitness=false;
       const verifyPageRange=async()=>{if(this.verifyPages){const started=performance.now();try{
+        const queued=this.pending;
+        if(!background&&this.continuous&&!slot.compositor&&!this.neutral&&!input&&!prepared.familyRange&&!pictureBlock&&(preparation?.baselinePageCostMs??0)<=200&&basis.compilerSource===sourceText&&queued&&sourceText.length-queued.source.length>=256&&slot.sourcePages!.last>slot.sourcePages!.first&&plainTextChange(sourceText,queued.source)&&this.regionText(slot,queued.source)!==undefined&&process.env.PERSISTENT_TEX_DISABLE_CONTRACTION_PROBE!=='1'){
+          const range={from:compiledRange.from,to:compiledRange.to+queued.source.length-sourceText.length};
+          try{
+            const output=await slot.compiler.previewRegionPage(queued.source,range,slot.sourcePages!.first,slot.abort.signal,1000,()=>{},project,true);
+            if(!valid())return;
+            if(!output.timing?.continuation&&output.pageSpan.last<slot.sourcePages!.last){
+              const editId=this.pending?.editId??queued.editId;this.log('Contracted page band needs full verification; skipped old-band proof.\n');this.releaseForFull();this.fallback(editId);return;
+            }
+            // This is only computed output. The original baseline still needs
+            // its complete raster proof before this response may be displayed.
+            slot.pageProbe={source:queued.source,range,output};
+          }catch(error){if(!valid()||slot.abort.signal.aborted)throw error;this.log('Contraction probe unavailable; retaining normal page verification.\n');}
+        }
         const attempts=background?[true]:preparation?.baselinePageCostMs!==undefined?[true,false]:[false];
         for(const baselineProof of attempts){try{
           const proofStarted=performance.now(),baseline=await slot.compiler.previewRegionPage(basis.compilerSource,compiledRange,slot.sourcePages!.first,slot.abort.signal,30000,()=>{},project,this.continuous,input,baselineProof),nativeDone=performance.now(),pdf=await selectPages(baseline.pdf,baseline.pageSpan),selectedAt=performance.now();
@@ -506,7 +520,8 @@ export class LocalPreview{
     // on every edit. Retain the short ordinary deadline and a bounded margin
     // over this particular page's measured cost; runaway TeX is still stopped.
     const budget=Math.min(10000,Math.max(1000,Math.ceil((slot.pageCostMs??0)*2+500)));
-    const output=await slot.compiler.previewRegionPage(rootSource,range,slot.sourcePages!.first,slot.abort.signal,budget,()=>{},project,this.continuous,input);
+    const probe=slot.pageProbe;slot.pageProbe=undefined;
+    const output=probe&&!input&&probe.source===rootSource&&probe.range.from===range.from&&probe.range.to===range.to?probe.output:await slot.compiler.previewRegionPage(rootSource,range,slot.sourcePages!.first,slot.abort.signal,budget,()=>{},project,this.continuous,input);
     slot.pageCostMs=Math.max(output.timing?.roundTripMs??output.timing?.totalMs??slot.pageCostMs??0,output.timing?.familyCheckpointOffset!==undefined?output.timing?.baselinePageCostMs??0:0);
     if(this.continuous&&(output.pageSpan.first!==slot.baselineSpan?.first||output.pageSpan.last!==slot.baselineSpan?.last)&&(!slot.continuation||output.timing?.continuation!==slot.continuation))throw new Error('The affected page range changed without a verified continuation.');
     if(this.continuous&&slot.continuation&&output.timing?.continuation!==slot.continuation)throw new Error('The page band did not reach its prepared continuation.');
