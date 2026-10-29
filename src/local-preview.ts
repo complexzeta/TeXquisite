@@ -8,7 +8,7 @@ import {PDFDocument} from 'pdf-lib';
 import {ResidentCompiler,ResidentSourceError,ResidentSupersededError,RegionRange,RegionFragment,PageSpan} from './resident';
 import type {LocalBasis} from './core';
 import {RegionCompositor,ParagraphAnchor,paragraphPages,cursorPosition,flowCaretY,flowLocations} from './region-compositor';
-import {previewRepair} from './preview-recovery';
+import {previewRepair,previewRegionRepair} from './preview-recovery';
 type CalibrationGlyph={x:number;y:number;width:number;height:number};
 export type LocalVerification=boolean|{dx:number;dy:number;calibratedGlyphs?:CalibrationGlyph[]};
 export interface LocalCalibration {x:number;y:number;anchors:ParagraphAnchor[];calibratedGlyphs?:CalibrationGlyph[];}
@@ -544,7 +544,8 @@ export class LocalPreview{
       catch(error){
         if(error instanceof ResidentSourceError&&this.pending&&this.pending.editId!==request.editId)throw new ResidentSupersededError('A newer draft superseded local recovery.');
         if(!(error instanceof ResidentSourceError)||slot.input||this.neutral?.dirty.length||attempt>=2||performance.now()>deadline||slot.abort.signal.aborted)throw error;
-        const repair=previewRepair(next.source,String(error));
+        const text=this.regionText(slot,next.source);if(text===undefined)throw error;
+        const repair=previewRegionRepair(next.source,String(error),{from:slot.range.from,to:slot.range.from+text.length},request.at)??previewRepair(next.source,String(error));
         // A repair beyond this proved region must use ordinary full recovery.
         // Never mutate the editor source or retain an approximate neutral block.
         if(!repair||this.regionText(slot,repair.source)===undefined)throw error;

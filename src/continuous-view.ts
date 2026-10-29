@@ -119,7 +119,7 @@ export class ContinuousView{
     const factor=this.scale*this.ratio,start=Math.max(0,Math.floor(flow.rect.y*factor)),end=Math.min(base.height,Math.ceil((flow.rect.y+flow.rect.height)*factor));
     if(end<=start||start>=base.height)throw new Error('Continuous block is outside its baseline.');
     if(!Number.isFinite(flow.baselineLeading)||flow.baselineLeading<0||flow.baselineLeading>=200||!Number.isFinite(flow.leading)||flow.leading<0||flow.leading>=200)throw new Error('Invalid continuous block leading.');
-    const leading=Math.ceil(flow.leading*factor),prefixHeight=Math.min(end-start,Math.ceil((flow.rect.y+flow.baselineLeading)*factor)-start);
+    const requestedLeading=Math.ceil(flow.leading*factor),prefixHeight=Math.min(end-start,Math.ceil((flow.rect.y+flow.baselineLeading)*factor)-start);
     const make=(height:number)=>{const c=document.createElement('canvas');c.width=base.width;c.height=height;c.style.width=e.size.originalWidth*this.scale+'px';c.style.height=height/this.ratio+'px';return c;};
     if(!e.pieces){
       const top=make(start),bottom=make(base.height-end);if(start)top.getContext('2d')!.drawImage(base,0,0,base.width,start,0,0,base.width,start);if(bottom.height)bottom.getContext('2d')!.drawImage(base,0,end,base.width,bottom.height,0,0,base.width,bottom.height);
@@ -131,7 +131,11 @@ export class ContinuousView{
       }
       e.pieces=[top,bottom,prefix];e.prefixInkBottom=inkBottom;e.top=start;e.bottom=end;
     }else if(e.top!==start||e.bottom!==end)throw new Error('Continuous block baseline changed.');
-    if(e.prefixInkBottom!>leading){tile.image?.close();throw new Error('Continuous block overlaps preceding ink; broader layout required.');}
+    // A taller first math line can reduce TeX's interline glue. In a pageless
+    // view we can retain enough of the original prefix to keep every preceding
+    // ink pixel, then place the entire checked tile below it. This adds space
+    // rather than clipping/overwriting the preceding line or rebuilding pages.
+    const leading=Math.max(requestedLeading,e.prefixInkBottom!);
     const height=Math.max(1,leading+tile.patchHeight),oldBlock=e.block;
     const block=oldBlock?.height===height&&oldBlock.width===base.width?oldBlock:make(height),ctx=block.getContext('2d')!;
     const position=this.position(),oldCanvas=e.canvas;
@@ -144,6 +148,7 @@ export class ContinuousView{
       image.getContext('2d')!.putImageData(new ImageData(new Uint8ClampedArray(tile.data.buffer,tile.data.byteOffset,tile.data.byteLength),tile.width,tile.height),0,0);
       draw(image);image.width=image.height=0;
     }
+    block.dataset.flowLeadingCorrection=String((leading-requestedLeading)/factor);
     e.block=block;e.canvas=undefined;e.element.style.minHeight='0';
     // Keep unchanged strips attached. Moving them through replaceChildren on
     // every character invalidates large visible canvas layers. Reuse the live

@@ -46,3 +46,80 @@ export function previewRepair(source:string,log:string):{source:string;message:s
  }
 }
 export function recoverableTexError(log:string){return /Undefined control sequence|Missing \$ inserted|Missing [}{] inserted|Extra }, or forgotten|Too many }|Runaway argument|Paragraph ended before|File ended while scanning|Missing \\right|\\begin\{[^\n]+ended by \\end/.test(log);}
+
+// Only a failed, already proved local region may use this lexical approximation.
+// It is not a TeX parser or a proof: the engine must accept the repaired copy,
+// normal layout guards still apply, and the resulting frame has no navigation.
+export function previewRegionRepair(source:string,log:string,range:{from:number;to:number},cursor?:number):ReturnType<typeof previewRepair>{
+ if(!Number.isSafeInteger(range.from)||!Number.isSafeInteger(range.to)||range.from<0||range.to>source.length||range.from>=range.to)return;
+ // Prepared windows sometimes include an unchanged neighboring paragraph.
+ // Narrow to the cursor's complete paragraph, never close an environment just
+ // because it legitimately continues into the next paragraph of that window.
+ if(cursor!==undefined){
+  if(!Number.isSafeInteger(cursor)||cursor<range.from||cursor>=range.to)return;
+  let from=range.from,to=range.to;
+  for(const separator of source.slice(range.from,range.to).matchAll(/\n[\t ]*\n/g)){
+   const start=range.from+separator.index,end=start+separator[0].length;
+   if(end<=cursor)from=end;else{to=end;break;}
+  }
+  range={from,to};
+ }
+ const text=source.slice(range.from,range.to),ending=/\n[\t ]*\n$/.exec(text);
+ if(!ending||text.length>16000||/\n[\t ]*\n/.test(text.slice(0,ending.index)))return;
+ if(!/Local paragraph needs input beyond its boundary|Missing [}{$] inserted|Missing \\right|Paragraph ended before|File ended while scanning|ended by \\end|Misplaced \\cr|Bad math environment delimiter|You can't use [^\r\n]*\\eqno[^\r\n]*math mode/.test(log))return;
+ // Catcode changes, literal verbatim and macro definitions cannot be inferred
+ // from braces. Reject them even though the output is only approximate.
+ if(/\\(?:catcode|csname|def|edef|gdef|xdef|let|futurelet|newcommand|renewcommand|providecommand|verb|lstinline)\b|\\begin\s*\{(?:verbatim\*?|Verbatim|lstlisting|minted)\}/.test(text))return;
+ type Token={kind:'group'|'math'|'left'|'env';close:string;math?:boolean};
+ const stack:Token[]=[],edits:{at:number;to:number;insert:string}[]=[];let finalComment:number|undefined;
+ const inMath=()=>stack.some(t=>t.kind==='math'||t.math);
+ const insert=(at:number,value:string)=>{edits.push({at,to:at,insert:value});};
+ const closeMath=(at:number,close:string)=>{
+  const last=stack.map(t=>t.kind).lastIndexOf('math');if(last<0)return false;
+  if(stack[last].close!==close)return false;
+  let extra='';while(stack.length>last+1){const top=stack.pop()!;if(top.kind!=='group'&&top.kind!=='left')return false;extra+=top.close;}
+  if(extra)insert(at,extra);stack.pop();return true;
+ };
+ for(let i=0;i<ending.index;){
+  const c=text[i];if(c==='%'){const end=text.indexOf('\n',i);if(end===ending.index)finalComment=i;i=end<0?ending.index:end+1;continue;}
+  if(c==='\\'){
+   const token=/^\\(?:[A-Za-z@]+|[^\r\n])/.exec(text.slice(i))?.[0];if(!token)return;
+   const at=i;i+=token.length;
+   if(token==='\\begin'||token==='\\end'){
+    const env=/^[\t \r\n]*\{([A-Za-z*]+)\}/.exec(text.slice(i));if(!env||env[1]==='document')return;
+    i+=env[0].length;
+    if(token==='\\begin')stack.push({kind:'env',close:'\\end{'+env[1]+'}',math:/^(?:equation|align|alignat|gather|multline|displaymath|math)\*?$/.test(env[1])});
+    else{
+     const last=stack.map(t=>t.kind).lastIndexOf('env');if(last<0)return;
+     let extra='';while(stack.length>last+1){const top=stack.pop()!;if(!stack[last].math||(top.kind!=='group'&&top.kind!=='left'))return;extra+=top.close;}
+     if(extra)insert(at,extra);const top=stack.pop()!;if(top.close!=='\\end{'+env[1]+'}')edits.push({at,to:i,insert:top.close});
+    }
+   }else if(/^\\(?:frac|dfrac|tfrac)$/.test(token)&&inMath()){
+    // Recognize only a missing literal braced argument at a math boundary.
+    // TeX also allows token/macro arguments; leave those to the engine.
+    const tail=text.slice(i,ending.index),numerator=/^\s*\{[^{}\\%]*\}/.exec(tail),after=numerator?tail.slice(numerator[0].length):tail;
+    if(/^\s*(?:\$|\\[)\]]|\\end\{|$)/.test(after))insert(i+(numerator?.[0].length??0),numerator?'{}':'{}{}');
+   }else if(token==='\\('||token==='\\['){if(inMath())return;stack.push({kind:'math',close:token==='\\('?'\\)':'\\]'});}
+   else if(token==='\\)'||token==='\\]'){if(!closeMath(at,token))return;}
+   else if(token==='\\left'||token==='\\right'){
+    const delimiter=/^[\t ]*(?:\\(?:[A-Za-z]+|[^\r\n])|[.()[\]{}|<>/])/.exec(text.slice(i));if(!delimiter||!inMath())return;i+=delimiter[0].length;
+    if(token==='\\left')stack.push({kind:'left',close:'\\right.'});else if(stack.pop()?.kind!=='left')return;
+   }
+   continue;
+  }
+  if(c==='$'){
+   const token=text[i+1]==='$'?'$$':'$';if(stack.some(t=>t.kind==='math')){if(!closeMath(i,token))return;}else{if(inMath())return;stack.push({kind:'math',close:token});}i+=token.length;continue;
+  }
+  if(c==='{')stack.push({kind:'group',close:'}'});
+  else if(c==='}'&&stack.pop()?.kind!=='group')return;
+  i++;
+ }
+ if(stack.length){
+  // Do not guess the end of an arbitrary text command's runaway argument.
+  if(stack.some((t,i)=>t.kind==='group'&&!stack.slice(0,i).some(p=>p.kind==='math'||p.math)))return;
+  insert(finalComment??ending.index,stack.reverse().map(t=>t.close).join(''));
+ }
+ if(!edits.length||edits.length>8||edits.some(e=>e.insert.length>256))return;
+ let repaired=text;for(const edit of edits.sort((a,b)=>b.at-a.at||b.to-a.to))repaired=repaired.slice(0,edit.at)+edit.insert+repaired.slice(edit.to);
+ return {source:source.slice(0,range.from)+repaired+source.slice(range.to),message:'Preview temporarily balanced unfinished math or an environment in this paragraph.',line:source.slice(0,range.from).split('\n').length};
+}

@@ -1,5 +1,50 @@
 # LaTeX error recovery in preview builds
 
+## Unfinished math and environment recovery (0.106)
+
+A local source error can now balance unfinished math in the cursor's complete
+paragraph, then retry that paragraph on the same worker. This includes missing
+braces in fractions and roots, a missing literal fraction argument at a math
+boundary, missing right delimiters, unclosed math and a literal mismatched
+environment end. Fraction placeholders are empty groups in the preview copy.
+Expanded prepared windows narrow the repair
+to the cursor's paragraph. Repairs cannot cross the proved region, change saved
+source, enter a retained neutral ledger or supply navigation for approximate
+output. Existing attempt/deadline, ownership, cancellation, layout and ink guards
+still apply. Macro definitions, catcode changes, verbatim, ambiguous boundaries
+and arbitrary text-command runaway arguments retain the ordinary fallback.
+
+In continuous scroll, a taller first math line can reduce interline glue until
+it overlaps preceding ink. The view now preserves the exact preceding pixels
+and adds enough vertical space before the complete checked tile. This is a
+pageless spacing adjustment; the verified PDF keeps TeX's normal layout.
+Forward/inverse navigation and Follow typing include that displacement for
+healthy output. Repaired output still waits for correction before navigation.
+
+The native worker accepted five structural repair cases in 51–78 ms including
+the failed first attempt. The final development editor run exercised ten error
+cases, including display equations and missing fraction arguments, plus continued
+typing and correction at 39–68 ms to the matching canvas, without
+full publication. Exact unchanged raster strips/prefix pixels, source geometry,
+scroll, caret and focus remained stable with Problems open. A taller valid
+equation also passed both navigation directions after the spacing adjustment.
+These are small synthetic warm-context tests in hidden windows, not a universal
+latency guarantee. Initial loading and unsupported/full-document errors remain
+separate costs.
+
+The packaged 0.106 runtime passed the same ten-case matrix: 19 of 20 recovered
+updates took 41–59 ms; the first took 263 ms. No full-document publication occurred.
+Correction cleared the error in every case. Exact unchanged pixels, stable
+source editing with Problems open and two-way navigation after a healthy tall
+equation all passed. These timings end at a matching hidden-window canvas.
+
+The bounded stability pass also passed saving/backup/diagnostic unit checks,
+external-change reload/Save Copy, normal close with conflicts/cancellation/crash
+recovery, and document switching/build/reopen. One filesystem-symlink unit check
+was skipped because the exFAT test volume cannot create that link; separate
+symbolic-link metadata rejection checks passed. Strict export/error/reopen and
+obsolete-runaway correction regression checks passed as well.
+
 ## Fast, quiet local recovery (0.105)
 
 A supported root-source error inside a prepared region now retries that region
