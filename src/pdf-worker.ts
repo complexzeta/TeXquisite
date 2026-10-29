@@ -1,6 +1,6 @@
 import {PDFiumLibrary,PDFiumDocument} from '@hyzyla/pdfium';
 import {inkFitsRaster,flowInkBounds} from './local-raster';
-import {PdfWorkQueue} from './pdf-work-queue';
+import {PdfWorkQueue,pdfWorkPriority} from './pdf-work-queue';
 
 const library=PDFiumLibrary.init({wasmUrl:new URL('./vendor/pdfium.wasm',import.meta.url).href});
 void library.catch(()=>{});
@@ -12,7 +12,7 @@ worker.onmessage=event=>{
   const {id,method,...args}=event.data;
   // PDFium's instance is shared. Serialize calls, including document teardown,
   // while keeping the editor and its event loop independent of rasterization.
-  void work.enqueue(method==='checkedRegion'||method==='renderRegion'?0:args.interactive===true?1:2,async()=>{
+  void work.enqueue(pdfWorkPriority(method,args),async()=>{
     try{
       const lib=await library;
       const queueMs=Number.isFinite(args.postedAt)?Math.max(0,performance.timeOrigin+performance.now()-args.postedAt):0;

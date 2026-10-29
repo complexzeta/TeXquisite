@@ -1,4 +1,7 @@
 type Work={priority:number;run:()=>Promise<void>};
+export function pdfWorkPriority(method:string,args:{interactive?:boolean;live?:boolean}){
+ return args.live===true||method==='checkedRegion'||method==='renderRegion'?0:args.interactive===true?1:2;
+}
 // PDFium is not reentrant. Yield between operations so incoming edit requests
 // can overtake queued verification, while each individual operation stays atomic.
 export class PdfWorkQueue{

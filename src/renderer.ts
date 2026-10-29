@@ -669,8 +669,8 @@ el('pages').addEventListener('click',event=>void command(async()=>{
   }catch(e){el('navState').textContent=String(e).replace(/^.*Error: /,'');}
 }));
 function copyCanvasMetadata(canvas:HTMLCanvasElement,source:HTMLCanvasElement){for(const [key,value] of Object.entries(source.dataset))if(value!==undefined&&!['renderScale','renderRatio','pageWidth','pageHeight','rasterMs','workerMs','renderMs'].includes(key))canvas.dataset[key]=value;}
-async function render(pdf:any,page:number,includePixels=false){
-  const zoom=scale,ratio=window.devicePixelRatio||1,canvas=await pdf.render(page,zoom,ratio,includePixels);canvas.dataset.renderScale=String(zoom);canvas.dataset.renderRatio=String(ratio);canvas.dataset.pageWidth=String(parseFloat(canvas.style.width)/zoom);canvas.dataset.pageHeight=String(parseFloat(canvas.style.height)/zoom);return canvas;
+async function render(pdf:any,page:number,includePixels=false,urgent=false){
+  const zoom=scale,ratio=window.devicePixelRatio||1,canvas=await pdf.render(page,zoom,ratio,includePixels,urgent);canvas.dataset.renderScale=String(zoom);canvas.dataset.renderRatio=String(ratio);canvas.dataset.pageWidth=String(parseFloat(canvas.style.width)/zoom);canvas.dataset.pageHeight=String(parseFloat(canvas.style.height)/zoom);return canvas;
 }
 function show(candidate:any,reconcileBands=false){
   clearNeutralMetadata();
@@ -819,7 +819,7 @@ api.on(async message=>{
     if(!mayShowLocal(message)){await api.call('localAck',message.token,!message.neutralBlock);return;}
     const input=localInputs.get(message.editId)!,inputAt=input.startedAt;
     const receivedAt=performance.now();
-    const task=message.flowOutput?undefined:loadPdf(message.pdf,true);let keepTask=false;
+    const task=message.flowOutput?undefined:loadPdf(message.pdf,true,true);let keepTask=false;
     try{
       if(message.flowOutput){
         clearNeutralMetadata();
@@ -857,8 +857,13 @@ api.on(async message=>{
             // A checked family checkpoint can skip unchanged leading pages.
             // Restore those exact baseline pixels as well, so an older live
             // band cannot leave stale content or cover the updated suffix.
-            if(prefixPages){const baseline=await proof.document;for(let page=proof.span.first;page<span.first;page++)canvases.push(await render(baseline,page));}
-            for(let page=1;page<=pdf.numPages;page++)canvases.push(await render(pdf,page));
+            const pendingRasters:Promise<HTMLCanvasElement>[]=[];
+            if(prefixPages){const baseline=await proof.document;for(let page=proof.span.first;page<span.first;page++)pendingRasters.push(render(baseline,page,false,true));}
+            for(let page=1;page<=pdf.numPages;page++)pendingRasters.push(render(pdf,page,false,true));
+            // Submit the whole band before yielding. PDFium remains serialized,
+            // but queued proof work cannot slip between every live page read.
+            const rasters=await Promise.allSettled(pendingRasters);for(const raster of rasters)if(raster.status==='fulfilled')canvases.push(raster.value);
+            const failed=rasters.find(r=>r.status==='rejected');if(failed?.status==='rejected')throw failed.reason;
             await continuousSetup;
             if(token!==localRenderToken||!mayShowLocal(message))return;
             if(continuousView.id!==message.baseId||!continuousView.matchesScale(scale,window.devicePixelRatio||1)){

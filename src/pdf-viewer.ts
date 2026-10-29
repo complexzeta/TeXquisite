@@ -28,17 +28,17 @@ function request(method:string,args:Record<string,unknown>,transfer:Transferable
 export function renderCheckedPdfRegion(bytes:Uint8Array,page:number,rect:{x:number;y:number;width:number;height:number},bounds:{left:number;top:number;right:number;bottom:number},scale:number,ratio:number){
   return request('checkedRegion',{bytes,page,rect,bounds,scale:scale*ratio,imageBitmap:true},[bytes.buffer as ArrayBuffer]);
 }
-export function loadPdf(bytes:Uint8Array,interactive=false){
-  const call=(method:string,args:Record<string,unknown>,transfer:Transferable[]=[])=>request(method,{...args,interactive:interactive||args.interactive===true},transfer);
+export function loadPdf(bytes:Uint8Array,interactive=false,live=false){
+  const call=(method:string,args:Record<string,unknown>,transfer:Transferable[]=[])=>request(method,{...args,interactive:interactive||args.interactive===true,live:live||args.live===true},transfer);
   let documentId:number|undefined,closed=false;
   const promise=call('load',{bytes},[bytes.buffer as ArrayBuffer]).then(result=>{
     documentId=result.documentId;
     const glyphCache=new Map<number,Promise<PdfCharacter[]>>();
     let pageSizes:Promise<any>|undefined;
     // Proofs consume the worker raster directly, avoiding a GPU canvas readback.
-    const rasterize=async(page:number,scale:number,ratio:number,retainPixels=false,includePixels=false)=>{
+    const rasterize=async(page:number,scale:number,ratio:number,retainPixels=false,includePixels=false,urgent=false)=>{
         if(closed)throw new Error('PDF was closed.');
-        const started=performance.now(),bitmap=await call('render',{documentId,page,scale:scale*ratio,imageBitmap:!retainPixels,interactive:retainPixels||includePixels,includePixels});
+        const started=performance.now(),bitmap=await call('render',{documentId,page,scale:scale*ratio,imageBitmap:!retainPixels,interactive:retainPixels||includePixels,includePixels,live:urgent});
         const canvas=document.createElement('canvas');canvas.width=bitmap.width;canvas.height=bitmap.height;
         canvas.style.width=bitmap.originalWidth*scale+'px';canvas.style.height=bitmap.originalHeight*scale+'px';
         if(bitmap.image){const target=canvas.getContext('bitmaprenderer');if(target)target.transferFromImageBitmap(bitmap.image);else{canvas.getContext('2d')!.drawImage(bitmap.image,0,0);bitmap.image.close();}}
@@ -66,7 +66,7 @@ export function loadPdf(bytes:Uint8Array,interactive=false){
         const bitmap=await call('render',{documentId,page,scale:scale*ratio,imageBitmap:false,interactive:true});
         return {width:bitmap.width,height:bitmap.height,pixels:new Uint8ClampedArray(bitmap.data.buffer,bitmap.data.byteOffset,bitmap.data.byteLength)};
       },
-      async render(page:number,scale:number,ratio:number,includePixels=false){return (await rasterize(page,scale,ratio,false,includePixels)).canvas;},
+      async render(page:number,scale:number,ratio:number,includePixels=false,urgent=false){return (await rasterize(page,scale,ratio,false,includePixels,urgent)).canvas;},
       async renderWithPixels(page:number,scale:number,ratio:number){const frame=await rasterize(page,scale,ratio,true);if(!frame.pixels)throw new Error('PDF proof pixels are unavailable.');return {canvas:frame.canvas,pixels:frame.pixels};}
     };
   });
