@@ -447,9 +447,12 @@ export class BuildController {
       if(recoveryIssues.length)this.viewer.diagnostic?.(recoveryIssues[0]);
       this.viewer.problems?.([...recoveryIssues,...warnings],options.editId);
       const acceptedBundle=bundle;let localHandoff=false;
-      // A length-preserving recovered source can seed approximate LOCAL output
-      // from exactly the bytes actually compiled. It is never a proof of the
-      // unmodified editor source; that source must still pass region checks.
+      // Same-line structural repairs (for example a temporary closing dollar)
+      // can still prepare UNCHANGED paragraphs elsewhere. Keep editor offsets
+      // in the original draft; LocalPreview maps whole lines to compiler input,
+      // refuses any changed paragraph, and repeats native/raster proofs.
+      if(recoveryIssues.length&&!localRecoveryEligible&&source.split('\n').length===compilerSource.split('\n').length){localSource=source;localRecoveryEligible=true;}
+      // Recovered output is never proof of the unmodified editor source.
       if(backend.startsWith('Preamble')||recoveryIssues.length&&localRecoveryEligible)try{this.viewer.localBasis?.({bundle,options,source:recoveryIssues.length?localSource:source,originalSource:recoveryIssues.length?source:undefined,recoveryIssues:recoveryIssues.length?recoveryIssues:undefined,compilerSource,project,pdf,canBuildAlongside:()=>this.independentLocalOwner,takeCompiler:()=>{
         // Transfer ownership only after publication and only while idle. Future
         // full verification gets its own worker; local edits cannot race it.

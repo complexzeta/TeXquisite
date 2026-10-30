@@ -43,6 +43,13 @@ const hash=s=>createHash('sha256').update(s).digest('hex'),delay=ms=>new Promise
   at=expected.indexOf('AfterSentinel')+'AfterSentinel'.length;await focus(at);await edit(at,' healthy');await local(false,'after-correction');
   await page.waitForFunction(()=>document.querySelector('#previewNotice').hidden);const healthyCommits=await commits();await delay(1000);assert.equal(await commits(),healthyCommits,'Corrected-source typing must keep the healthy compiler');assert.equal(await fs.readFile(root,'utf8'),expected);result.sourceSavedExactly=true;
   const exported=path.join(directory,'corrected.pdf');await app.evaluate(({dialog},file)=>{dialog.showSaveDialog=async()=>({canceled:false,filePath:file});},exported);
-  await page.evaluate(()=>window.desktop.call('export'));assert.ok((await fs.stat(exported)).size>0);await page.waitForFunction(()=>document.querySelector('#previewNotice').hidden);result.correctedStrictExportWorks=true;result.passed=true;
+  await page.evaluate(()=>window.desktop.call('export'));assert.ok((await fs.stat(exported)).size>0);await page.waitForFunction(()=>document.querySelector('#previewNotice').hidden);result.correctedStrictExportWorks=true;
+  // A temporary closer changes byte counts. Healthy paragraphs elsewhere must
+  // still use line-aligned original-editor offsets and the repaired compiler.
+  let close=expected.indexOf('x$ AfterSentinel')+1;assert.ok(close>0);await focus(close);await edit(close,'',1);await full();
+  at=expected.indexOf('RemoteSentinel')+'RemoteSentinel'.length;await ready(at,true);
+  for(const word of [' structural',' continued']){const n=await commits();at=expected.indexOf('RemoteSentinel')+'RemoteSentinel'.length;await focus(at);await edit(at,word);await local(true,'remote-with-missing-math-closer');await delay(1000);assert.equal(await commits(),n,'A same-line temporary closer must not force full builds for other paragraphs');}
+  result.nonLengthPreservingRepairStayedWarm=true;
+  close=expected.indexOf('x AfterSentinel')+1;assert.ok(close>0);await focus(close);await edit(close,'$');await full();await page.waitForFunction(()=>document.querySelector('#previewNotice').hidden);assert.equal(await fs.readFile(root,'utf8'),expected);result.structuralCorrectionAutomatic=true;result.passed=true;
  }catch(error){result.error=String(error);throw error;}finally{clearInterval(guard);if(page){await fs.writeFile(path.join(directory,'build.log'),await page.locator('#log').textContent().catch(()=>''));result.performance=await page.evaluate(()=>window.desktop.call('previewPerformance',true)).catch(()=>undefined);}await app.close().catch(()=>{});await fs.writeFile(path.join(directory,'result.json'),JSON.stringify(result,null,2));console.log(JSON.stringify({directory,...result}));}
 })().catch(error=>{console.error(String(error));process.exitCode=1;});
