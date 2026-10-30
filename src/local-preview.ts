@@ -242,6 +242,11 @@ export class LocalPreview{
     if(prior&&(prior.options.root!==basis.options.root||prior.project.environmentKey!==basis.project.environmentKey))this.visits=[];
     this.cancelIdle();if(replaced){this.parked=[];this.idleAttempts.clear();}
     this.basis=basis;
+    // This publication is the ownership offer we were waiting for. A cursor
+    // in a repaired/unpreparable paragraph may return before borrowing the
+    // compiler; it must not leave every later cursor move waiting forever.
+    // Actual transfer still passes takeCompiler/claimAutomatic ownership guards.
+    this.verifyingWithOwner=false;
     const s=this.slot;
     const next=s&&this.sourceFor(basis,s.file??s.basis.options.root),reprepare=!!s&&!!next&&this.cursor?.file===(s.file??s.basis.options.root)&&this.splitPageParagraph(s,next.text,this.cursor.at);
     // A full recovered publication supplies fresh diagnostic identities. Keep

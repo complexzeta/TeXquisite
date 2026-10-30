@@ -119,6 +119,14 @@ test('Ordinary edits around unchanged math retain diagnostics without washing ou
  assert.deepEqual(candidates.map(c=>!!c.unchangedRecovery),[true,true,false,false]);assert.equal(slot.diagnosticSource,second);local.stop();
 });
 
+test('A new publication releases the export wait even if its current paragraph contains a repair',async()=>{
+ const source='\\begin{document}\n\nBroken $x\n\nRemote words.\n\n\\end{document}\n',compiled=source.replace('Broken $x\n\n','Broken $x\n$\n'),local=make(),file='main.tex';let scheduled=0,borrowed=0;
+ local.continuous=true;local.lecture=true;local.cursor={file,at:source.indexOf('Broken')+7};local.verifyingWithOwner=true;local.schedule=()=>{scheduled++;};
+ local.setBasis({source,originalSource:source,compilerSource:compiled,options:{root:file},bundle:{id:'new',recovered:true},project:{},takeCompiler(){borrowed++;}});
+ await local.arm();assert.equal(borrowed,0,'The repaired paragraph cannot borrow a compiler as an unchanged region');assert.equal(local.ready,false);assert.equal(local.verifyingWithOwner,false);
+ local.move(file,source.indexOf('Remote')+3);assert.equal(scheduled,2,'Moving to healthy text must schedule preparation instead of remaining in the export wait');local.stop();
+});
+
 test('A recovered document accepts edits before and after its error while typesetting the repaired baseline',async()=>{
  const original='Before ordinary words.\n\nBroken \\bad words.\n\nAfter ordinary words.\n\n',compiled=original.replace('\\bad','    ');
  for(const marker of ['Before','After']){

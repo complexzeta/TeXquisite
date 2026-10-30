@@ -46,7 +46,7 @@ const hash=s=>createHash('sha256').update(s).digest('hex'),delay=ms=>new Promise
   await page.evaluate(()=>window.desktop.call('export'));assert.ok((await fs.stat(exported)).size>0);await page.waitForFunction(()=>document.querySelector('#previewNotice').hidden);result.correctedStrictExportWorks=true;
   // A temporary closer changes byte counts. Healthy paragraphs elsewhere must
   // still use line-aligned original-editor offsets and the repaired compiler.
-  let close=expected.indexOf('x$ AfterSentinel')+1;assert.ok(close>0);await focus(close);await edit(close,'',1);await full();
+  let close=expected.indexOf('x$ AfterSentinel')+1;assert.ok(close>0);await focus(close);await edit(close,'',1);await full();await delay(100);
   at=expected.indexOf('RemoteSentinel')+'RemoteSentinel'.length;await ready(at,true);
   for(const word of [' structural',' continued']){const n=await commits();at=word===' structural'?expected.indexOf('RemoteSentinel')+'RemoteSentinel'.length:expected.indexOf('\n\n',expected.indexOf('RemoteSentinel'));await focus(at);await edit(at,word);await local(true,'remote-with-missing-math-closer');await delay(1000);assert.equal(await commits(),n,'Edits on either side of unchanged math must retain the recovered paragraph');}
   result.nonLengthPreservingRepairStayedWarm=true;
