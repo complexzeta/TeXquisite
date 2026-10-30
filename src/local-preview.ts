@@ -99,6 +99,10 @@ export class LocalPreview{
   private timer?:NodeJS.Timeout;
   private preparation:Promise<void>=Promise.resolve();
   private inflight?:Promise<unknown>;
+  // A successful preview-only skip can be reused while typing after the same
+  // undefined command. Bind it to this prepared slot and every preceding source
+  // character: definitions/conditionals before the error must be checked again.
+  private recoveryHints=new WeakMap<Slot,{prefix:string;log:string}>();
   private parked:Slot[]=[];
   // Hints only: every revision needs new compiler and raster proofs. Store
   // bounded paragraph text, never an old heap, PDF or source-wide snapshot.
@@ -562,9 +566,25 @@ export class LocalPreview{
   }
   private async recoverOutput(slot:Slot,request:Request){
     const deadline=performance.now()+1200;let next=request;
+    let confirmedHint: {prefix:string;log:string}|undefined;
+    const dirty=this.neutral?.dirty,activeOnly=this.retainedFlowEnabled&&this.neutral?.ids?.length===1&&dirty?.every(b=>b.id===neutralId(slot.range));
+    const hint=this.recoveryHints.get(slot);
+    if(hint&&!slot.input&&(!dirty?.length||activeOnly)&&!slot.abort.signal.aborted&&request.source.startsWith(hint.prefix)&&this.regionText(slot,request.source)!==undefined){
+      const repair=previewRepair(request.source,hint.log);
+      if(repair&&this.regionText(slot,repair.source)!==undefined){
+        next={...request,source:repair.source,recovery:{message:repair.message,line:repair.line}};
+        confirmedHint=hint;this.neutral=undefined;
+        this.log('Local recovery reused: '+repair.message+'\n');
+      }
+    }
     for(let attempt=0;;attempt++){
-      try{return {...await this.output(slot,next),recovery:next.recovery,repairedSource:next.recovery?next.source:undefined};}
+      try{
+        const output=await this.output(slot,next);
+        if(confirmedHint)this.recoveryHints.set(slot,confirmedHint);else this.recoveryHints.delete(slot);
+        return {...output,recovery:next.recovery,repairedSource:next.recovery?next.source:undefined};
+      }
       catch(error){
+        confirmedHint=undefined;this.recoveryHints.delete(slot);
         if(error instanceof ResidentSourceError&&this.pending&&this.pending.editId!==request.editId)throw new ResidentSupersededError('A newer draft superseded local recovery.');
         const dirty=this.neutral?.dirty,activeOnly=this.retainedFlowEnabled&&this.neutral?.ids?.length===1&&dirty?.every(b=>b.id===neutralId(slot.range));
         if(!(error instanceof ResidentSourceError)||slot.input||dirty?.length&&!activeOnly||attempt>=2||performance.now()>deadline||slot.abort.signal.aborted)throw error;
@@ -573,6 +593,13 @@ export class LocalPreview{
         // A repair beyond this proved region must use ordinary full recovery.
         // Never mutate the editor source or retain an approximate neutral block.
         if(!repair||this.regionText(slot,repair.source)===undefined)throw error;
+        // Only memoize the narrow literal undefined-command repair. Structural
+        // balancing depends on following input and is reconsidered on each edit.
+        if(repair.message.startsWith('Preview skipped undefined command ')){
+          let end=next.source.length;
+          while(end>0&&next.source[end-1]===repair.source[end-1])end--;
+          confirmedHint={prefix:next.source.slice(0,end),log:String(error)};
+        }
         this.neutral=undefined;
         next={...request,source:repair.source,recovery:{message:repair.message,line:repair.line}};
         this.log('Local recovery: '+repair.message+'\n');

@@ -37,3 +37,33 @@ test('A fatal worker failure is not disguised as supersession when newer input i
  const local=make(),failure=Error('Resident compiler stopped.');local.pending={source:draft+'new',editId:'new',at:20};local.output=async()=>{throw failure;};
  await assert.rejects(local.runOutput({basis:{source:baseline},range},{source:draft,editId:'old',at:20}),error=>error===failure);
 });
+
+test('Typing after a confirmed undefined command uses one compile and correcting it stops the skip',async()=>{
+ const local=make(),slot={basis:{source:baseline},range,abort:new AbortController()};let calls=0;
+ local.output=async(_slot,r)=>{calls++;if(r.source.includes('\\broken'))throw new ResidentSourceError('! Undefined control sequence.\nl.3 Target \\broken\n');return {kind:'flow',output:{},flow:{}};};
+ await local.runOutput(slot,{source:draft,editId:'first',at:20});assert.equal(calls,2);
+ const edited=draft.replace('words.','words continued.');
+ const recovered=await local.runOutput(slot,{source:edited,editId:'next',at:30});
+ assert.equal(calls,3);assert.ok(recovered.recovery);assert.equal(recovered.repairedSource,edited.replace('\\broken','       '));assert.equal(edited.includes('\\broken'),true);
+ const fixed=await local.runOutput(slot,{source:edited.replace('\\broken','ordinary'),editId:'corrected',at:30});
+ assert.equal(calls,4);assert.equal(fixed.recovery,undefined);assert.equal(fixed.repairedSource,undefined);
+});
+
+test('Changing preceding definitions must recheck the command, even when its diagnostic line is unchanged',async()=>{
+ const base=baseline.replace('Target','\\def\\name{old}\nTarget'),broken=base.replace('ordinary','\\broken'),local=make();
+ const slot={basis:{source:base},range:{from:range.from,to:base.indexOf('After')},abort:new AbortController()};let calls=0;
+ local.output=async(_slot,r)=>{calls++;if(r.source.includes('\\broken')&&!r.source.includes('\\def\\broken{}'))throw new ResidentSourceError('! Undefined control sequence.\nl.4 Target \\broken\n');return {kind:'flow',output:{},flow:{}};};
+ await local.runOutput(slot,{source:broken,editId:'first',at:30});assert.equal(calls,2);
+ const defined=broken.replace('\\def\\name{old}','\\def\\broken{}');
+ const result=await local.runOutput(slot,{source:defined,editId:'defined',at:30});
+ assert.equal(calls,3);assert.equal(result.recovery,undefined);
+});
+
+test('Confirmed skips cannot cross prepared slots or changes outside their source region',async()=>{
+ const local=make(),slot={basis:{source:baseline},range,abort:new AbortController()};let calls=0;
+ local.output=async(_slot,r)=>{calls++;if(r.source.includes('\\broken'))throw new ResidentSourceError('! Undefined control sequence.\nl.3 Target \\broken\n');return {kind:'flow',output:{},flow:{}};};
+ await local.runOutput(slot,{source:draft,editId:'first',at:20});assert.equal(calls,2);
+ await local.runOutput({...slot},{source:draft,editId:'new-slot',at:20});assert.equal(calls,4);
+ const outside=draft.replace('After','ChangedAfter');
+ await assert.rejects(local.runOutput(slot,{source:outside,editId:'outside',at:20}),ResidentSourceError);assert.equal(calls,5);
+});
