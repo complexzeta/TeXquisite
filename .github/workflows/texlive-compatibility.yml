@@ -138,6 +138,8 @@ jobs:
         run: node scripts/recovery-navigation-test.cjs
       - name: Keep known-error lecture context warm across typing pauses
         run: node scripts/recovery-idle-test.cjs
+      - name: Automatically continue and clear local errors across paragraphs
+        run: node scripts/automatic-recovery-test.cjs
       - name: Re-prove text separated from a drawing
         run: node scripts/paragraph-split-test.cjs
       - name: Check separated text at high display density
@@ -230,6 +232,8 @@ jobs:
           node scripts/recovery-navigation-test.cjs
           if($LASTEXITCODE -ne 0){exit $LASTEXITCODE}
           node scripts/recovery-idle-test.cjs
+          if($LASTEXITCODE -ne 0){exit $LASTEXITCODE}
+          node scripts/automatic-recovery-test.cjs
           if($LASTEXITCODE -ne 0){exit $LASTEXITCODE}
           node scripts/paragraph-split-test.cjs
           if($LASTEXITCODE -ne 0){exit $LASTEXITCODE}

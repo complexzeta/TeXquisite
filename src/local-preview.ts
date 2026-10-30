@@ -28,6 +28,24 @@ export function plainTextChange(before:string,after:string){
   // Keep command names and unbraced arguments on the full-build path.
   const slash=prefix.lastIndexOf('\\');return slash<0||/[}\n$]/.test(prefix.slice(slash));
 }
+// Reuse only an engine-confirmed literal undefined-command skip. Ordinary
+// typing may move its offset; command/definition/structure edits must run TeX
+// again. Never reuse a structural repair or a pair of separate substitutions.
+export function carryUndefinedRepair(previous:string,repaired:string,current:string){
+  if(previous.length!==repaired.length||previous!==current&&!plainTextChange(previous,current))return;
+  let from=0,to=previous.length;
+  while(from<to&&previous[from]===repaired[from])from++;
+  while(to>from&&previous[to-1]===repaired[to-1])to--;
+  const command=previous.slice(from,to);
+  if(!/^\\[A-Za-z@]+$/.test(command)||repaired.slice(from,to)!==' '.repeat(to-from)||/[A-Za-z@]/.test(previous[to]??''))return;
+  let start=0,end=previous.length,endCurrent=current.length;
+  while(start<end&&start<endCurrent&&previous[start]===current[start])start++;
+  while(end>start&&endCurrent>start&&previous[end-1]===current[endCurrent-1]){end--;endCurrent--;}
+  if(start<to&&end>from)return;
+  const at=from+(end<=from?current.length-previous.length:0);
+  if(current.slice(at,at+command.length)!==command||/[A-Za-z@]/.test(current[at+command.length]??''))return;
+  return {source:current.slice(0,at)+' '.repeat(command.length)+current.slice(at+command.length),message:'Preview skipped undefined command '+command+'.',line:current.slice(0,at).split('\n').length};
+}
 export function paragraphAt(source:string,at:number):RegionRange|undefined{
   if(at<0||at>source.length)return;
   // Treat a run of blank lines as one terminator. A caret within that run
@@ -55,7 +73,7 @@ export function flowWindowAt(source:string,at:number):RegionRange|undefined{
 }
 const lineOffset=(source:string,line:number)=>{let at=0;while(line-->0){at=source.indexOf('\n',at);if(at<0)return -1;at++;}return at;};
 type Request={source:string;fullSource?:string;editId:string;at:number;recovery?:{message:string;line:number};};
-export interface LocalCandidate {recovery?:{message:string;line:number};recoveredBasis?:boolean;unchangedRecovery?:BuildDiagnostic[];reprepareParagraph?:boolean;inkBleedBp?:number;}
+export interface LocalCandidate {recovery?:{message:string;line:number};stableRecovery?:boolean;sourceHealthy?:boolean;recoveryCleared?:boolean;recoveredBasis?:boolean;unchangedRecovery?:BuildDiagnostic[];reprepareParagraph?:boolean;inkBleedBp?:number;}
 export interface LocalCandidate {pageLocations?:{page:number;locations:ReturnType<typeof flowLocations>;blocked?:{x:number;y:number;width:number;height:number}[]}[];retainedFlow?:boolean;retainedSource?:string;}
 type DiskInput={file:string;mtime:number;ctime:number;ino:number;size:number;};
 type Slot={pageProbe?:{source:string;range:RegionRange;output:Awaited<ReturnType<ResidentCompiler['previewRegionPage']>>};neutralLast?:boolean;cancelWork?:()=>void;epoch?:number;cancelled?:boolean;regionKey?:string;edited?:boolean;latestSource?:string;file?:string;input?:IncludedInput;sourceText?:string;otherResources?:string;basis:LocalBasis;range:RegionRange;liveEnd:number;compiledRange:RegionRange;compiler:ResidentCompiler;compositor?:RegionCompositor;ready:boolean;abort:AbortController;diskInputs:DiskInput[];pageMode?:boolean;pageReady?:boolean;pageCostMs?:number;proofPage?:number;sourcePages?:PageSpan;baselineSpan?:PageSpan;continuation?:string;verifyPageRange?:()=>Promise<void>;};
@@ -100,10 +118,9 @@ export class LocalPreview{
   private timer?:NodeJS.Timeout;
   private preparation:Promise<void>=Promise.resolve();
   private inflight?:Promise<unknown>;
-  // A successful preview-only skip can be reused while typing after the same
-  // undefined command. Bind it to this prepared slot and every preceding source
-  // character: definitions/conditionals before the error must be checked again.
-  private recoveryHints=new WeakMap<Slot,{prefix:string;log:string}>();
+  // Bound to the prepared compiler and exact confirmed source pair. Plain text
+  // may change on either side; definitions and command corrections re-run TeX.
+  private recoveryHints=new WeakMap<Slot,{source:string;repaired:string}>();
   private parked:Slot[]=[];
   // Hints only: every revision needs new compiler and raster proofs. Store
   // bounded paragraph text, never an old heap, PDF or source-wide snapshot.
@@ -251,11 +268,12 @@ export class LocalPreview{
   }
   resumeAutomatic(file:string,source:string,editId:string){
     const basis=this.basis,cursor=this.cursor;
-    if(!this.continuous||this.slot||this.running||this.pending||this.inflight||this.speculation||!basis?.claimAutomatic||!cursor||cursor.file!==file||file!==basis.options.root||basis.source!==basis.compilerSource||source===basis.source)return false;
-    const current=flowWindowAt(source,cursor.at),range=current&&flowWindowAt(basis.source,current.from),begin=basis.source.indexOf('\\begin{document}');
+    const original=basis?.originalSource??basis?.source;
+    if(!this.continuous||this.slot||this.running||this.pending||this.inflight||this.speculation||!basis?.claimAutomatic||!cursor||cursor.file!==file||file!==basis.options.root||basis.source!==basis.compilerSource||source===original)return false;
+    const current=flowWindowAt(source,cursor.at),range=current&&flowWindowAt(original!,current.from),begin=original!.indexOf('\\begin{document}');
     if(!range||!current||range.from!==current.from||begin<0||range.from<begin+'\\begin{document}'.length)return false;
     const text=this.regionText({basis,range,sourceText:basis.source},source);
-    if(text===undefined||!plainTextChange(basis.source.slice(range.from,range.to),text))return false;
+    if(text===undefined||!plainTextChange(original!.slice(range.from,range.to),text))return false;
     const compiler=basis.claimAutomatic(editId,source,this.warmCompiler?.initialized?this.warmCompiler:undefined);if(!compiler)return false;
     this.warmCompiler=compiler;this.publishedCompiler=compiler;this.verifyingWithOwner=false;this.pending={source,editId,at:cursor.at};this.schedule();
     this.log('Queued automatic edit handed to local preparation.\n');return true;
@@ -595,14 +613,16 @@ export class LocalPreview{
   }
   private async recoverOutput(slot:Slot,request:Request){
     const deadline=performance.now()+1200;let next=request;
-    let confirmedHint: {prefix:string;log:string}|undefined;
+    let confirmedHint:{source:string;repaired:string}|undefined;
     const dirty=this.neutral?.dirty,activeOnly=this.retainedFlowEnabled&&this.neutral?.ids?.length===1&&dirty?.every(b=>b.id===neutralId(slot.range));
-    const hint=this.recoveryHints.get(slot);
-    if(hint&&!slot.input&&(!dirty?.length||activeOnly)&&!slot.abort.signal.aborted&&request.source.startsWith(hint.prefix)&&this.regionText(slot,request.source)!==undefined){
-      const repair=previewRepair(request.source,hint.log);
+    const original=slot.basis.originalSource;
+    const hint=this.recoveryHints.get(slot)??(slot.basis.bundle?.recovered&&original!==undefined&&slot.basis.recoveryIssues?.length===1?{source:original,repaired:slot.basis.source}:undefined);
+    let reused=false;
+    if(hint&&!slot.input&&(!dirty?.length||activeOnly)&&!slot.abort.signal.aborted&&this.regionText(slot,request.source)!==undefined){
+      const repair=carryUndefinedRepair(hint.source,hint.repaired,request.source);
       if(repair&&this.regionText(slot,repair.source)!==undefined){
         next={...request,source:repair.source,recovery:{message:repair.message,line:repair.line}};
-        confirmedHint=hint;this.neutral=undefined;
+        confirmedHint={source:request.source,repaired:repair.source};reused=true;this.neutral=undefined;
         this.log('Local recovery reused: '+repair.message+'\n');
       }
     }
@@ -610,10 +630,10 @@ export class LocalPreview{
       try{
         const output=await this.output(slot,next);
         if(confirmedHint)this.recoveryHints.set(slot,confirmedHint);else this.recoveryHints.delete(slot);
-        return {...output,recovery:next.recovery,repairedSource:next.recovery?next.source:undefined};
+        return {...output,recovery:next.recovery,repairedSource:next.recovery?next.source:undefined,stableRecovery:reused&&output.kind==='flow'&&!output.flow.stateChanged};
       }
       catch(error){
-        confirmedHint=undefined;this.recoveryHints.delete(slot);
+        confirmedHint=undefined;reused=false;this.recoveryHints.delete(slot);
         if(error instanceof ResidentSourceError&&this.pending&&this.pending.editId!==request.editId)throw new ResidentSupersededError('A newer draft superseded local recovery.');
         const dirty=this.neutral?.dirty,activeOnly=this.retainedFlowEnabled&&this.neutral?.ids?.length===1&&dirty?.every(b=>b.id===neutralId(slot.range));
         if(!(error instanceof ResidentSourceError)||slot.input||dirty?.length&&!activeOnly||attempt>=2||performance.now()>deadline||slot.abort.signal.aborted)throw error;
@@ -624,11 +644,7 @@ export class LocalPreview{
         if(!repair||this.regionText(slot,repair.source)===undefined)throw error;
         // Only memoize the narrow literal undefined-command repair. Structural
         // balancing depends on following input and is reconsidered on each edit.
-        if(repair.message.startsWith('Preview skipped undefined command ')){
-          let end=next.source.length;
-          while(end>0&&next.source[end-1]===repair.source[end-1])end--;
-          confirmedHint={prefix:next.source.slice(0,end),log:String(error)};
-        }
+        if(!next.recovery&&repair.message.startsWith('Preview skipped undefined command '))confirmedHint={source:next.source,repaired:repair.source};
         this.neutral=undefined;
         next={...request,source:repair.source,recovery:{message:repair.message,line:repair.line}};
         this.log('Local recovery: '+repair.message+'\n');
@@ -672,17 +688,27 @@ export class LocalPreview{
         }
         if(epoch!==this.epoch)continue;
         if(result.recovery){
-          candidate.recovery=result.recovery;delete candidate.neutralBlock;
+          candidate.recovery=result.recovery;candidate.stableRecovery=result.stableRecovery;delete candidate.neutralBlock;
           if(result.repairedSource!==undefined){
             if(candidate.flowOutput){const projected=recoveryLocations(candidate.flowOutput.locations??[],request.source,result.repairedSource);candidate.flowOutput={...candidate.flowOutput,...projected};}
             if(candidate.pageLocations)candidate.pageLocations=candidate.pageLocations.map(p=>({...p,...recoveryLocations(p.locations,request.source,result.repairedSource!)}));
           }else candidate.pageLocations=undefined;
         }
+        // A successful state-preserving region can establish that all root
+        // repairs are gone only when the actual compiler input now equals the
+        // complete editor draft. A remote skipped command prevents equality.
+        if(!slot.input&&!result.recovery&&result.kind==='flow'&&!result.flow.stateChanged&&slot.compiledRange){
+          const compiled=slot.basis.compilerSource;
+          candidate.sourceHealthy=compiled.slice(0,slot.compiledRange.from)+text+compiled.slice(slot.compiledRange.to)===request.source;
+          if(candidate.sourceHealthy){candidate.recoveryCleared=!!slot.basis.bundle.recovered;candidate.recoveredBasis=false;}
+        }
         if(slot.compositor)candidate.inkBleedBp=slot.compositor.inkBleedBp;
         if(result.kind==='page'&&!result.recovery&&this.splitPageParagraph(slot,request.source,request.at))candidate.reprepareParagraph=true;
         const original=slot.basis.originalSource;
-        if(this.lecture&&!slot.input&&slot.basis.bundle.recovered&&original!==undefined&&slot.basis.recoveryIssues?.length&&!result.recovery&&result.kind==='flow'&&!result.flow.stateChanged&&original.slice(slot.range.from,slot.range.to)===slot.basis.source.slice(slot.range.from,slot.range.to)){
-          candidate.unchangedRecovery=carryRecoveryDiagnostics(slot.basis.recoveryIssues,slot.basis.options.root,original,request.source,candidate.sourceHash,request.editId);
+        if(this.lecture&&!slot.input&&slot.basis.bundle.recovered&&original!==undefined&&slot.basis.recoveryIssues?.length&&result.kind==='flow'&&!result.flow.stateChanged){
+          const firstLine=original.slice(0,slot.range.from).split('\n').length,lastLine=original.slice(0,slot.range.to).split('\n').length;
+          const outside=slot.basis.recoveryIssues.filter(issue=>issue.file!==slot.basis.options.root||!issue.line||issue.line<firstLine||issue.line>=lastLine);
+          candidate.unchangedRecovery=carryRecoveryDiagnostics(outside,slot.basis.options.root,original,request.source,candidate.sourceHash,request.editId);
         }
         const accepted=await this.publish(candidate);
         if(!accepted)throw new Error('The local page could not be displayed.');

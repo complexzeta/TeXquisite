@@ -124,8 +124,19 @@ const localPreview=new LocalPreview(
     if(accepted&&state.onSave&&candidate.root===state.root&&candidate.editId===latestEditId){
       if(candidate.recovery){
         const issue:BuildDiagnostic={id:'local-recovery-'+candidate.editId,root:candidate.root,editId:candidate.editId,file:candidate.sourceFile??candidate.root,line:candidate.recovery.line,kind:'tex',severity:'error',sourceHash:candidate.sourceHash,message:candidate.recovery.message+' Saved source is unchanged.'};
-        currentDiagnostic=issue;currentProblems=[issue];send({type:'diagnostic',issue});send({type:'problems',root:candidate.root,editId:candidate.editId,issues:[issue]});scheduleFullVerification(candidate.editId,650,true);
+        currentDiagnostic=issue;currentProblems=[...(candidate.unchangedRecovery??[]),issue];send({type:'diagnostic',issue});send({type:'problems',root:candidate.root,editId:candidate.editId,issues:currentProblems});
+        // Replaying the same engine-confirmed skip with unchanged flow state
+        // needs no repeated cold canonical check between ordinary words.
+        if(state.previewMode==='lecture'&&candidate.stableRecovery){clearTimeout(fullVerification);fullVerification=undefined;tracePreview({event:'recovery-local-retained',editId:candidate.editId});}
+        else scheduleFullVerification(candidate.editId,650,true);
       }else{
+        const errors=[...currentProblems,...(currentDiagnostic?[currentDiagnostic]:[])].filter(issue=>issue.severity!=='warning');
+        const resolved=candidate.sourceHealthy&&errors.length>0&&errors.every(issue=>issue.kind==='tex'&&issue.file===candidate.root);
+        if(resolved){
+          currentDiagnostic=undefined;currentProblems=currentProblems.filter(issue=>issue.severity==='warning');
+          send({type:'localRecovered',root:candidate.root,editId:candidate.editId});send({type:'problems',root:candidate.root,editId:candidate.editId,issues:currentProblems});
+          tracePreview({event:'recovery-cleared-locally',editId:candidate.editId});
+        }
         // A healthy local paragraph cannot clear an error elsewhere.
         // Recheck once after typing pauses; only a full publication clears it.
         const retained=state.previewMode==='lecture'&&candidate.unchangedRecovery?retainRecoveryProblems(candidate.unchangedRecovery,currentProblems,currentDiagnostic):undefined;
@@ -134,7 +145,7 @@ const localPreview=new LocalPreview(
           currentProblems=retained.problems;currentDiagnostic=retained.diagnostic;
           send({type:'diagnostic',issue:currentDiagnostic});send({type:'problems',root:candidate.root,editId:candidate.editId,issues:currentProblems});
           tracePreview({event:'recovery-retained',editId:candidate.editId,count:candidate.unchangedRecovery!.length});
-        }else if(currentDiagnostic||candidate.recoveredBasis)scheduleFullVerification(candidate.editId,650,true);
+        }else if(currentDiagnostic||candidate.recoveredBasis||candidate.recoveryCleared||resolved)scheduleFullVerification(candidate.editId,650,true);
         else if(candidate.reprepareParagraph){tracePreview({event:'paragraph-split-refresh',editId:candidate.editId});scheduleFullVerification(candidate.editId,300,true);}
         else scheduleFullVerification(candidate.editId);
       }

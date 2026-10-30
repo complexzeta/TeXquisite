@@ -68,6 +68,46 @@ test('Confirmed skips cannot cross prepared slots or changes outside their sourc
  await assert.rejects(local.runOutput(slot,{source:outside,editId:'outside',at:20}),ResidentSourceError);assert.equal(calls,5);
 });
 
+test('Ordinary typing before a confirmed command moves its skip without replaying the failing input',async()=>{
+ const local=make(),slot={basis:{source:baseline},range,abort:new AbortController()};let calls=0;
+ local.output=async(_slot,r)=>{calls++;if(r.source.includes('\\broken'))throw new ResidentSourceError('! Undefined control sequence.\nl.3 Target \\broken\n');return {kind:'flow',output:{},flow:{stateChanged:false}};};
+ await local.runOutput(slot,{source:draft,editId:'broken',at:20});assert.equal(calls,2);
+ const current=draft.replace('Target','Target new');
+ const result=await local.runOutput(slot,{source:current,editId:'before',at:18});
+ assert.equal(calls,3);assert.equal(result.stableRecovery,true);assert.equal(result.repairedSource,current.replace('\\broken','       '));
+ const fixed=await local.runOutput(slot,{source:current.replace('\\broken','ordinary'),editId:'fixed',at:20});
+ assert.equal(calls,4);assert.equal(fixed.recovery,undefined);assert.equal(fixed.stableRecovery,false);
+});
+
+test('A full recovered baseline seeds only its single literal skip and state-changing results request verification',async()=>{
+ for(const stateChanged of [false,true]){
+  const local=make(),slot={basis:{source:draft.replace('\\broken','       '),originalSource:draft,bundle:{recovered:true},recoveryIssues:[{}]},range:{from:draft.indexOf('Target'),to:draft.indexOf('After')},abort:new AbortController()};let calls=0;
+  local.output=async(_slot,r)=>{calls++;assert.equal(r.source.includes('\\broken'),false);return {kind:'flow',output:{},flow:{stateChanged}};};
+  const current=draft.replace('Target','Target new'),result=await local.runOutput(slot,{source:current,editId:'seeded',at:18});
+  assert.equal(calls,1);assert.equal(result.stableRecovery,!stateChanged);assert.equal(result.repairedSource,current.replace('\\broken','       '));
+ }
+});
+
+test('Clearing recovery requires exact full-source correspondence and unchanged flow state',async()=>{
+ for(const mode of ['fixed','remote-error','state-changed']){
+  const original='Target $\\bad$ words.\n\nRemote $\\other$ words.\n\n',compiled=original.replace('\\bad','    ').replace('\\other',mode==='remote-error'?'      ':'\\other');
+  const active={from:0,to:original.indexOf('Remote')},local=make();local.lecture=true;let candidate;
+  const issue={id:'local',root:'main.tex',file:'main.tex',line:1,kind:'tex',severity:'error'};
+  const slot={ready:true,basis:{source:compiled,compilerSource:compiled,originalSource:original,recoveryIssues:[issue,...(mode==='remote-error'?[{...issue,id:'remote',line:3}]:[])],bundle:{id:'base',recovered:true},options:{root:'main.tex'}},range:active,compiledRange:active,abort:new AbortController(),compiler:{prepareNextRegionEdit(){},stop(){}},compositor:{page:1}};
+  local.slot=slot;local.pending={source:original.replace('\\bad','\\int'),editId:'corrected',at:12};
+  local.output=async()=>({kind:'flow',output:{pdf:Buffer.alloc(0)},flow:{stateChanged:mode==='state-changed'}});local.publish=async value=>{candidate=value;return true;};
+  await local.drain();assert.equal(!!candidate.sourceHealthy,mode==='fixed',mode);assert.equal(!!candidate.recoveryCleared,mode==='fixed',mode);assert.equal(candidate.recoveredBasis,mode!=='fixed',mode);
+  if(mode==='remote-error')assert.equal(candidate.unchangedRecovery[0].id,'remote');local.stop();
+ }
+});
+
+test('New automatic text edits hand off from the original recovered draft, not its spaces-only compiler copy',()=>{
+ const original='\\begin{document}\n\nTarget $\\broken$ words.\n\nTail words.\n\n\\end{document}\n',compiled=original.replace('\\broken','       '),local=make(),file='main.tex';let claims=0;
+ local.continuous=true;local.cursor={file,at:original.indexOf('Target')+6};
+ local.basis={source:compiled,originalSource:original,compilerSource:compiled,options:{root:file},claimAutomatic:(id,text)=>{claims++;assert.equal(id,'latest');assert.equal(text,original.replace('Target','Target more'));return {initialized:true,stop(){}};}};
+ try{assert.equal(local.resumeAutomatic(file,original.replace('Target','Target more'),'latest'),true);assert.equal(claims,1);assert.ok(local.pending.source.includes('\\broken'));}finally{local.stop();}
+});
+
 test('A recovered document accepts edits before and after its error while typesetting the repaired baseline',async()=>{
  const original='Before ordinary words.\n\nBroken \\bad words.\n\nAfter ordinary words.\n\n',compiled=original.replace('\\bad','    ');
  for(const marker of ['Before','After']){
@@ -87,7 +127,7 @@ test('Original root text does not replace an included-file baseline, and healthy
  assert.equal(local.sameContext({basis},{...basis,bundle:{recovered:false}}),false);
 });
 
-test('Only successful state-preserving lecture edits outside repaired text can retain a known error',async()=>{
+test('State-preserving lecture edits carry remote errors, including alongside a fresh local repair',async()=>{
  const original='Target ordinary words.\n\nBroken \\bad words.\n\n',compiled=original.replace('\\bad','    '),range={from:0,to:original.indexOf('Broken')},issue={id:'known',root:'main.tex',file:'main.tex',line:3,kind:'tex',severity:'error',message:'Undefined control sequence.'};
  for(const mode of ['safe','state-change','document','repaired-region','new-repair']){
   const local=make();local.lecture=mode!=='document';let candidate;local.publish=async value=>{candidate=value;return true;};
@@ -96,7 +136,7 @@ test('Only successful state-preserving lecture edits outside repaired text can r
   local.slot=slot;local.pending={source:mode==='repaired-region'?original.replace('Broken','Broken new'):original.replace('ordinary','new ordinary'),editId:'new',at:from+8};
   local.output=async()=>({kind:'flow',output:{pdf:Buffer.alloc(0)},flow:{...(mode==='state-change'?{stateChanged:true}:{})}});
   if(mode==='new-repair')local.recoverOutput=async()=>({kind:'flow',output:{pdf:Buffer.alloc(0)},flow:{},recovery:{message:'Another repair',line:1},repairedSource:original});
-  await local.drain();assert.ok(candidate,mode);assert.equal(!!candidate.unchangedRecovery,mode==='safe',mode);
+  await local.drain();assert.ok(candidate,mode);assert.equal(!!candidate.unchangedRecovery,mode==='safe'||mode==='new-repair',mode);
   if(mode==='safe'){assert.equal(candidate.unchangedRecovery[0].editId,'new');assert.equal(candidate.recoveredBasis,true);}
   local.stop();
  }

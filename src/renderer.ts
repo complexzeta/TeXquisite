@@ -241,11 +241,13 @@ function renderIssue(){
   panel.dataset.kind=compileIssue.kind;
 }
 function renderRecoveryNotice(reason?:string){
- const issue=compileIssue?.root===model.root?compileIssue:projectProblems.find(i=>i.root===model.root&&i.severity!=='warning'),recovered=current?.timing?.recovered||localCanvas?.dataset.localRecovered==='true',notice=el('previewNotice');
+ const issue=compileIssue?.root===model.root?compileIssue:projectProblems.find(i=>i.root===model.root&&i.severity!=='warning'),recovered=localCanvas&&localCanvas.dataset.localEditId===latestEdit?.id?localCanvas.dataset.localRecovered==='true':current?.timing?.recovered,notice=el('previewNotice');
  notice.hidden=!issue&&!recovered&&!reason;if(notice.hidden)return;
  const stale=!!issue&&issue.editId!==latestEdit?.id,where=issue?.file&&issue.line?` (${issue.file.split(/[\\/]/).at(-1)}, line ${issue.line})`:'';
  el('previewNoticeTitle').textContent=stale?'Checking newer edits':issue?issue.message+where:recovered?'Temporary preview':'Navigation needs attention';
- el('previewNoticeText').textContent=reason??(stale?(model.onSave?'This error belongs to an earlier edit. Rechecking after typing pauses.':'This error belongs to an earlier edit. Automatic checking is paused; choose Retry preview.'):issue?(diagnosticAdvice(issue.message)??'Open Details to inspect the build log, then Retry preview.')+(recovered?' Navigation is limited to unchanged mapped text. Direct PDF editing resumes after the error is fixed.':' The previous preview is retained.'): 'This preview contains temporary repairs. Retry preview to check the current source.');
+ const checking=model.onSave?' Keep editing; each change is checked automatically.':' Automatic preview is paused. Resume Live or choose Retry preview.';
+ el('previewNoticeText').textContent=reason??(stale?(model.onSave?'Checking your latest edits automatically.':'This error belongs to an earlier edit.'+checking):issue?(diagnosticAdvice(issue.message)??'Open Details to inspect the build log.')+checking+(recovered?' Navigation is limited to unchanged mapped text. Direct PDF editing resumes after the error is fixed.':' The previous preview is retained.'):'Temporary repairs keep this preview running.'+checking);
+ const retry=el<HTMLButtonElement>('previewNoticeRetry');retry.textContent=model.onSave?'Check now':'Retry preview';retry.title=model.onSave?'Optional: recheck now. Source changes are checked automatically.':'Recheck the current source';
  const go=el<HTMLButtonElement>('previewNoticeError');go.hidden=!issue?.file||!issue.line;go.disabled=stale;
 }
 function explainNavigation(reason:string){el('navState').textContent=reason;renderRecoveryNotice(reason);}
@@ -622,7 +624,7 @@ async function locateSource(explicit:boolean){
   }
   markLocation(row,explicit);
 }
-el('editPreview').onclick=()=>void command(async()=>{if(!model.previewEditing&&(current?.navigation?.recovery||current?.timing?.recovered||localCanvas?.dataset.localRecovered==='true')){explainNavigation('Direct PDF editing is paused for this temporary preview. Use the source editor or Go to error, then Retry preview.');return;}navigationToken++;endPreview();const enabled=model.previewEditing=!model.previewEditing;renderTabs();await flush();await api.call('previewEditing',enabled);el('navState').textContent=enabled?'Preparing editable text · click plain text after the preview updates':'Click PDF text to show its source';});
+el('editPreview').onclick=()=>void command(async()=>{if(!model.previewEditing&&(current?.navigation?.recovery||current?.timing?.recovered||localCanvas?.dataset.localRecovered==='true')){explainNavigation('Direct PDF editing is paused for this temporary preview. Use the source editor or Go to error. Corrections are checked automatically while Live is on.');return;}navigationToken++;endPreview();const enabled=model.previewEditing=!model.previewEditing;renderTabs();await flush();await api.call('previewEditing',enabled);el('navState').textContent=enabled?'Preparing editable text · click plain text after the preview updates':'Click PDF text to show its source';});
 el('locate').onclick=()=>void command(()=>locateSource(true));
 el('follow').onclick=()=>void command(async()=>{navigationToken++;const enabled=model.followPreview=!model.followPreview;renderTabs();await api.call('follow',enabled);if(enabled&&model.followPreview)await locateSource(true);});
 el('pages').addEventListener('click',event=>void command(async()=>{
