@@ -36,8 +36,9 @@ export function recoveryLocations<T extends {at:number;end:number;x:number;y:num
  for(const g of locations){const position=map.position(g.at,g.end);if(position)kept.push({...g,...position});else blocked.push({x:g.x,y:g.y,width:g.width,height:g.height});}return {locations:kept,blocked};
 }
 
-// Diagnostic projection is not a compiler proof. Callers separately require a
-// successful local flow with unchanged native state and no repaired active text.
+// Diagnostic projection is not a compiler proof. Callers require successful
+// local flow and unchanged state or ordinary text edits. Lecture state changes
+// remain provisional; this grants no compiler, editing or export authority.
 export function carryRecoveryDiagnostics(issues:readonly BuildDiagnostic[],root:string,previous:string,current:string,sourceHash:string,editId:string){
  if(!issues.length)return;
  const map=sourceCorrespondence(current,previous),result:BuildDiagnostic[]=[];

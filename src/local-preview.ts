@@ -29,8 +29,8 @@ export function plainTextChange(before:string,after:string){
   const slash=prefix.lastIndexOf('\\');return slash<0||/[}\n$]/.test(prefix.slice(slash));
 }
 // Reuse only an engine-confirmed literal undefined-command skip. Ordinary
-// typing may move its offset; command/definition/structure edits must run TeX
-// again. Never reuse a structural repair or a pair of separate substitutions.
+// typing before the token may move its offset; command or preceding definition
+// edits reconsider it. Never reuse structural or compound substitutions.
 export function carryUndefinedRepair(previous:string,repaired:string,current:string){
   if(previous.length!==repaired.length)return;
   let from=0,to=previous.length;

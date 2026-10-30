@@ -246,7 +246,8 @@ function renderRecoveryNotice(reason?:string){
  const stale=!!issue&&issue.editId!==latestEdit?.id,where=issue?.file&&issue.line?` (${issue.file.split(/[\\/]/).at(-1)}, line ${issue.line})`:'';
  el('previewNoticeTitle').textContent=stale?'Checking newer edits':issue?issue.message+where:recovered?'Temporary preview':'Navigation needs attention';
  const checking=model.onSave?' Keep editing; each change is checked automatically.':' Automatic preview is paused. Resume Live or choose Retry preview.';
- el('previewNoticeText').textContent=reason??(stale?(model.onSave?'Checking your latest edits automatically.':'This error belongs to an earlier edit.'+checking):issue?(diagnosticAdvice(issue.message)??'Open Details to inspect the build log.')+checking+(recovered?' Navigation is limited to unchanged mapped text. Direct PDF editing resumes after the error is fixed.':' The previous preview is retained.'):'Temporary repairs keep this preview running.'+checking);
+ const advice=issue?diagnosticAdvice(issue.message):undefined;
+ el('previewNoticeText').textContent=reason?reason+(advice?' '+advice:'')+checking:(stale?(model.onSave?'Checking your latest edits automatically.':'This error belongs to an earlier edit.'+checking):issue?(advice??'Open Details to inspect the build log.')+checking+(recovered?' Navigation is limited to unchanged mapped text. Direct PDF editing resumes after the error is fixed.':' The previous preview is retained.'):'Temporary repairs keep this preview running.'+checking);
  const retry=el<HTMLButtonElement>('previewNoticeRetry');retry.textContent=model.onSave?'Check now':'Retry preview';retry.title=model.onSave?'Optional: recheck now. Source changes are checked automatically.':'Recheck the current source';
  const go=el<HTMLButtonElement>('previewNoticeError');go.hidden=!issue?.file||!issue.line;go.disabled=stale;
 }
@@ -584,7 +585,7 @@ async function locateContinuous(explicit:boolean){
   const valid=()=>token===navigationToken&&model.continuousPreview&&active===file&&view?.state.doc.toString()===text&&view.state.selection.main.head===at;
   if(!valid())return;
   const line=view!.state.doc.lineAt(at).number;if(!sourceLineHasOutput(view!.state.doc.line(line).text)){if(explicit)el('navState').textContent='This source line produces no visible output.';return;}const flow=liveFlow?.canvas.isConnected?liveFlow:undefined,basis=continuousBasis;
-  const status=(ok:boolean)=>{if(ok)el('navState').textContent=`${file.split(/[\\/]/).at(-1)} · line ${line}`;else if(explicit)explainNavigation('This location has no current mapping. See the reported error; corrections are checked automatically while Live is on.');};
+  const status=(ok:boolean)=>{if(ok)el('navState').textContent=`${file.split(/[\\/]/).at(-1)} · line ${line}`;else if(explicit)explainNavigation('This location has no current mapping. See the reported error.');};
   if(neutralIds.size){const context=retainedContext(),found=context&&retainedNavigation.forward(context,at,continuousView.retainedProjection);if(found&&valid()){const marked=continuousView.mark(found.page,found.glyph,false,explicit);if(marked)pageNumber=found.page;status(marked);}else status(false);return;}
   const pages=currentLivePages();
   if(pages){
@@ -613,10 +614,10 @@ async function locateSource(explicit:boolean){
   if(!explicit&&previewSession)return;
   if(explicit)endPreview();
   const token=++navigationToken,candidate=current;
-  if(!candidate?.navigation){if(explicit)explainNavigation('This preview has no source map. Open Details for the build error; source corrections are checked automatically while Live is on.');return;}
+  if(!candidate?.navigation){if(explicit)explainNavigation('This preview has no source map. Open Details for the build error.');return;}
   const row=await cursorLocation(candidate.navigation,candidate.page,candidate.id);
   if(token!==navigationToken||candidate.id!==current?.id)return;
-  if(!row){if(explicit)explainNavigation('This source location is not mapped in the displayed preview. Use Go to error; source corrections are checked automatically while Live is on.');return;}
+  if(!row){if(explicit)explainNavigation('This source location is not mapped in the displayed preview. Use Go to error.');return;}
   if(row[2]!==candidate.page){
     const canvas=await render(candidate.pdf,row[2]);if(token!==navigationToken||candidate.id!==current?.id){canvas.width=canvas.height=0;return;}
     copyCanvasMetadata(canvas,candidate.canvas);
@@ -655,10 +656,10 @@ el('pages').addEventListener('click',event=>void command(async()=>{
   if(retainedExperiment&&model.continuousPreview&&continuousView.id!==current?.id)return;
   const flowPage=model.continuousPreview?canvas?.closest<HTMLElement>('.flow-page'):undefined;
   const candidate=current&&flowPage?{...current,canvas,page:Number(flowPage.dataset.page)}:current;
-  if(!canvas||model.continuousPreview&&!flowPage)return;if(!candidate?.navigation||canvas!==candidate.canvas){explainNavigation('This preview has no source map. Open Details for the build error; source corrections are checked automatically while Live is on.');return;}
+  if(!canvas||model.continuousPreview&&!flowPage)return;if(!candidate?.navigation||canvas!==candidate.canvas){explainNavigation('This preview has no source map. Open Details for the build error.');return;}
   endPreview();const pointToken=++navigationToken,priorFile=active,priorText=view?.state.doc.toString();
   const rect=candidate.canvas.getBoundingClientRect(),x=(event.clientX-rect.left)/scale,y=(event.clientY-rect.top)/scale;
-  if(recoveryPointBlocked(candidate.navigation,candidate.page,x,y)){explainNavigation('This text contains a temporary repair. Use Go to error to correct its source; the preview rechecks automatically while Live is on.');return;}
+  if(recoveryPointBlocked(candidate.navigation,candidate.page,x,y)){explainNavigation('This text contains a temporary repair. Use Go to error to correct its source.');return;}
   const row=candidate.navigation.nativeInputs?await api.call('nativeNavigation',candidate.id,'backward',{page:candidate.page,x,y}):backward(candidate.navigation,candidate.page,x,y);
   if(current?.id!==candidate.id||pointToken!==navigationToken)return;if(!row){el('navState').textContent='No source location near this point.';return;}
   try{
