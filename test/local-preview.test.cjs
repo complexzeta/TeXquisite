@@ -110,7 +110,7 @@ test('High-DPI matched glyph coverage scales with resolution while retaining bou
 test('Matched thin serifs require a real glyph core and retain missing-ink and geometry rejection',()=>{
  const width=40,height=40,rect={x:1,y:1,width:38,height:38},a=new Uint8ClampedArray(width*height*4).fill(255),set=(im,x,y,v)=>{for(let c=0;c<3;c++)im[(y*width+x)*4+c]=v;};
  for(let y=12;y<21;y++)set(a,12,y,0);for(let x=13;x<20;x++)set(a,x,10,186);set(a,19,11,244);
- const b=new Uint8ClampedArray(a);for(let x=17;x<20;x++)set(b,x,10,150);set(b,19,11,252);const glyphs=[{x:11,y:9,width:10,height:13}];
+ set(a,19,12,219);const b=new Uint8ClampedArray(a);for(let x=17;x<20;x++)set(b,x,10,150);set(b,19,11,252);set(b,19,12,252);const glyphs=[{x:11,y:9,width:10,height:13}];
  assert.equal(matchLocalPatchRaster(a,b,width,height,rect).ok,false);
  assert.equal(matchLocalPatchRaster(a,b,width,height,rect,glyphs).ok,true);
  assert.equal(matchLocalPatchRaster(a,b,width,height,rect,[{x:25,y:25,width:5,height:5}]).ok,false);

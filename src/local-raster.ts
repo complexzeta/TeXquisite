@@ -59,6 +59,7 @@ function matchRaster(a:Uint8ClampedArray,b:Uint8ClampedArray,width:number,height
   const metricPositions=new Set<number>();
   const density=Math.min(4,Math.max(1,Number.isFinite(pixelScale)?pixelScale:1)),glyphLimit=Math.min(64,Math.ceil(8*density*density));
   const grayInk=(pixels:Uint8ClampedArray,p:number)=>{const i=p*4;return pixels[i+3]===255&&pixels[i]<250&&pixels[i]===pixels[i+1]&&pixels[i]===pixels[i+2];};
+  const faintGray=(pixels:Uint8ClampedArray,p:number)=>{const i=p*4;return pixels[i+3]===255&&pixels[i]>=192&&pixels[i]===pixels[i+1]&&pixels[i]===pixels[i+2];};
   for(let y=top;y<bottom;y++)for(let x=left;x<right;x++){
     const p=y*width+x;
     // Only this integer crop is copied into the accepted canvas. PDF form
@@ -72,7 +73,7 @@ function matchRaster(a:Uint8ClampedArray,b:Uint8ClampedArray,width:number,height
     // Background, color, alpha and
     // missing/added ink remain subject to the original checks.
     let metric=false,metricGlyph=-1;
-    if(difference>32&&difference<=80&&grayInk(a,p)&&grayInk(b,p)&&metricPixels<64){
+    if(difference>32&&difference<=80&&(grayInk(a,p)&&grayInk(b,p)||faintGray(a,p)&&faintGray(b,p))&&metricPixels<64){
       const glyph=masks.findIndex(g=>x>=Math.floor(g.x)-1&&x<=Math.ceil(g.x+g.width)+1&&y>=Math.floor(g.y)-1&&y<=Math.ceil(g.y+g.height)+1);
       metricGlyph=glyph;
       if(glyph>=0&&glyphPixels[glyph]<glyphLimit){glyphPixels[glyph]++;metricPixels++;metricPositions.add(p);metric=true;}
