@@ -6,6 +6,7 @@ const plainFixture=process.env.PERSISTENT_TEX_LECTURE_PLAIN==='1',multiBlock=pro
 (async()=>{
  os.setPriority(0,os.constants.priority.PRIORITY_BELOW_NORMAL);
  const directory=require('./test-artifacts.cjs').testDirectory('lecture-session'),profile=path.join(directory,'profile'),project=path.join(directory,'project'),root=path.join(project,'lecture.tex');await fs.mkdir(profile);await fs.mkdir(project);
+ require('./retained-test-format.cjs').seedProfile(profile);
  let source='\\documentclass{article}\n\\usepackage{amsmath}\n\\begin{document}\n\n'+Array.from({length:100},(_,i)=>`Block${String(i).padStart(3,'0')}: Ordinary lecture prose ${plainFixture?'with ordinary words.':'with a formula $\\sqrt{x}+\\frac{1}{2}$.'} Stable surrounding words for reflow and navigation.\n\n`).join('')+'\\end{document}\n';
  const first=source.indexOf('Block045')+10;await fs.writeFile(root,source);await fs.writeFile(path.join(profile,'session.json'),JSON.stringify({docs:[{path:root,text:source,diskHash:hash(source),dirty:false,eol:'\n'}],root,active:root,engine:'pdflatex',latexmk:'latexmk',previewMode:'lecture',onSave:true,liveVersion:2,continuousPreview:true,autoClose:false,followPreview:true,lastCursor:{file:root,at:first}}));
  const options={...(process.env.PERSISTENT_TEX_EXECUTABLE?{executablePath:process.env.PERSISTENT_TEX_EXECUTABLE,args:[]}:{args:['.']}),env:{...process.env,PERSISTENT_TEX_MULTI_BLOCK:multiBlock,PERSISTENT_TEX_TEST_DATA:profile,PERSISTENT_TEX_TEST_HIDDEN:'1'},timeout:90000};

@@ -4,6 +4,7 @@ const retainedFlow=process.env.PERSISTENT_TEX_RETAINED_FLOW==='1',retainedSelect
 const growth=retainedFlow?' '+('rising paragraph words '.repeat(150)):'';
 (async()=>{
  os.setPriority(0,os.constants.priority.PRIORITY_BELOW_NORMAL);const directory=require('./test-artifacts.cjs').testDirectory('retained-navigation'),profile=path.join(directory,'profile'),project=path.join(directory,'project');await fs.mkdir(profile);await fs.mkdir(project);
+ require('./retained-test-format.cjs').seedProfile(profile);
  const root=path.join(project,'main.tex'),other=path.join(project,'other.tex'),source='\\documentclass[letterpaper]{article}\n\\begin{document}\n\nAlphaSentinel words.\n\n\\newpage\n\nPageTwoIntro stable words.\n\nBetaSentinel gap.\n\nTailSentinel untouched text.\n\n\\end{document}\n',otherSource='\\documentclass{article}\n\\begin{document}\n\nOtherSentinel text.\n\n\\end{document}\n';let expected=source;
  await fs.writeFile(root,source);await fs.writeFile(other,otherSource);await fs.writeFile(path.join(profile,'session.json'),JSON.stringify({docs:[{path:root,text:source,diskHash:hash(source),dirty:false,eol:'\n'},{path:other,text:otherSource,diskHash:hash(otherSource),dirty:false,eol:'\n'}],root,active:root,engine:'pdflatex',latexmk:'latexmk',previewMode:'lecture',onSave:true,liveVersion:2,continuousPreview:true,followPreview:false,lastCursor:{file:root,at:source.indexOf('AlphaSentinel')+13}}));
  if(os.freemem()<1024*1024*1024)throw Error('Not enough free memory to start an isolated editor test.');

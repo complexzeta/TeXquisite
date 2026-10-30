@@ -42,3 +42,11 @@ canvas integration check. Its installer mirror timed out before any native or
 live-editor test ran. The installer now tries alternate HTTPS CTAN mirrors and
 validates the ZIP before promoting a partial download. Using another specific
 mirror follows the [TeX Live installation guidance](https://www.tug.org/texlive/acquire-netinstall.html).
+
+The second run, 40999774762, installed TeX successfully, but its updated LaTeX
+kernel did not match the bundled format. The application correctly selected
+native compilation; the fixtures had incorrectly assumed resident preview was
+already available. The test setup now generates an installation-matched format
+with the existing self-test and dependency/fingerprint checks, then seeds each
+fresh test profile with that preparation. The baseline and candidate use the
+same installed inputs and engine identity. Compatibility checks remain enabled.

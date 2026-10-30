@@ -196,7 +196,10 @@ export class LocalPreview{
   setBasis(basis:LocalBasis){
     if(this.compositionBase?.id!==basis.bundle.id)this.compositionBase=undefined;
     const prior=this.basis;
-    const replaced=prior?.bundle.id!==basis.bundle.id||this.neutralEnabled&&!!prior&&(prior.source!==basis.source||prior.compilerSource!==basis.compilerSource||prior.options.root!==basis.options.root||prior.project.resourceKey!==basis.project.resourceKey||prior.project.environmentKey!==basis.project.environmentKey);
+    const retainedContext=!basis.bundle.recovered&&this.neutralEnabled&&this.lecture&&this.continuous;
+    // A canonical publication retires renderer block history even when undo
+    // returned to the same immutable PDF ID, or continuous mode was reenabled.
+    const replaced=prior?.bundle.id!==basis.bundle.id||!!this.neutral?.ids.length||retainedContext&&!this.neutral||this.neutralEnabled&&!!prior&&(prior.source!==basis.source||prior.compilerSource!==basis.compilerSource||prior.options.root!==basis.options.root||prior.project.resourceKey!==basis.project.resourceKey||prior.project.environmentKey!==basis.project.environmentKey);
     if(replaced){this.neutral=!basis.bundle.recovered&&this.neutralEnabled&&this.lecture&&this.continuous?new NeutralBlocks(basis.source):undefined;this.editorSource=basis.source;}
     if(prior?.bundle.id!==basis.bundle.id&&this.slot)this.rememberVisit();
     if(prior&&(prior.options.root!==basis.options.root||prior.project.environmentKey!==basis.project.environmentKey))this.visits=[];
