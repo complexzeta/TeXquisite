@@ -1008,7 +1008,7 @@ api.on(async message=>{
         const finish=()=>{if(token!==localRenderToken||localCanvas!==canvas||canvas.dataset.localEditId!==message.editId)return;void api.call('localWarm',message.root,message.baseId,message.editId,Math.ceil(performance.now()-inputAt),canvas.dataset.localLayout).catch(()=>{});const latency=Math.ceil(performance.now()-inputAt);input.displayedLatencyMs??=latency;canvas.dataset.localLatencyMs=String(latency);canvas.dataset.localLatencyEditId=message.editId;canvas.dataset.timingEndpoint=message.visible?'paint opportunity':'canvas (window hidden)';localStatus=`Local paragraph updated in ${latency} ms from edit. Full document verification pending.`+(!message.visible?' Window hidden; measured to canvas.':'');refreshPreviewStatus();};
         if(message.visible)requestAnimationFrame(()=>requestAnimationFrame(finish));else finish();
       }else tile.image?.close();
-    }catch(error){console.debug('Local page output rejected',String(error));ok=false;}finally{flowImage?.close();if(!keepTask)await task?.destroy();await api.call('localAck',message.token,ok);}
+    }catch(error){console.debug('Local page output rejected',String(error));ok=false;}finally{flowImage?.close();if(!keepTask)await task?.destroy();if(ok&&localCanvas?.dataset.localEditId===message.editId&&message.editId===latestEdit?.id)renderRecoveryNotice();await api.call('localAck',message.token,ok);}
     return;
   }
   if(message.type==='backupStatus'){el('backupStatus').textContent=message.text;el('backupWarning').hidden=!message.error;el('backupWarning').querySelector('span')!.textContent=message.text;return;}
