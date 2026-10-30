@@ -94,6 +94,7 @@ test('Independent matched glyphs share a capped coverage allowance without hidin
  assert.equal(matchLocalPatchRaster(a,b,width,height,rect,glyphs.slice(0,1)).ok,false,'Every glyph still needs its independent geometry');
  for(let i=2;i<8;i++)add(i);assert.equal(matchLocalPatchRaster(a,b,width,height,rect,glyphs).ok,true);
  add(8);assert.equal(matchLocalPatchRaster(a,b,width,height,rect,glyphs).ok,false,'The patch-wide cap remains 64 even for a large page');
+ assert.equal(matchLocalPatchRaster(a,b,width,height,rect,glyphs,2.5).ok,true,'The physical coverage allowance scales with display density for independently proved glyphs');
 });
 
 test('High-DPI matched glyph coverage scales with resolution while retaining bounded ink checks',()=>{

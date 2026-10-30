@@ -57,7 +57,7 @@ function matchRaster(a:Uint8ClampedArray,b:Uint8ClampedArray,width:number,height
   const masks=patchOnly&&calibratedGlyphs.length<=4096?calibratedGlyphs.filter(g=>Object.values(g).every(Number.isFinite)&&g.width>0&&g.height>0&&g.width<=256&&g.height<=256):[];
   const glyphPixels=new Uint8Array(masks.length);
   const metricPositions=new Set<number>();
-  const density=Math.min(4,Math.max(1,Number.isFinite(pixelScale)?pixelScale:1)),glyphLimit=Math.min(64,Math.ceil(8*density*density));
+  const density=Math.min(4,Math.max(1,Number.isFinite(pixelScale)?pixelScale:1)),glyphLimit=Math.min(64,Math.ceil(8*density*density)),coverageLimit=Math.ceil(64*density*density);
   const grayInk=(pixels:Uint8ClampedArray,p:number)=>{const i=p*4;return pixels[i+3]===255&&pixels[i]<250&&pixels[i]===pixels[i+1]&&pixels[i]===pixels[i+2];};
   const faintGray=(pixels:Uint8ClampedArray,p:number)=>{const i=p*4;return pixels[i+3]===255&&pixels[i]>=192&&pixels[i]===pixels[i+1]&&pixels[i]===pixels[i+2];};
   for(let y=top;y<bottom;y++)for(let x=left;x<right;x++){
@@ -68,12 +68,13 @@ function matchRaster(a:Uint8ClampedArray,b:Uint8ClampedArray,width:number,height
     if(!difference)continue;maxDifference=Math.max(maxDifference,difference);changed.push(p);
     // Only independently matched PDF glyph geometry can authorize these
     // eight opaque grayscale coverage pixels per matched glyph at 1x, scaling
-    // with pixel density. The entire patch, including any one glyph, is capped
-    // at 64. Independent glyph geometry and both stroke-edge checks still apply.
+    // with pixel density. One glyph is capped at 64 pixels; the whole patch's
+    // 64-pixel 1x budget scales by density up to 1024. Independent glyph
+    // geometry and the stroke/core checks below still apply.
     // Background, color, alpha and
     // missing/added ink remain subject to the original checks.
     let metric=false,metricGlyph=-1;
-    if(difference>32&&difference<=80&&(grayInk(a,p)&&grayInk(b,p)||faintGray(a,p)&&faintGray(b,p))&&metricPixels<64){
+    if(difference>32&&difference<=80&&(grayInk(a,p)&&grayInk(b,p)||faintGray(a,p)&&faintGray(b,p))&&metricPixels<coverageLimit){
       const glyph=masks.findIndex(g=>x>=Math.floor(g.x)-1&&x<=Math.ceil(g.x+g.width)+1&&y>=Math.floor(g.y)-1&&y<=Math.ceil(g.y+g.height)+1);
       metricGlyph=glyph;
       if(glyph>=0&&glyphPixels[glyph]<glyphLimit){glyphPixels[glyph]++;metricPixels++;metricPositions.add(p);metric=true;}
@@ -103,7 +104,7 @@ function matchRaster(a:Uint8ClampedArray,b:Uint8ClampedArray,width:number,height
     if(!core.get(glyph))return false;
     const fringe=(pixels:Uint8ClampedArray)=>{let ink=false,light=false;for(let dy=-2;dy<=2;dy++)for(let dx=-2;dx<=2;dx++){const xx=x+dx,yy=y+dy;if(xx<0||xx>=width||yy<0||yy>=height)continue;const at=(yy*width+xx)*4,value=Math.min(pixels[at],pixels[at+1],pixels[at+2]);ink ||=value<224;light ||=value>224;}return ink&&light;};
     if(!fringe(a)||!fringe(b))return false;
-    if(!metricPositions.has(p)){if(coveragePixels>=64||glyphPixels[glyph]>=glyphLimit)return false;coveragePixels++;glyphPixels[glyph]++;}
+    if(!metricPositions.has(p)){if(coveragePixels>=coverageLimit||glyphPixels[glyph]>=glyphLimit)return false;coveragePixels++;glyphPixels[glyph]++;}
     return true;
   };
   // Use the same ink threshold as inkFitsRaster. Near-white coverage in both
