@@ -623,6 +623,7 @@ export class LocalPreview{
   }
   private async recoverOutput(slot:Slot,request:Request){
     const deadline=performance.now()+1200;let next=request;
+    let known=!!slot.basis.bundle?.recovered;
     let confirmedHint:{source:string;repaired:string}|undefined;
     const dirty=this.neutral?.dirty,activeOnly=this.retainedFlowEnabled&&this.neutral?.ids?.length===1&&dirty?.every(b=>b.id===neutralId(slot.range));
     const original=slot.basis.originalSource;
@@ -640,7 +641,7 @@ export class LocalPreview{
       try{
         const output=await this.output(slot,next);
         if(confirmedHint)this.recoveryHints.set(slot,confirmedHint);else this.recoveryHints.delete(slot);
-        return {...output,recovery:next.recovery,repairedSource:next.recovery?next.source:undefined,reusedRecovery:reused};
+        return {...output,recovery:next.recovery,repairedSource:next.recovery?next.source:undefined,reusedRecovery:reused||known&&!!next.recovery};
       }
       catch(error){
         confirmedHint=undefined;reused=false;this.recoveryHints.delete(slot);
@@ -652,6 +653,11 @@ export class LocalPreview{
         // A repair beyond this proved region must use ordinary full recovery.
         // Never mutate the editor source or retain an approximate neutral block.
         if(!repair||this.regionText(slot,repair.source)===undefined)throw error;
+        // Formatting/argument edits may require a fresh TeX failure instead of
+        // the literal hint. If every failure confirms an already known repair,
+        // that is still the same approximate lecture context, not a new reason
+        // to discard it. A new repair invalidates this for the entire attempt.
+        known=known&&!!slot.basis.recoveryIssues?.some(issue=>issue.message.includes(repair.message));
         // Only memoize the narrow literal undefined-command repair. Structural
         // balancing depends on following input and is reconsidered on each edit.
         if(!next.recovery&&repair.message.startsWith('Preview skipped undefined command '))confirmedHint={source:next.source,repaired:repair.source};

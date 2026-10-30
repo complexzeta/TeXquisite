@@ -137,6 +137,15 @@ test('Confirmed skips retain the same provisional policy in page and fixed-parag
  }
 });
 
+test('Fresh TeX confirmation of a known repair stays warm after argument edits; a new fault still requests checking',async()=>{
+ const original='Before\n\nTarget \\emph{old} \\broken words.\n\nAfter\n',compiled=original.replace('\\broken','       '),local=make(),slot={basis:{source:compiled,originalSource:original,bundle:{recovered:true},recoveryIssues:[{message:'Undefined control sequence. Preview skipped undefined command \\broken. Saved source is unchanged.'}]},range:{from:original.indexOf('Target'),to:original.indexOf('After')},abort:new AbortController()};let calls=0;
+ local.output=async(_slot,r)=>{calls++;const command=['\\broken','\\other'].find(c=>r.source.includes(c));if(command){const line=r.source.split('\n')[2],end=line.indexOf(command)+command.length;throw new ResidentSourceError('! Undefined control sequence.\nl.3 '+line.slice(0,end)+'\n');}return {kind:'page',output:{}};};
+ const current=original.replace('{old}','{new}'),known=await local.runOutput(slot,{source:current,editId:'argument',at:20});
+ assert.equal(calls,2,'A changed braced argument must actually re-run TeX');assert.equal(known.reusedRecovery,true);assert.ok(known.recovery);assert.equal(known.sourceHealthy,undefined);
+ const extra=current.replace('words.','words \\other.'),unknown=await local.runOutput(slot,{source:extra,editId:'new-fault',at:20});
+ assert.equal(calls,4);assert.equal(unknown.reusedRecovery,false);assert.match(unknown.recovery.message,/other/);
+});
+
 test('A recovered document accepts edits before and after its error while typesetting the repaired baseline',async()=>{
  const original='Before ordinary words.\n\nBroken \\bad words.\n\nAfter ordinary words.\n\n',compiled=original.replace('\\bad','    ');
  for(const marker of ['Before','After']){
