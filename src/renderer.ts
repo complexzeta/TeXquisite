@@ -622,7 +622,7 @@ async function locateSource(explicit:boolean){
   }
   markLocation(row,explicit);
 }
-el('editPreview').onclick=()=>void command(async()=>{if(current?.navigation?.recovery||current?.timing?.recovered||localCanvas?.dataset.localRecovered==='true'){explainNavigation('Direct PDF editing is paused for this temporary preview. Use the source editor or Go to error, then Retry preview.');return;}navigationToken++;endPreview();const enabled=model.previewEditing=!model.previewEditing;renderTabs();await flush();await api.call('previewEditing',enabled);el('navState').textContent=enabled?'Preparing editable text · click plain text after the preview updates':'Click PDF text to show its source';});
+el('editPreview').onclick=()=>void command(async()=>{if(!model.previewEditing&&(current?.navigation?.recovery||current?.timing?.recovered||localCanvas?.dataset.localRecovered==='true')){explainNavigation('Direct PDF editing is paused for this temporary preview. Use the source editor or Go to error, then Retry preview.');return;}navigationToken++;endPreview();const enabled=model.previewEditing=!model.previewEditing;renderTabs();await flush();await api.call('previewEditing',enabled);el('navState').textContent=enabled?'Preparing editable text · click plain text after the preview updates':'Click PDF text to show its source';});
 el('locate').onclick=()=>void command(()=>locateSource(true));
 el('follow').onclick=()=>void command(async()=>{navigationToken++;const enabled=model.followPreview=!model.followPreview;renderTabs();await api.call('follow',enabled);if(enabled&&model.followPreview)await locateSource(true);});
 el('pages').addEventListener('click',event=>void command(async()=>{
