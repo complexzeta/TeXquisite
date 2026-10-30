@@ -50,3 +50,19 @@ already available. The test setup now generates an installation-matched format
 with the existing self-test and dependency/fingerprint checks, then seeds each
 fresh test profile with that preparation. The baseline and candidate use the
 same installed inputs and engine identity. Compatibility checks remain enabled.
+
+The third run, 41000490096, passed the native retained ownership test and all four
+baseline/candidate sessions, including saving, strict export and normal reopen.
+Its navigation test stopped at a click helper that assumed every page was 612
+points wide; that assumption is being replaced with the view's actual scale.
+The plain-text candidate recorded median 56 / p95 154 / maximum 850 ms, versus
+56 / 318 / 398 ms for 0.111. Its maximum was an error-recovery action, so this is
+not an overall speedup claim. Mixed-math results were 131 / 361 / 376 ms versus
+140 / 351 / 381 ms. These cloud timings are not local physical-display timings.
+
+The next comparison explicitly specifies PDF paper dimensions in both fixtures,
+so an installation's default format paper size does not silently change the
+workload. Earlier page-output geometry rejections remain genuine fallbacks and
+are not suppressed. Neighboring retained paragraphs also leave preceding-line
+ink and crop bleed with their original owner, instead of sharing a vertical
+slice that could restore stale descenders.

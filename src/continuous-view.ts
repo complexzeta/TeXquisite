@@ -1,5 +1,6 @@
 import {RetainedPage} from './retained-page';
 import {RetainedLayout} from './retained-layout';
+import {LOCAL_INK_BLEED_BP} from './local-raster';
 // The accepted PDF supplies immutable surrounding content. A live TeX block
 // replaces only its old vertical slice; browser flow moves everything below it.
 // PDF pages are lazy images here, not units of live pagination.
@@ -35,6 +36,7 @@ export class ContinuousView{
     this.scale=scale;this.ratio=raster/scale;position.offset*=factor;
     this.host.querySelectorAll('.navigation-marker').forEach(node=>node.remove());
     for(const e of this.entries.values()){
+      e.element.dataset.scale=String(scale);
       e.retained?.rescale(this.ratio);
       e.element.style.width=e.size.originalWidth*scale+'px';
       if(!e.block&&!e.band&&!e.retained)e.element.style.minHeight=e.size.originalHeight*scale+'px';
@@ -66,7 +68,7 @@ export class ContinuousView{
     this.observer?.disconnect();this.entries=new Map();this.id=id;this.pdf=pdf;this.scale=scale;this.ratio=ratio;
     const children:HTMLDivElement[]=[];
     for(const [index,size]of sizes.entries()){
-      const element=document.createElement('div');element.className='flow-page';element.dataset.page=String(index+1);element.style.width=size.originalWidth*scale+'px';element.style.minHeight=size.originalHeight*scale+'px';
+      const element=document.createElement('div');element.className='flow-page';element.dataset.page=String(index+1);element.dataset.scale=String(scale);element.style.width=size.originalWidth*scale+'px';element.style.minHeight=size.originalHeight*scale+'px';
       const entry={element,size,canvas:index+1===page?canvas:undefined};if(entry.canvas)element.append(entry.canvas);this.entries.set(index+1,entry);children.push(element);
     }
     this.host.replaceChildren(...children);this.restore(position);this.dispose(previous,canvas);
@@ -129,16 +131,19 @@ export class ContinuousView{
     if(![flow.leading,flow.baselineLeading].every(v=>Number.isFinite(v)&&v>=0&&v<200)||![start,end,x,prefixHeight,tile.patchWidth,tile.patchHeight].every(Number.isSafeInteger)||end<=start||x<0||x+tile.patchWidth>base.width||tile.patchWidth<1||tile.patchHeight<1)throw Error('Invalid retained flow geometry.');
     const prefix=document.createElement('canvas');prefix.width=base.width;prefix.height=prefixHeight;let inkBottom=0;
     if(prefixHeight){const ctx=prefix.getContext('2d')!;ctx.drawImage(base,0,start,base.width,prefixHeight,0,0,base.width,prefixHeight);const pixels=ctx.getImageData(0,0,prefix.width,prefix.height).data;outer:for(let y=prefix.height-1;y>=0;y--)for(let x=0;x<prefix.width;x++){const p=(y*prefix.width+x)*4;if(pixels[p]<250||pixels[p+1]<250||pixels[p+2]<250){inkBottom=y+1;break outer;}}}
-    const leading=Math.max(requested,inkBottom),height=Math.max(1,leading+tile.patchHeight);
-    const next=(e.retained?.layout??new RetainedLayout(base.height)).updated({id,from:start,to:end,height});
+    // The leading slice includes the previous line's descenders and the two
+    // crop bleeds. Leave those pixels with their original owner; otherwise a
+    // following retained paragraph could paste old ink over its edited neighbor.
+    const inset=Math.min(prefixHeight,Math.max(inkBottom,Math.ceil(2*LOCAL_INK_BLEED_BP*factor)+1)),leading=Math.max(0,requested-inset),height=Math.max(1,leading+tile.patchHeight);
+    let next:RetainedLayout;try{next=(e.retained?.layout??new RetainedLayout(base.height)).updated({id,from:start+inset,to:end,height});}catch(error){prefix.width=prefix.height=0;throw error;}
     if(next.height*base.width>16000000){prefix.width=prefix.height=0;throw Error('Retained page exceeds its raster budget.');}
     const block=document.createElement('canvas');block.width=base.width;block.height=height;
-    try{const ctx=block.getContext('2d')!;ctx.fillStyle='white';ctx.fillRect(0,0,block.width,block.height);const retained=Math.min(prefix.height,leading);if(retained)ctx.drawImage(prefix,0,0,prefix.width,retained,0,0,prefix.width,retained);
+    try{const ctx=block.getContext('2d')!;ctx.fillStyle='white';ctx.fillRect(0,0,block.width,block.height);const retained=Math.min(prefix.height-inset,leading);if(retained)ctx.drawImage(prefix,0,inset,prefix.width,retained,0,0,prefix.width,retained);
       const draw=(image:CanvasImageSource)=>ctx.drawImage(image,tile.sourceX,tile.sourceY,tile.patchWidth,tile.patchHeight,x,leading,tile.patchWidth,tile.patchHeight);
       if(tile.image)draw(tile.image);else{const image=document.createElement('canvas');image.width=tile.width;image.height=tile.height;image.getContext('2d')!.putImageData(new ImageData(new Uint8ClampedArray(tile.data.buffer,tile.data.byteOffset,tile.data.byteLength),tile.width,tile.height),0,0);draw(image);image.width=image.height=0;}
       const previous=e.canvas;
       if(!e.retained)e.retained=new RetainedPage(e.element,base,this.viewport,this.ratio);
-      const canvas=e.retained.patch({id,from:start,to:end},block);canvas.dataset.flowLeadingCorrection=String((leading-requested)/factor);
+      const canvas=e.retained.patch({id,from:start+inset,to:end},block);canvas.dataset.flowLeadingCorrection=String((leading-requested)/factor);
       e.canvas=undefined;e.patched=true;e.element.style.minHeight='0';this.observer?.unobserve(e.element);if(previous&&previous!==base)previous.width=previous.height=0;return canvas;
     }finally{tile.image?.close();prefix.width=prefix.height=block.width=block.height=0;}
   }
