@@ -1,5 +1,9 @@
 # Continuing to type through an undefined command
 
+The [0.115 continuation fix](ERROR-CONTINUATION-RESULTS.md) addresses shortened
+TeX diagnostics and moving to another paragraph while the error remains. The
+0.114 results below describe the earlier same-region optimization.
+
 The preview already repairs some errors in a disposable compilation copy. A
 literal undefined root command can be replaced by spaces, preserving source
 offsets. The original diagnostic remains visible, the editor and saved source
