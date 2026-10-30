@@ -164,7 +164,7 @@ jobs:
         run: node scripts/retained-navigation-test.cjs
       - name: Build exact 0.111 control in a disposable checkout
         id: baseline_build
-        if: ${{ !cancelled() && steps.prepare_retained.outcome == 'success' }}
+        if: ${{ success() && steps.prepare_retained.outcome == 'success' }}
         shell: pwsh
         run: |
           git fetch --depth=1 origin 73136916c1cbd5d59175dcbf0b05148652f6c01b
@@ -179,7 +179,7 @@ jobs:
             if($LASTEXITCODE -ne 0){exit $LASTEXITCODE}
           } finally { Pop-Location }
       - name: Serialized matching baseline and candidate sessions
-        if: ${{ !cancelled() && steps.baseline_build.outcome == 'success' }}
+        if: ${{ success() && steps.baseline_build.outcome == 'success' }}
         shell: pwsh
         run: |
           $harness=Join-Path $env:GITHUB_WORKSPACE 'scripts/lecture-session-test.cjs'
@@ -256,7 +256,7 @@ jobs:
           compression-level: 0
           path: ${{ env.COMPATIBILITY_ROOT }}/package/TeXquisite-*-Windows.exe
       - name: Upload bounded integration evidence
-        if: ${{ !cancelled() }}
+        if: ${{ always() }}
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: retained-preview-results

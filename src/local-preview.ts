@@ -76,7 +76,7 @@ export function flowWindowAt(source:string,at:number):RegionRange|undefined{
 }
 const lineOffset=(source:string,line:number)=>{let at=0;while(line-->0){at=source.indexOf('\n',at);if(at<0)return -1;at++;}return at;};
 type Request={source:string;fullSource?:string;editId:string;at:number;recovery?:{message:string;line:number};};
-export interface LocalCandidate {recovery?:{message:string;line:number};stableRecovery?:boolean;sourceHealthy?:boolean;recoveryCleared?:boolean;recoveredBasis?:boolean;unchangedRecovery?:BuildDiagnostic[];reprepareParagraph?:boolean;inkBleedBp?:number;}
+export interface LocalCandidate {recovery?:{message:string;line:number};reusedRecovery?:boolean;sourceMatchesDraft?:boolean;sourceHealthy?:boolean;recoveryCleared?:boolean;recoveredBasis?:boolean;unchangedRecovery?:BuildDiagnostic[];reprepareParagraph?:boolean;inkBleedBp?:number;}
 export interface LocalCandidate {pageLocations?:{page:number;locations:ReturnType<typeof flowLocations>;blocked?:{x:number;y:number;width:number;height:number}[]}[];retainedFlow?:boolean;retainedSource?:string;}
 type DiskInput={file:string;mtime:number;ctime:number;ino:number;size:number;};
 type Slot={pageProbe?:{source:string;range:RegionRange;output:Awaited<ReturnType<ResidentCompiler['previewRegionPage']>>};neutralLast?:boolean;cancelWork?:()=>void;epoch?:number;cancelled?:boolean;regionKey?:string;edited?:boolean;latestSource?:string;file?:string;input?:IncludedInput;sourceText?:string;otherResources?:string;basis:LocalBasis;range:RegionRange;liveEnd:number;compiledRange:RegionRange;compiler:ResidentCompiler;compositor?:RegionCompositor;ready:boolean;abort:AbortController;diskInputs:DiskInput[];pageMode?:boolean;pageReady?:boolean;pageCostMs?:number;proofPage?:number;sourcePages?:PageSpan;baselineSpan?:PageSpan;continuation?:string;verifyPageRange?:()=>Promise<void>;};
@@ -633,7 +633,7 @@ export class LocalPreview{
       try{
         const output=await this.output(slot,next);
         if(confirmedHint)this.recoveryHints.set(slot,confirmedHint);else this.recoveryHints.delete(slot);
-        return {...output,recovery:next.recovery,repairedSource:next.recovery?next.source:undefined,stableRecovery:reused&&output.kind==='flow'&&!output.flow.stateChanged};
+        return {...output,recovery:next.recovery,repairedSource:next.recovery?next.source:undefined,reusedRecovery:reused&&output.kind==='flow'};
       }
       catch(error){
         confirmedHint=undefined;reused=false;this.recoveryHints.delete(slot);
@@ -691,7 +691,7 @@ export class LocalPreview{
         }
         if(epoch!==this.epoch)continue;
         if(result.recovery){
-          candidate.recovery=result.recovery;candidate.stableRecovery=result.stableRecovery;delete candidate.neutralBlock;
+          candidate.recovery=result.recovery;candidate.reusedRecovery=result.reusedRecovery;delete candidate.neutralBlock;
           if(result.repairedSource!==undefined){
             if(candidate.flowOutput){const projected=recoveryLocations(candidate.flowOutput.locations??[],request.source,result.repairedSource);candidate.flowOutput={...candidate.flowOutput,...projected};}
             if(candidate.pageLocations)candidate.pageLocations=candidate.pageLocations.map(p=>({...p,...recoveryLocations(p.locations,request.source,result.repairedSource!)}));
@@ -700,15 +700,16 @@ export class LocalPreview{
         // A successful state-preserving region can establish that all root
         // repairs are gone only when the actual compiler input now equals the
         // complete editor draft. A remote skipped command prevents equality.
-        if(!slot.input&&!result.recovery&&result.kind==='flow'&&!result.flow.stateChanged&&slot.compiledRange){
+        if(!slot.input&&!result.recovery&&result.kind==='flow'&&slot.compiledRange){
           const compiled=slot.basis.compilerSource;
-          candidate.sourceHealthy=compiled.slice(0,slot.compiledRange.from)+text+compiled.slice(slot.compiledRange.to)===request.source;
-          if(candidate.sourceHealthy){candidate.recoveryCleared=!!slot.basis.bundle.recovered;candidate.recoveredBasis=false;}
+          candidate.sourceMatchesDraft=compiled.slice(0,slot.compiledRange.from)+text+compiled.slice(slot.compiledRange.to)===(request.fullSource??request.source);
+          candidate.sourceHealthy=candidate.sourceMatchesDraft&&!result.flow.stateChanged;
+          if(candidate.sourceMatchesDraft){candidate.recoveryCleared=!!slot.basis.bundle.recovered;candidate.recoveredBasis=false;}
         }
         if(slot.compositor)candidate.inkBleedBp=slot.compositor.inkBleedBp;
         if(result.kind==='page'&&!result.recovery&&this.splitPageParagraph(slot,request.source,request.at))candidate.reprepareParagraph=true;
         const original=slot.basis.originalSource;
-        if(this.lecture&&!slot.input&&slot.basis.bundle.recovered&&original!==undefined&&slot.basis.recoveryIssues?.length&&result.kind==='flow'&&!result.flow.stateChanged){
+        if(this.lecture&&!slot.input&&slot.basis.bundle.recovered&&original!==undefined&&slot.basis.recoveryIssues?.length&&result.kind==='flow'&&(!result.flow.stateChanged||plainTextChange(original.slice(slot.range.from,slot.range.to),text))){
           const firstLine=original.slice(0,slot.range.from).split('\n').length,lastLine=original.slice(0,slot.range.to).split('\n').length;
           const outside=slot.basis.recoveryIssues.filter(issue=>issue.file!==slot.basis.options.root||!issue.line||issue.line<firstLine||issue.line>=lastLine);
           candidate.unchangedRecovery=carryRecoveryDiagnostics(outside,slot.basis.options.root,original,request.source,candidate.sourceHash,request.editId);

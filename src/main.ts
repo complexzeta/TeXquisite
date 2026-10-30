@@ -115,7 +115,7 @@ const localPreview=new LocalPreview(
   (basis,pdf,page,fragmentPdf,fragment,footprint,calibration)=>localMessage({type:'localVerify',root:basis.options.root,baseId:basis.bundle.id,basePdf:new Uint8Array(basis.pdf),pdf:new Uint8Array(pdf),page,fragmentPdf:new Uint8Array(fragmentPdf),fragment,footprint,calibration}),
   candidate=>{
     const timing=candidate.timing as {roundTripMs?:number;typesetMs?:number;reprocessedSourceBytes?:number}|undefined;
-    tracePreview({event:'local-output',editId:candidate.editId,layout:candidate.pageOutput?'pages':candidate.flowOutput?'flow':'paragraph',compilerMs:timing?.roundTripMs,typesetMs:timing?.typesetMs,reprocessedSourceBytes:timing?.reprocessedSourceBytes});
+    tracePreview({event:'local-output',editId:candidate.editId,layout:candidate.pageOutput?'pages':candidate.flowOutput?'flow':'paragraph',stateChanged:!!candidate.flowOutput?.stateChanged,reusedRecovery:!!candidate.reusedRecovery,sourceMatchesDraft:!!candidate.sourceMatchesDraft,compilerMs:timing?.roundTripMs,typesetMs:timing?.typesetMs,reprocessedSourceBytes:timing?.reprocessedSourceBytes});
     return localMessage({type:'localPage',...candidate,visible:window.isVisible()&&!window.isMinimized(),pdf:new Uint8Array(candidate.pdf),fragmentPdf:candidate.fragmentPdf?new Uint8Array(candidate.fragmentPdf):undefined}).then(result=>{
     const accepted=result===true;
     // Expensive local calculations can outlast the original idle deadline.
@@ -125,13 +125,14 @@ const localPreview=new LocalPreview(
       if(candidate.recovery){
         const issue:BuildDiagnostic={id:'local-recovery-'+candidate.editId,root:candidate.root,editId:candidate.editId,file:candidate.sourceFile??candidate.root,line:candidate.recovery.line,kind:'tex',severity:'error',sourceHash:candidate.sourceHash,message:candidate.recovery.message+' Saved source is unchanged.'};
         currentDiagnostic=issue;currentProblems=[...(candidate.unchangedRecovery??[]),issue];send({type:'diagnostic',issue});send({type:'problems',root:candidate.root,editId:candidate.editId,issues:currentProblems});
-        // Replaying the same engine-confirmed skip with unchanged flow state
-        // needs no repeated cold canonical check between ordinary words.
-        if(state.previewMode==='lecture'&&candidate.stableRecovery){clearTimeout(fullVerification);fullVerification=undefined;tracePreview({event:'recovery-local-retained',editId:candidate.editId});}
+        // Lecture flow already permits provisional state changes for healthy
+        // text. A confirmed skip keeps those same rules, without a full check
+        // between every word. It remains approximate and cannot be exported.
+        if(state.previewMode==='lecture'&&candidate.reusedRecovery){clearTimeout(fullVerification);fullVerification=undefined;tracePreview({event:'recovery-local-retained',editId:candidate.editId});}
         else scheduleFullVerification(candidate.editId,650,true);
       }else{
         const errors=[...currentProblems,...(currentDiagnostic?[currentDiagnostic]:[])].filter(issue=>issue.severity!=='warning');
-        const resolved=candidate.sourceHealthy&&errors.length>0&&errors.every(issue=>issue.kind==='tex'&&issue.file===candidate.root);
+        const resolved=candidate.sourceMatchesDraft&&errors.length>0&&errors.every(issue=>issue.kind==='tex'&&issue.file===candidate.root);
         if(resolved){
           currentDiagnostic=undefined;currentProblems=currentProblems.filter(issue=>issue.severity==='warning');
           send({type:'localRecovered',root:candidate.root,editId:candidate.editId});send({type:'problems',root:candidate.root,editId:candidate.editId,issues:currentProblems});
@@ -150,7 +151,7 @@ const localPreview=new LocalPreview(
           currentProblems=retained.problems;currentDiagnostic=retained.diagnostic;
           send({type:'diagnostic',issue:currentDiagnostic});send({type:'problems',root:candidate.root,editId:candidate.editId,issues:currentProblems});
           tracePreview({event:'recovery-retained',editId:candidate.editId,count:candidate.unchangedRecovery!.length});
-        }else if(currentDiagnostic||candidate.recoveredBasis||candidate.recoveryCleared||resolved)scheduleFullVerification(candidate.editId,650,true);
+        }else if(currentDiagnostic||candidate.recoveredBasis||candidate.recoveryCleared||resolved)scheduleFullVerification(candidate.editId,candidate.recoveryCleared||resolved?0:650,true);
         else if(candidate.reprepareParagraph){tracePreview({event:'paragraph-split-refresh',editId:candidate.editId});scheduleFullVerification(candidate.editId,300,true);}
         else scheduleFullVerification(candidate.editId);
       }

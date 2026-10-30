@@ -74,29 +74,30 @@ test('Ordinary typing before a confirmed command moves its skip without replayin
  await local.runOutput(slot,{source:draft,editId:'broken',at:20});assert.equal(calls,2);
  const current=draft.replace('Target','Target new');
  const result=await local.runOutput(slot,{source:current,editId:'before',at:18});
- assert.equal(calls,3);assert.equal(result.stableRecovery,true);assert.equal(result.repairedSource,current.replace('\\broken','       '));
+ assert.equal(calls,3);assert.equal(result.reusedRecovery,true);assert.equal(result.repairedSource,current.replace('\\broken','       '));
  const fixed=await local.runOutput(slot,{source:current.replace('\\broken','ordinary'),editId:'fixed',at:20});
- assert.equal(calls,4);assert.equal(fixed.recovery,undefined);assert.equal(fixed.stableRecovery,false);
+ assert.equal(calls,4);assert.equal(fixed.recovery,undefined);assert.equal(fixed.reusedRecovery,false);
 });
 
-test('A full recovered baseline seeds only its single literal skip and state-changing results request verification',async()=>{
+test('A full recovered baseline seeds its literal skip while changed-state lecture output stays explicitly approximate',async()=>{
  for(const stateChanged of [false,true]){
   const local=make(),slot={basis:{source:draft.replace('\\broken','       '),originalSource:draft,bundle:{recovered:true},recoveryIssues:[{}]},range:{from:draft.indexOf('Target'),to:draft.indexOf('After')},abort:new AbortController()};let calls=0;
   local.output=async(_slot,r)=>{calls++;assert.equal(r.source.includes('\\broken'),false);return {kind:'flow',output:{},flow:{stateChanged}};};
   const current=draft.replace('Target','Target new'),result=await local.runOutput(slot,{source:current,editId:'seeded',at:18});
-  assert.equal(calls,1);assert.equal(result.stableRecovery,!stateChanged);assert.equal(result.repairedSource,current.replace('\\broken','       '));
+  assert.equal(calls,1);assert.equal(result.reusedRecovery,true);assert.ok(result.recovery);assert.equal(result.flow.stateChanged,stateChanged);assert.equal(result.repairedSource,current.replace('\\broken','       '));
  }
 });
 
 test('Clearing recovery requires exact full-source correspondence and unchanged flow state',async()=>{
- for(const mode of ['fixed','remote-error','state-changed']){
+ for(const mode of ['fixed','remote-error','state-changed','projected-history']){
   const original='Target $\\bad$ words.\n\nRemote $\\other$ words.\n\n',compiled=original.replace('\\bad','    ').replace('\\other',mode==='remote-error'?'      ':'\\other');
   const active={from:0,to:original.indexOf('Remote')},local=make();local.lecture=true;let candidate;
   const issue={id:'local',root:'main.tex',file:'main.tex',line:1,kind:'tex',severity:'error'};
   const slot={ready:true,basis:{source:compiled,compilerSource:compiled,originalSource:original,recoveryIssues:[issue,...(mode==='remote-error'?[{...issue,id:'remote',line:3}]:[])],bundle:{id:'base',recovered:true},options:{root:'main.tex'}},range:active,compiledRange:active,abort:new AbortController(),compiler:{prepareNextRegionEdit(){},stop(){}},compositor:{page:1}};
   local.slot=slot;local.pending={source:original.replace('\\bad','\\int'),editId:'corrected',at:12};
+  if(mode==='projected-history')local.pending.fullSource=local.pending.source.replace('Remote','Changed remote');
   local.output=async()=>({kind:'flow',output:{pdf:Buffer.alloc(0)},flow:{stateChanged:mode==='state-changed'}});local.publish=async value=>{candidate=value;return true;};
-  await local.drain();assert.equal(!!candidate.sourceHealthy,mode==='fixed',mode);assert.equal(!!candidate.recoveryCleared,mode==='fixed',mode);assert.equal(candidate.recoveredBasis,mode!=='fixed',mode);
+  await local.drain();assert.equal(!!candidate.sourceHealthy,mode==='fixed',mode);assert.equal(!!candidate.sourceMatchesDraft,mode==='fixed'||mode==='state-changed',mode);assert.equal(!!candidate.recoveryCleared,mode==='fixed'||mode==='state-changed',mode);assert.equal(candidate.recoveredBasis,mode!=='fixed'&&mode!=='state-changed',mode);
   if(mode==='remote-error')assert.equal(candidate.unchangedRecovery[0].id,'remote');local.stop();
  }
 });
@@ -136,7 +137,7 @@ test('State-preserving lecture edits carry remote errors, including alongside a 
   local.slot=slot;local.pending={source:mode==='repaired-region'?original.replace('Broken','Broken new'):original.replace('ordinary','new ordinary'),editId:'new',at:from+8};
   local.output=async()=>({kind:'flow',output:{pdf:Buffer.alloc(0)},flow:{...(mode==='state-change'?{stateChanged:true}:{})}});
   if(mode==='new-repair')local.recoverOutput=async()=>({kind:'flow',output:{pdf:Buffer.alloc(0)},flow:{},recovery:{message:'Another repair',line:1},repairedSource:original});
-  await local.drain();assert.ok(candidate,mode);assert.equal(!!candidate.unchangedRecovery,mode==='safe'||mode==='new-repair',mode);
+  await local.drain();assert.ok(candidate,mode);assert.equal(!!candidate.unchangedRecovery,mode==='safe'||mode==='new-repair'||mode==='state-change',mode);
   if(mode==='safe'){assert.equal(candidate.unchangedRecovery[0].editId,'new');assert.equal(candidate.recoveredBasis,true);}
   local.stop();
  }
