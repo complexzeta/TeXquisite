@@ -136,6 +136,18 @@ jobs:
         run: node scripts/performance-report-test.cjs
       - name: Repaired preview navigation, actionable errors and correction
         run: node scripts/recovery-navigation-test.cjs
+      - name: Normal-mode local error recovery and continued typing
+        shell: pwsh
+        run: |
+          $env:PERSISTENT_TEX_LECTURE_ROUNDS='2'
+          $env:PERSISTENT_TEX_SESSION_MULTI_BLOCK='0'
+          $env:PERSISTENT_TEX_RETAINED_FLOW='0'
+          $env:PERSISTENT_TEX_SESSION_HEALTHY='0'
+          foreach($plain in @('1','0')) {
+            $env:PERSISTENT_TEX_LECTURE_PLAIN=$plain
+            node scripts/lecture-session-test.cjs
+            if($LASTEXITCODE -ne 0){exit $LASTEXITCODE}
+          }
       - name: Retained navigation, wrapping, deletion and display handoffs
         env:
           PERSISTENT_TEX_RETAINED_FLOW: '1'
