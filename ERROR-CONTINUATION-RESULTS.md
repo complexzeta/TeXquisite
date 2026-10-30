@@ -147,3 +147,124 @@ a133e7ad805cb156e6f4b853f5eb95aee9d2ce96e1ff006906dfbaad4019111f
 Its launcher preserves the default profile and uses Kingston for temporary
 storage, with experimental retained-layout flags off. This remains a draft-branch
 trial, without a main merge, tag or new public binary release.
+
+## 0.117 verified trial: leave the page lane after separating text from a drawing
+
+A local compiler can keep a paragraph checkpoint from before a blank line was
+inserted. If that old paragraph also contained a drawing, ordinary text updates
+continue through page rendering even after the editor now shows two paragraphs.
+The page lane can consequently reprocess unrelated drawing material on every
+word. Retaining a compatible old context during a later full publication can
+also retain those obsolete paragraph boundaries.
+
+The candidate requests one required idle verification after a successful,
+unrepaired Lecture-mode page update that inserts an earlier paragraph terminator
+in the first paragraph of its proved root range. Ordinary typing and deletion
+without a new terminator do not request it. A canonical publication then retires
+the old page context, takes a newly verified worker through the existing ownership
+guards where possible, and proves the smaller current paragraph before declaring
+it ready. Included files, recovered baselines and Document mode do not take this
+shortcut. A structural split still has a one-time verification/preparation cost.
+
+Two additional proof failures can prevent that text from using flow output:
+
+- A neighboring drawing's antialiased edge can touch the default one-point text
+  margin. In foreground Lecture mode the candidate can try smaller margins down
+  to a quarter point. Every proposal must repeat the fragment ink-fit check,
+  unchanged baseline raster comparison and tile proof. Future edits that exceed
+  the selected margin still fail their ink check and fall back.
+- A fixed eight-pixel coverage budget for an entire paragraph is excessively
+  restrictive at high display densities. The candidate associates the allowance
+  with independently matched PDF glyph geometry and scales it by pixel density,
+  with a geometry-only per-glyph maximum of 64 pixels and a whole-patch budget
+  of 64 pixels at 1x, capped at 1024 at 4x. Only opaque
+  grayscale coverage differences of at most 80 are eligible; both images must
+  retain the stroke edges. A proved faint gray fringe may cross the near-white
+  cutoff when both pixel values are at least 192, within the same coverage budget
+  and glyph/core checks. Identical vector outlines also authorize an opaque gray
+  hinted edge crossing that cutoff under the same difference and core checks.
+  Missing/added core ink, color, alpha and unproved glyphs
+  retain their rejection rules. Full-page raster proofs and strict export are
+  unchanged. This is a deliberately bounded relaxation of local antialiasing
+  coverage, not an exact-byte equality claim.
+
+Calibration also used to return early when its origin already matched. That
+discarded independently matching glyph boxes and made a single ordinary coverage
+difference fail the local proof. The candidate can return a zero translation
+with those boxes after the same strong finite consensus, rather than treating
+correct alignment as failed calibration. Large shifts, ambiguous/weak consensus
+and missing geometry remain refused; identical unsuccessful proposals are not
+repeated indefinitely.
+
+A thin serif may have no dark pixel within the original two-pixel edge search
+even though its glyph has a core stroke elsewhere. For an independently matched
+glyph only, the candidate can verify that core in both images and use the nearby
+gray-to-white fringe instead. These exceptions share the same per-glyph and
+density-normalized patch budgets. Unmatched geometry, absent core strokes, missing/added
+core ink, color and alpha changes retain their refusal checks. The uncalibrated and
+full-page comparisons retain their original edge criterion.
+
+Complex mathematical glyphs can exceed the geometry-only allowance even when
+their vector shapes are identical. The candidate therefore also asks the PDF
+worker for an embedded glyph's complete outline and effective font size, fill
+color and linear transform, using the [PDFium glyph APIs](https://raw.githubusercontent.com/chromium/pdfium/main/public/fpdf_edit.h).
+A bounded canonical identity is hashed and compared independently in the two
+PDFs. Only equal, complete identities with the existing matching glyph geometry
+can use the shared patch coverage pool beyond the smaller geometry-only quota.
+The total pool and all color, alpha, core-stroke and ink checks still apply.
+Missing, ambiguous or unsupported outline data supplies no extra allowance.
+Ordinary preview-edit glyph extraction is unchanged; vector identities are
+requested and cached separately during calibration.
+
+The first cloud candidate failed its new GUI gate because the harness typed
+before the freshly published context was prepared; that edit correctly used a
+full publication instead. Its timing and proof assertions were retained. The
+harness now waits for three consecutive explicit ready acknowledgements with
+the exact baseline source hash and narrowed range. Cloud coverage also exercises
+normal and 250% display scaling, math, italic descenders, continued warm typing,
+exact source saving, and the existing recovery/navigation/export guards.
+
+Earlier local synthetic runs reached flow output with later warm updates of
+52–89 ms, but first updates during preparation still took 526–675 ms. A private
+document-copy check exposed the high-DPI coverage rejection and was not a pass.
+Those results do not validate the latest candidate against the user's document.
+Further builds, GUI tests and packaging run in the cloud to avoid interfering
+with the user's computer. The first longer AMS-art fixture then exposed the
+aligned-origin bug; it was fixed without removing the raster gate.
+
+The [final cloud run](https://github.com/complexzeta/TeXquisite/actions/runs/41127701844)
+passed on runtime/test commit `3a8a0bd916e4fe513409bb580e22ebe90755714b`:
+66 focused guards, the native ownership guard, and all 24 integration/package
+result records passed. Both densities passed on source and the packaged normal
+configuration, including an exercised matching-outline witness, automatic
+split reproof, exact source saving, descenders and continued warm typing without
+additional full publications. Existing error recovery, two-way navigation,
+report privacy, editing sessions, save/export/reopen and package checks passed.
+
+| Fixture | Density | Page lane before split (ms) | Warm flow after reproof (ms) |
+| --- | --- | --- | --- |
+| Source | 1x | 36 | 26 / 19 / 18 |
+| Source | 2.5x | 41 | 26 / 18 / 19 |
+| Packaged | 1x | 36 | 25 / 18 / 18 |
+| Packaged | 2.5x | 54 | 27 / 17 / 24 |
+
+These are small ordered synthetic samples with hidden-renderer acknowledgements,
+not physical-screen measurements, a paired version-to-version speed comparison,
+or a guarantee for arbitrary documents. The split itself still requires one
+canonical verification and new region proof. The latest candidate was not
+benchmarked against the user's manuscript locally, to respect the request to
+avoid resource-heavy work on that computer. No new broad TeX Live matrix or
+TikZ performance campaign was run; the TeX WASM is unchanged.
+
+Nineteen packaged runtime assets matched the build; version, licensing, private
+path and development-file exclusions passed. The verified portable is
+119,536,022 bytes, SHA-256:
+
+```text
+acf7e6e631c1f50ea946e820b43e7d56068c17bad9509557f5de7fafb94ab65b
+```
+
+The trial is staged on Kingston with its checksum/provenance and a launcher that
+preserves the established profile, normal flags and external temporary storage.
+This remains a draft-branch trial, without a main merge, tag or new public binary
+release.
