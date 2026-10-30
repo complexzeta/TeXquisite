@@ -81,6 +81,7 @@ export function flowLocations(navigation:string,source:string,jobName:string,pag
  * state. The caller must verify the baseline raster before displaying updates
  * and retain the full compiler for verification and changed layout. */
 export class RegionCompositor{
+  inkBleedBp=LOCAL_INK_BLEED_BP;
   private constructor(private base:PDFDocument,private original:ParagraphOutput,readonly page:number,public x:number,public y:number,readonly anchors:ParagraphAnchor[]){}
   static async create(pdf:Uint8Array|PDFDocument,navigation:string,original:ParagraphOutput){
     const byKey=glyphIndex(navigation);
@@ -99,7 +100,7 @@ export class RegionCompositor{
     return new RegionCompositor(base,original,anchor.page,anchor.x,anchor.y,anchors);
   }
   adjust(dx:number,dy:number){if(!Number.isFinite(dx)||!Number.isFinite(dy)||Math.abs(dx)>.01||Math.abs(dy)>.01)throw new Error('Invalid subpixel placement correction.');this.x+=dx;this.y+=dy;}
-  get footprint(){const f=this.original.fragment,bleed=LOCAL_INK_BLEED_BP;return {x:this.x+f.paddingSp*spToBp-bleed,y:this.y+f.paddingSp*spToBp-bleed,width:f.widthSp*spToBp+2*bleed,height:(f.heightSp+f.depthSp)*spToBp+2*bleed};}
+  get footprint(){const f=this.original.fragment,bleed=this.inkBleedBp;return {x:this.x+f.paddingSp*spToBp-bleed,y:this.y+f.paddingSp*spToBp-bleed,width:f.widthSp*spToBp+2*bleed,height:(f.heightSp+f.depthSp)*spToBp+2*bleed};}
   compatible(output:ParagraphOutput){
     const a=this.original.fragment,b=output.fragment;
     return a.stateHash===b.stateHash&&a.widthSp===b.widthSp&&a.depthSp===b.depthSp&&a.paddingSp===b.paddingSp&&
@@ -116,7 +117,8 @@ export class RegionCompositor{
     if(!a.flowStateHash||!b.flowStateHash||!allowStateChanges&&(a.flowStateHash!==b.flowStateHash||b.lectureSideEffects)||a.widthSp!==b.widthSp||a.paddingSp!==b.paddingSp||![oldLeading,newLeading].every(v=>Number.isFinite(v)&&v>=0&&v<200))return;
     const rect={...foot,y:foot.y-oldLeading,height:foot.height+oldLeading};
     if(rect.y<0||rect.y+rect.height>this.base.getPage(this.page-1).getHeight())return;
-    return {rect,leading:newLeading,baselineLeading:oldLeading,...(a.flowStateHash!==b.flowStateHash||b.lectureSideEffects?{stateChanged:true}:{}),fragmentRect:{x:b.paddingSp*spToBp-LOCAL_INK_BLEED_BP,y:b.paddingSp*spToBp-LOCAL_INK_BLEED_BP,width:b.widthSp*spToBp+2*LOCAL_INK_BLEED_BP,height:(b.heightSp+b.depthSp)*spToBp+2*LOCAL_INK_BLEED_BP}};
+    const bleed=this.inkBleedBp;
+    return {rect,leading:newLeading,baselineLeading:oldLeading,...(a.flowStateHash!==b.flowStateHash||b.lectureSideEffects?{stateChanged:true}:{}),fragmentRect:{x:b.paddingSp*spToBp-bleed,y:b.paddingSp*spToBp-bleed,width:b.widthSp*spToBp+2*bleed,height:(b.heightSp+b.depthSp)*spToBp+2*bleed}};
   }
   async compose(output:ParagraphOutput){
     if(!this.compatible(output))throw new Error('Paragraph layout or state changed; broader recomputation required.');

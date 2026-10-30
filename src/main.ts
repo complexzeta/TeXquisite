@@ -113,7 +113,10 @@ const localWaiting=new Map<string,{resolve:(ok:LocalVerification)=>void;timer:No
 function localMessage(message:Record<string,unknown>){return new Promise<LocalVerification>(resolve=>{const token=randomUUID(),timer=setTimeout(()=>{localWaiting.delete(token);resolve(false);},15000);localWaiting.set(token,{resolve,timer});send({...message,token});});}
 const localPreview=new LocalPreview(
   (basis,pdf,page,fragmentPdf,fragment,footprint,calibration)=>localMessage({type:'localVerify',root:basis.options.root,baseId:basis.bundle.id,basePdf:new Uint8Array(basis.pdf),pdf:new Uint8Array(pdf),page,fragmentPdf:new Uint8Array(fragmentPdf),fragment,footprint,calibration}),
-  candidate=>localMessage({type:'localPage',...candidate,visible:window.isVisible()&&!window.isMinimized(),pdf:new Uint8Array(candidate.pdf),fragmentPdf:candidate.fragmentPdf?new Uint8Array(candidate.fragmentPdf):undefined}).then(result=>{
+  candidate=>{
+    const timing=candidate.timing as {roundTripMs?:number;typesetMs?:number;reprocessedSourceBytes?:number}|undefined;
+    tracePreview({event:'local-output',editId:candidate.editId,layout:candidate.pageOutput?'pages':candidate.flowOutput?'flow':'paragraph',compilerMs:timing?.roundTripMs,typesetMs:timing?.typesetMs,reprocessedSourceBytes:timing?.reprocessedSourceBytes});
+    return localMessage({type:'localPage',...candidate,visible:window.isVisible()&&!window.isMinimized(),pdf:new Uint8Array(candidate.pdf),fragmentPdf:candidate.fragmentPdf?new Uint8Array(candidate.fragmentPdf):undefined}).then(result=>{
     const accepted=result===true;
     // Expensive local calculations can outlast the original idle deadline.
     // Start a fresh idle interval after display instead of immediately launching
@@ -132,11 +135,12 @@ const localPreview=new LocalPreview(
           send({type:'diagnostic',issue:currentDiagnostic});send({type:'problems',root:candidate.root,editId:candidate.editId,issues:currentProblems});
           tracePreview({event:'recovery-retained',editId:candidate.editId,count:candidate.unchangedRecovery!.length});
         }else if(currentDiagnostic||candidate.recoveredBasis)scheduleFullVerification(candidate.editId,650,true);
+        else if(candidate.reprepareParagraph){tracePreview({event:'paragraph-split-refresh',editId:candidate.editId});scheduleFullVerification(candidate.editId,300,true);}
         else scheduleFullVerification(candidate.editId);
       }
     }
     return accepted;
-  }),
+  });},
   editId=>{if(state.onSave&&editId===latestEditId)scheduleFullVerification(editId,0);},
   value=>{tracePreview({event:'local-state',state:value});send({type:'localState',state:value});},message=>{tracePreview({event:'local-log',message:message.split('\n')[0].slice(0,500)});appendLog(message);},
   (basis,pdf,pageSpan,continuation)=>localMessage({type:'localVerifyPages',continuation,root:basis.options.root,baseId:basis.bundle.id,basePdf:new Uint8Array(basis.pdf),pdf:new Uint8Array(pdf),pageSpan}).then(result=>result===true),

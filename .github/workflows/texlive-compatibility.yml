@@ -115,7 +115,7 @@ jobs:
         run: |
           npm run build
           if($LASTEXITCODE -ne 0){exit $LASTEXITCODE}
-          node --test --test-concurrency=1 test/retained-layout.test.cjs test/retained-navigation.test.cjs test/contraction-probe.test.cjs test/window-page-fallback.test.cjs test/region-navigation-cache.test.cjs test/local-preview.test.cjs test/raster-bytes.test.cjs test/ink-bounds.test.cjs test/local-recovery.test.cjs test/preview-recovery.test.cjs test/pdf-work-queue.test.cjs test/performance-report.test.cjs test/recovery-navigation.test.cjs
+          node --test --test-concurrency=1 test/retained-layout.test.cjs test/retained-navigation.test.cjs test/contraction-probe.test.cjs test/window-page-fallback.test.cjs test/paragraph-split.test.cjs test/region-navigation-cache.test.cjs test/local-preview.test.cjs test/raster-bytes.test.cjs test/ink-bounds.test.cjs test/local-recovery.test.cjs test/preview-recovery.test.cjs test/pdf-work-queue.test.cjs test/performance-report.test.cjs test/recovery-navigation.test.cjs
           if($LASTEXITCODE -ne 0){exit $LASTEXITCODE}
           node scripts/retained-layout-test.cjs
           exit $LASTEXITCODE
@@ -138,6 +138,8 @@ jobs:
         run: node scripts/recovery-navigation-test.cjs
       - name: Keep known-error lecture context warm across typing pauses
         run: node scripts/recovery-idle-test.cjs
+      - name: Re-prove text separated from a drawing
+        run: node scripts/paragraph-split-test.cjs
       - name: Normal-mode local error recovery and continued typing
         shell: pwsh
         run: |
@@ -224,6 +226,8 @@ jobs:
           node scripts/recovery-navigation-test.cjs
           if($LASTEXITCODE -ne 0){exit $LASTEXITCODE}
           node scripts/recovery-idle-test.cjs
+          if($LASTEXITCODE -ne 0){exit $LASTEXITCODE}
+          node scripts/paragraph-split-test.cjs
           if($LASTEXITCODE -ne 0){exit $LASTEXITCODE}
           node scripts/lecture-session-test.cjs
           if($LASTEXITCODE -ne 0){exit $LASTEXITCODE}

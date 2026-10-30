@@ -742,7 +742,7 @@ async function tileMatchesFull(pdf:any,box:any,full:{width:number;height:number}
   return equal;
 }
 function localInkBounds(message:any){
-  const f=message.fragment,factor=72/(72.27*65536),bleed=LOCAL_INK_BLEED_BP,ratio=scale*(window.devicePixelRatio||1),left=(f.paddingSp*factor-bleed)*ratio;
+  const f=message.fragment,factor=72/(72.27*65536),proposed=message.inkBleedBp??message.calibration?.inkBleedBp,bleed=typeof proposed==='number'&&proposed>=.25&&proposed<=LOCAL_INK_BLEED_BP?proposed:LOCAL_INK_BLEED_BP,ratio=scale*(window.devicePixelRatio||1),left=(f.paddingSp*factor-bleed)*ratio;
   // Preserve the original arithmetic before floor/ceil at pixel boundaries.
   return {left,top:((message.inkTopSp??f.paddingSp)*factor-bleed)*ratio,right:((f.paddingSp+f.widthSp)*factor+bleed)*ratio,bottom:((f.paddingSp+f.heightSp+f.depthSp)*factor+bleed)*ratio};
 }

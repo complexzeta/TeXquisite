@@ -13,7 +13,7 @@ import {recoveryLocations,carryRecoveryDiagnostics} from './recovery-navigation'
 import type {BuildDiagnostic} from './diagnostics';
 type CalibrationGlyph={x:number;y:number;width:number;height:number};
 export type LocalVerification=boolean|{dx:number;dy:number;calibratedGlyphs?:CalibrationGlyph[]};
-export interface LocalCalibration {x:number;y:number;anchors:ParagraphAnchor[];calibratedGlyphs?:CalibrationGlyph[];}
+export interface LocalCalibration {x:number;y:number;anchors:ParagraphAnchor[];calibratedGlyphs?:CalibrationGlyph[];inkBleedBp?:number;}
 const hash=(s:string)=>createHash('sha256').update(s).digest('hex');
 export function plainTextChange(before:string,after:string){
   if(before===after)return false;
@@ -55,7 +55,7 @@ export function flowWindowAt(source:string,at:number):RegionRange|undefined{
 }
 const lineOffset=(source:string,line:number)=>{let at=0;while(line-->0){at=source.indexOf('\n',at);if(at<0)return -1;at++;}return at;};
 type Request={source:string;fullSource?:string;editId:string;at:number;recovery?:{message:string;line:number};};
-export interface LocalCandidate {recovery?:{message:string;line:number};recoveredBasis?:boolean;unchangedRecovery?:BuildDiagnostic[];}
+export interface LocalCandidate {recovery?:{message:string;line:number};recoveredBasis?:boolean;unchangedRecovery?:BuildDiagnostic[];reprepareParagraph?:boolean;inkBleedBp?:number;}
 export interface LocalCandidate {pageLocations?:{page:number;locations:ReturnType<typeof flowLocations>;blocked?:{x:number;y:number;width:number;height:number}[]}[];retainedFlow?:boolean;retainedSource?:string;}
 type DiskInput={file:string;mtime:number;ctime:number;ino:number;size:number;};
 type Slot={pageProbe?:{source:string;range:RegionRange;output:Awaited<ReturnType<ResidentCompiler['previewRegionPage']>>};neutralLast?:boolean;cancelWork?:()=>void;epoch?:number;cancelled?:boolean;regionKey?:string;edited?:boolean;latestSource?:string;file?:string;input?:IncludedInput;sourceText?:string;otherResources?:string;basis:LocalBasis;range:RegionRange;liveEnd:number;compiledRange:RegionRange;compiler:ResidentCompiler;compositor?:RegionCompositor;ready:boolean;abort:AbortController;diskInputs:DiskInput[];pageMode?:boolean;pageReady?:boolean;pageCostMs?:number;proofPage?:number;sourcePages?:PageSpan;baselineSpan?:PageSpan;continuation?:string;verifyPageRange?:()=>Promise<void>;};
@@ -78,7 +78,7 @@ export class LocalPreview{
   private readonly neutralEnabled=process.env.PERSISTENT_TEX_MULTI_BLOCK==='1';
   private readonly retainedFlowEnabled=process.env.PERSISTENT_TEX_RETAINED_FLOW==='1'&&this.neutralEnabled;
   get ready(){return !!this.slot?.ready;}
-  get preparedRange(){const s=this.slot;if(!s)return;const range=this.neutral?.actual(s.range)??{from:s.range.from,to:s.liveEnd};return {file:s.file??s.basis.options.root,...range};}
+  get preparedRange(){const s=this.slot;if(!s)return;const range=this.neutral?.actual(s.range)??{from:s.range.from,to:s.liveEnd};return {file:s.file??s.basis.options.root,sourceHash:hash(s.sourceText??s.basis.source),...range};}
   get busy(){return !!this.pending||this.running||!!this.slot&&!this.slot.ready;}
   private continuous=false;
   private lecture=false;
@@ -200,6 +200,15 @@ export class LocalPreview{
     if(!slot.input)return slot.basis.project.resourceKey===basis.project.resourceKey;
     return slot.basis.compilerSource===basis.compilerSource&&slot.otherResources===resourceIdentity((basis.project.resources??[]).filter(([name])=>name!==slot.input!.file));
   }
+  private splitPageParagraph(slot:Slot,source:string,at:number){
+    if(!this.lecture||!this.continuous||!slot.pageMode||slot.input||slot.basis.bundle.recovered)return false;
+    const baseline=slot.sourceText??slot.basis.source,prior=paragraphAt(baseline,slot.range.from),current=paragraphAt(source,at);
+    // Ordinary typing shifts the old terminator by the source length delta.
+    // A new, earlier terminator separates this text from formerly attached
+    // material. Re-prove that smaller paragraph against a fresh full baseline;
+    // never crop an old page proof or assume the following drawing is unchanged.
+    return !!prior&&!!current&&prior.from===slot.range.from&&current.from===prior.from&&current.to<prior.to+source.length-baseline.length;
+  }
   setBasis(basis:LocalBasis){
     if(this.compositionBase?.id!==basis.bundle.id)this.compositionBase=undefined;
     const prior=this.basis;
@@ -213,11 +222,13 @@ export class LocalPreview{
     this.cancelIdle();if(replaced){this.parked=[];this.idleAttempts.clear();}
     this.basis=basis;
     const s=this.slot;
+    const next=s&&this.sourceFor(basis,s.file??s.basis.options.root),reprepare=!!s&&!!next&&this.cursor?.file===(s.file??s.basis.options.root)&&this.splitPageParagraph(s,next.text,this.cursor.at);
     // A full recovered publication supplies fresh diagnostic identities. Keep
     // its worker warm, but re-prove the region against that publication rather
     // than carrying an older error snapshot through an explicit recheck.
-    if(s&&!basis.bundle.recovered&&!(this.neutralEnabled&&replaced)&&this.sameContext(s,basis)){const next=this.sourceFor(basis,s.file??s.basis.options.root);if(next&&this.regionText(s,s.input?next.text:basis.originalSource??next.text)!==undefined){this.scheduleIdle();return;}}
+    if(s&&!basis.bundle.recovered&&!reprepare&&!(this.neutralEnabled&&replaced)&&this.sameContext(s,basis)){if(next&&this.regionText(s,s.input?next.text:basis.originalSource??next.text)!==undefined){this.scheduleIdle();return;}}
     const compatible=!!prior&&prior.options.root===basis.options.root&&prior.project.resourceKey===basis.project.resourceKey&&prior.project.environmentKey===basis.project.environmentKey;
+    if(reprepare&&this.adoptVerified(s!,basis)){this.schedule();return;}
     this.disarm(compatible);
     this.schedule();
   }
@@ -400,7 +411,7 @@ export class LocalPreview{
           // proof below must still authorize this exact composed output.
           if(typeof correction==='object'){c.adjust(correction.dx,correction.dy);calibratedGlyphs=correction.calibratedGlyphs;preflightApplied=true;}
         }
-        const verify=async()=>{rasterAttempts++;const c=slot.compositor!,started=performance.now(),check=await c.compose(original!),composedAt=performance.now();paragraphComposeMs+=composedAt-started;try{return await this.verify(basis,check.pdf,check.page,original!.pdf,original!.fragment,check.footprint,{x:c.x,y:c.y,anchors:c.anchors,calibratedGlyphs});}finally{paragraphRasterWaitMs+=performance.now()-composedAt;}};
+        const verify=async()=>{rasterAttempts++;const c=slot.compositor!,started=performance.now(),check=await c.compose(original!),composedAt=performance.now();paragraphComposeMs+=composedAt-started;try{return await this.verify(basis,check.pdf,check.page,original!.pdf,original!.fragment,check.footprint,{x:c.x,y:c.y,anchors:c.anchors,calibratedGlyphs,inkBleedBp:c.inkBleedBp});}finally{paragraphRasterWaitMs+=performance.now()-composedAt;}};
         const checkPlacement=async()=>{
           let result=await Promise.race([verify(),cancelled]);if(!valid())return false;
           if(typeof result==='object'){
@@ -416,6 +427,16 @@ export class LocalPreview{
           // Restore it before narrowing the region or starting broader work.
           slot.compositor.adjust(origin.x-slot.compositor.x,origin.y-slot.compositor.y);calibratedGlyphs=undefined;
           verified=await checkPlacement();if(!valid())return;
+        }
+        if(verified!==true&&this.lecture&&this.continuous&&!background){
+          // A neighboring diagram can touch the generous ink margin. Narrow
+          // only after repeating BOTH the complete fragment ink-fit check and
+          // the unchanged baseline raster proof at the proposed crop. A future
+          // edit that exceeds it still fails the live ink check and falls back.
+          for(const bleed of [.75,.5,.25]){
+            slot.compositor.inkBleedBp=bleed;verified=await checkPlacement();if(!valid())return;
+            if(verified===true){this.log('Local ink margin proved at '+bleed+' bp.\n');break;}
+          }
         }
         if(verified!==true){
           if(background||expanded&&(!this.continuous||process.env.PERSISTENT_TEX_DISABLE_WINDOW_PAGE_FALLBACK==='1'))throw new Error('Adjacent-paragraph baseline needs a narrower region.');
@@ -657,6 +678,8 @@ export class LocalPreview{
             if(candidate.pageLocations)candidate.pageLocations=candidate.pageLocations.map(p=>({...p,...recoveryLocations(p.locations,request.source,result.repairedSource!)}));
           }else candidate.pageLocations=undefined;
         }
+        if(slot.compositor)candidate.inkBleedBp=slot.compositor.inkBleedBp;
+        if(result.kind==='page'&&!result.recovery&&this.splitPageParagraph(slot,request.source,request.at))candidate.reprepareParagraph=true;
         const original=slot.basis.originalSource;
         if(this.lecture&&!slot.input&&slot.basis.bundle.recovered&&original!==undefined&&slot.basis.recoveryIssues?.length&&!result.recovery&&result.kind==='flow'&&!result.flow.stateChanged&&original.slice(slot.range.from,slot.range.to)===slot.basis.source.slice(slot.range.from,slot.range.to)){
           candidate.unchangedRecovery=carryRecoveryDiagnostics(slot.basis.recoveryIssues,slot.basis.options.root,original,request.source,candidate.sourceHash,request.editId);
