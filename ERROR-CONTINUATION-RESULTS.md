@@ -83,3 +83,67 @@ The verified 0.115 portable is 119,503,827 bytes, SHA-256:
 The trial launcher retains the existing app profile, uses external temporary
 storage and disables experimental retained layout. This remains a draft-branch
 trial, with no main merge, tag or new public binary release.
+
+## 0.116: keep the local compiler warm across pauses
+
+Although 0.115 continued rendering, an error still made Lecture mode schedule a
+full verification 650 ms after each local update. That check could reclaim the
+warm compiler, replace the local frame and prepare the paragraph again before
+the next word. Healthy Lecture-mode typing did not incur that repeated work.
+
+For a successful root flow update, 0.116 can retain the known error without that
+idle full build when native flow state is unchanged, the active region contains
+no repaired baseline text, original-source region/dependency checks pass, and
+every current error is among the known recovery diagnostics. Diagnostics acquire
+the current edit/source identity and projected line numbers rather than being
+cleared or left stale. An unrelated or unknown error refuses this shortcut.
+
+The compiler copy and displayed frame remain approximate. Changes to repaired
+text, new errors, state-changing edits, unsupported local paths and Document mode
+retain normal full verification. Explicit Retry still recompiles. Full recovered
+publications re-prove their local regions against the new diagnostic snapshot
+while retaining an initialized worker. Source saving and strict export behavior
+are unchanged.
+
+A dedicated healthy/error comparison types three words in the same paragraph,
+with a one-second pause after each. It requires a timed local frame and no full
+publication during each pause, and checks current error actions, explicit Retry,
+rejection of export from broken source, automatic rechecking after defining the
+missing command, and correction.
+
+Two isolated local runs passed. In the complete guard run, healthy updates took
+351/21/21 ms and updates with a remote error took 249/21/20 ms. The earlier run
+recorded 221/20/22 versus 241/20/22 ms. The first update includes different warmup
+and rendering work; these small, ordered samples do not establish a general
+speedup or a universal first-frame bound. The useful result is that subsequent
+updates stayed warm across pauses in both phases, without full recompilation.
+These remain hidden-renderer measurements rather than physical-screen timings.
+
+The [final cloud run](https://github.com/complexzeta/TeXquisite/actions/runs/41106998921)
+passed on source/test commit `98dd36cd5c91355aa8d5637475f9ea8274d99167`:
+58 focused guards, the native guard, and all 20 integration/package result
+records passed. The new paused-typing case passed in source and packaged normal
+mode, alongside the existing recovery/navigation and editing sessions.
+
+| Fixture | Healthy updates (ms) | Updates with a distant error (ms) |
+| --- | --- | --- |
+| Source, cloud | 150 / 14 / 14 | 100 / 14 / 13 |
+| Packaged, cloud | 136 / 12 / 13 | 92 / 13 / 12 |
+
+Both versions retained their context across every pause and passed explicit
+Retry, strict broken-source export rejection, definition-change rechecking and
+correction checks. These results have the same measurement limits as the local
+samples. The engine WASM is unchanged; this was not a new TeX Live matrix or TikZ
+benchmark.
+
+The packaged verifier matched 19 runtime assets to the build and checked metadata,
+licensing, absence of private paths and exclusion of development files. The
+verified 0.116 portable is 119,548,264 bytes, SHA-256:
+
+```text
+a133e7ad805cb156e6f4b853f5eb95aee9d2ce96e1ff006906dfbaad4019111f
+```
+
+Its launcher preserves the default profile and uses Kingston for temporary
+storage, with experimental retained-layout flags off. This remains a draft-branch
+trial, without a main merge, tag or new public binary release.
