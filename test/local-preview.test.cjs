@@ -77,6 +77,7 @@ test('Calibrated glyph geometry permits only eight opaque grayscale coverage pix
 });
 
 test('Aligned origins can supply glyph calibration without authorizing shifts or weak consensus',()=>{
+ const {placementCorrection}=require('../dist/local-raster');
  const aligned=Array.from({length:8},()=>({x:12,y:24}));
  assert.equal(placementCorrection(aligned,{x:12,y:24}),false);
  assert.deepEqual(placementCorrection(aligned,{x:12,y:24},true),{dx:0,dy:0});
