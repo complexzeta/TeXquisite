@@ -849,7 +849,16 @@ api.on(async message=>{
           const block=message.neutralBlock;if(!block||message.recovery||message.flowOutput.stateChanged)throw Error('Retained flow has no independent source proof.');
           if(neutralBaseId!==message.baseId){clearNeutralMetadata();neutralBaseId=message.baseId;}
           if(block.prior.length!==neutralIds.size||block.prior.some((id:string)=>!neutralIds.has(id)))throw Error('Retained display history changed.');
-          retainedBaseline=continuousBasis?.texts?.[input.file]??(input.file===model.root?continuousBasis?.text:undefined);if(retainedBaseline===undefined)throw Error('Retained source baseline is unavailable.');
+          const basis=continuousBasis;if(!basis||basis.id!==message.baseId)throw Error('Retained source baseline is unavailable.');
+          retainedBaseline=basis.texts?.[input.file]??(input.file===model.root?basis.text:undefined);
+          if(retainedBaseline===undefined){
+            // The accepted build can finish after the editor has advanced.
+            // Its first retained update supplies that immutable source once;
+            // validate it against the accepted navigation, never today's draft.
+            if(typeof message.retainedSource!=='string'||message.retainedSource.length>2*1024*1024||!await matchesSource(basis.navigation,input.file,message.retainedSource))throw Error('Retained source baseline does not match its accepted navigation.');
+            if(token!==localRenderToken||continuousBasis!==basis||!mayShowLocal(message))return;
+            retainedBaseline=message.retainedSource;(basis.texts??={})[input.file]=retainedBaseline!;if(input.file===model.root)basis.text=retainedBaseline;
+          }else if(message.retainedSource!==undefined&&message.retainedSource!==retainedBaseline)throw Error('Retained source baseline differs from its accepted snapshot.');
           retainedNavigation.updated({root:message.root,file:input.file,baseId:message.baseId,sourceHash:message.sourceHash,editId:message.editId,text:input.text},retainedBaseline,{...block,page:message.page,retainedFlow:true},continuousBasis?.navigation);
         }
         const canvas=message.retainedFlow?continuousView.patchRetained(message.page,proof.canvas,tile,message.flowOutput,message.neutralBlock.id):continuousView.patch(message.page,proof.canvas,tile,message.flowOutput),leadingCorrection=Number(canvas.dataset.flowLeadingCorrection??0);localCanvas=canvas;localPatch=undefined;displayedSequence=input.sequence;

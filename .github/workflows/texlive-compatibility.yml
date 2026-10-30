@@ -165,6 +165,16 @@ jobs:
             node $harness
             if($LASTEXITCODE -ne 0){exit $LASTEXITCODE}
           }
+          $env:PERSISTENT_TEX_LECTURE_PLAIN='1'
+          $env:PERSISTENT_TEX_SESSION_HEALTHY='1'
+          $env:PERSISTENT_TEX_SESSION_MULTI_BLOCK='0'
+          $env:PERSISTENT_TEX_RETAINED_FLOW='0'
+          Push-Location "$env:COMPATIBILITY_ROOT/baseline"
+          try { node $harness; if($LASTEXITCODE -ne 0){exit $LASTEXITCODE} } finally { Pop-Location }
+          $env:PERSISTENT_TEX_SESSION_MULTI_BLOCK='1'
+          $env:PERSISTENT_TEX_RETAINED_FLOW='1'
+          node $harness
+          if($LASTEXITCODE -ne 0){exit $LASTEXITCODE}
       - name: Upload bounded integration evidence
         if: ${{ !cancelled() }}
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02

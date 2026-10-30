@@ -20,6 +20,14 @@ test('Recovery cannot overwrite carried edits or repair outside the proved regio
   await assert.rejects(local.runOutput(slot,{source:text,editId:'edit',at:20}),ResidentSourceError);assert.equal(calls,1);if(!outside)assert.equal(local.neutral,ledger);
  }
 });
+test('A sole retained active block can use bounded repair; any other carried history still refuses it',async()=>{
+ const id=range.from+':'+range.to;
+ for(const another of [false,true]){
+  const local=make(),ledger={ids:another?[id,'other']:[id],dirty:[{id}]},slot={basis:{source:baseline},range,abort:new AbortController()},request={source:draft,editId:'repair',at:20};local.retainedFlowEnabled=true;local.neutral=ledger;let calls=0;
+  local.output=async(_slot,r)=>{calls++;if(r.source.includes('\\broken'))throw new ResidentSourceError('! Undefined control sequence.\nl.3 Target \\broken\n');return {kind:'flow',output:{},flow:{}};};
+  if(another){await assert.rejects(local.runOutput(slot,request),ResidentSourceError);assert.equal(calls,1);assert.equal(local.neutral,ledger);}else{const result=await local.runOutput(slot,request);assert.ok(result.recovery);assert.equal(calls,2);assert.equal(local.neutral,undefined);assert.equal(request.source,draft);assert.equal(slot.basis.source,baseline);}
+ }
+});
 test('A newer pending edit supersedes local recovery without replaying the obsolete draft',async()=>{
  const local=make();local.pending={source:draft+'new',editId:'new',at:20};let calls=0;
  local.output=async()=>{calls++;throw new ResidentSourceError('! Undefined control sequence.\nl.3 Target \\broken\n');};

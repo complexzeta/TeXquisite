@@ -66,3 +66,28 @@ workload. Earlier page-output geometry rejections remain genuine fallbacks and
 are not suppressed. Neighboring retained paragraphs also leave preceding-line
 ink and crop bleed with their original owner, instead of sharing a vertical
 slice that could restore stale descenders.
+
+Run 41001860313 passed the complete correctness suite, including adjacent blocks,
+Follow typing, large contraction, stale clicks, undo/redo, zoom/layout/mode/file
+handoffs, save, strict export and reopen. With explicit letter PDF dimensions,
+the recovery/structure sessions measured:
+
+| Fixture | 0.111 median / p95 / max | Retained candidate median / p95 / max |
+| --- | --- | --- |
+| Plain text | 55 / 103 / 147 ms | 62 / 178 / 203 ms |
+| Inline math | 73 / 166 / 251 ms | 75 / 167 / 263 ms |
+
+The candidate was slower for plain text in this run. Six rejected local frames
+revealed a missing immutable source snapshot when typing advanced during full
+publication. The first retained update now supplies the bounded source snapshot
+once per block history; the renderer checks its SHA-256 against accepted
+navigation before caching it and rechecks the display token after that await.
+The session test explicitly refuses those missing-baseline rejections.
+
+A sole retained active block can now use the existing bounded error repair,
+retiring its retained history and keeping the editor source unchanged. Repair
+still refuses to overwrite any other carried block history. This avoids a full
+build merely because the active paragraph already had a retained edit.
+An additional healthy-typing comparison separates ordinary paragraph switching
+from deliberate malformed commands and section insertion. These fixes and their
+updated native/browser tests still require a new cloud run before promotion.

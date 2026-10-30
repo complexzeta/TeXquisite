@@ -54,7 +54,7 @@ export function flowWindowAt(source:string,at:number):RegionRange|undefined{
 const lineOffset=(source:string,line:number)=>{let at=0;while(line-->0){at=source.indexOf('\n',at);if(at<0)return -1;at++;}return at;};
 type Request={source:string;fullSource?:string;editId:string;at:number;recovery?:{message:string;line:number};};
 export interface LocalCandidate {recovery?:{message:string;line:number};recoveredBasis?:boolean;}
-export interface LocalCandidate {pageLocations?:{page:number;locations:ReturnType<typeof flowLocations>}[];retainedFlow?:boolean;}
+export interface LocalCandidate {pageLocations?:{page:number;locations:ReturnType<typeof flowLocations>}[];retainedFlow?:boolean;retainedSource?:string;}
 type DiskInput={file:string;mtime:number;ctime:number;ino:number;size:number;};
 type Slot={pageProbe?:{source:string;range:RegionRange;output:Awaited<ReturnType<ResidentCompiler['previewRegionPage']>>};neutralLast?:boolean;cancelWork?:()=>void;epoch?:number;cancelled?:boolean;regionKey?:string;edited?:boolean;latestSource?:string;file?:string;input?:IncludedInput;sourceText?:string;otherResources?:string;basis:LocalBasis;range:RegionRange;liveEnd:number;compiledRange:RegionRange;compiler:ResidentCompiler;compositor?:RegionCompositor;ready:boolean;abort:AbortController;diskInputs:DiskInput[];pageMode?:boolean;pageReady?:boolean;pageCostMs?:number;proofPage?:number;sourcePages?:PageSpan;baselineSpan?:PageSpan;continuation?:string;verifyPageRange?:()=>Promise<void>;};
 export interface LocalCandidate {neutralBlock?:{id:string;prior:string[];ranges:{id:string;from:number;to:number;baseFrom:number;baseTo:number}[];locations:ReturnType<typeof flowLocations>;caretY?:number};sourceFile?:string;root:string;baseId:string;editId:string;sourceHash:string;pdf:Uint8Array;page:number;timing:unknown;fragmentPdf?:Uint8Array;fragment?:RegionFragment;inkTopSp?:number;flowOutput?:{stateChanged?:boolean;locations?:ReturnType<typeof flowLocations>;baseRangeTo?:number;caretY?:number;rect:{x:number;y:number;width:number;height:number};leading:number;baselineLeading:number;fragmentRect:{x:number;y:number;width:number;height:number}};rangeFrom:number;rangeTo:number;footprint?:{x:number;y:number;width:number;height:number};pageOutput?:boolean;pageSpan?:PageSpan;sourcePages?:PageSpan;proofPage?:number;cursorPage?:number;cursorPosition?:ReturnType<typeof cursorPosition>;baselineSpan?:PageSpan;continuation?:string;}
@@ -80,7 +80,7 @@ export class LocalPreview{
   get busy(){return !!this.pending||this.running||!!this.slot&&!this.slot.ready;}
   private continuous=false;
   private lecture=false;
-  setLecture(enabled:boolean){if(this.lecture===enabled)return;this.lecture=enabled;if(!enabled)this.neutral=undefined;else if(this.neutralEnabled&&this.continuous&&this.basis&&this.editorSource===this.basis.source)this.neutral=new NeutralBlocks(this.basis.source);this.refresh();}
+  setLecture(enabled:boolean){if(this.lecture===enabled)return;this.lecture=enabled;if(!enabled)this.neutral=undefined;else if(this.neutralEnabled&&this.continuous&&this.basis&&(!this.retainedFlowEnabled||this.basis.source.length<=2*1024*1024)&&this.editorSource===this.basis.source)this.neutral=new NeutralBlocks(this.basis.source);this.refresh();}
   setContinuous(enabled:boolean){if(this.continuous===enabled)return;this.continuous=enabled;if(!enabled)this.neutral=undefined;this.parked=[];this.idleAttempts.clear();this.disarm(true);this.schedule();}
   refresh(){this.parked=[];this.idleAttempts.clear();this.disarm(true);this.schedule();}
   private basis?:LocalBasis;
@@ -196,11 +196,11 @@ export class LocalPreview{
   setBasis(basis:LocalBasis){
     if(this.compositionBase?.id!==basis.bundle.id)this.compositionBase=undefined;
     const prior=this.basis;
-    const retainedContext=!basis.bundle.recovered&&this.neutralEnabled&&this.lecture&&this.continuous;
+    const retainedContext=!basis.bundle.recovered&&this.neutralEnabled&&this.lecture&&this.continuous&&(!this.retainedFlowEnabled||basis.source.length<=2*1024*1024);
     // A canonical publication retires renderer block history even when undo
     // returned to the same immutable PDF ID, or continuous mode was reenabled.
     const replaced=prior?.bundle.id!==basis.bundle.id||!!this.neutral?.ids.length||retainedContext&&!this.neutral||this.neutralEnabled&&!!prior&&(prior.source!==basis.source||prior.compilerSource!==basis.compilerSource||prior.options.root!==basis.options.root||prior.project.resourceKey!==basis.project.resourceKey||prior.project.environmentKey!==basis.project.environmentKey);
-    if(replaced){this.neutral=!basis.bundle.recovered&&this.neutralEnabled&&this.lecture&&this.continuous?new NeutralBlocks(basis.source):undefined;this.editorSource=basis.source;}
+    if(replaced){this.neutral=retainedContext?new NeutralBlocks(basis.source):undefined;this.editorSource=basis.source;}
     if(prior?.bundle.id!==basis.bundle.id&&this.slot)this.rememberVisit();
     if(prior&&(prior.options.root!==basis.options.root||prior.project.environmentKey!==basis.project.environmentKey))this.visits=[];
     this.cancelIdle();if(replaced){this.parked=[];this.idleAttempts.clear();}
@@ -565,7 +565,8 @@ export class LocalPreview{
       try{return {...await this.output(slot,next),recovery:next.recovery};}
       catch(error){
         if(error instanceof ResidentSourceError&&this.pending&&this.pending.editId!==request.editId)throw new ResidentSupersededError('A newer draft superseded local recovery.');
-        if(!(error instanceof ResidentSourceError)||slot.input||this.neutral?.dirty.length||attempt>=2||performance.now()>deadline||slot.abort.signal.aborted)throw error;
+        const dirty=this.neutral?.dirty,activeOnly=this.retainedFlowEnabled&&this.neutral?.ids?.length===1&&dirty?.every(b=>b.id===neutralId(slot.range));
+        if(!(error instanceof ResidentSourceError)||slot.input||dirty?.length&&!activeOnly||attempt>=2||performance.now()>deadline||slot.abort.signal.aborted)throw error;
         const text=this.regionText(slot,next.source);if(text===undefined)throw error;
         const repair=previewRegionRepair(next.source,String(error),{from:slot.range.from,to:slot.range.from+text.length},request.at)??previewRepair(next.source,String(error));
         // A repair beyond this proved region must use ordinary full recovery.
@@ -597,7 +598,7 @@ export class LocalPreview{
           if(result.kind==='retainedFlow'){
             if(!this.neutral)throw new Error('Retained context expired.');proposed=this.neutral.proposed(slot.range,text);
             if(proposed.source()!==(request.fullSource??request.source))throw new Error('Retained projection does not match the editor.');
-            candidate.retainedFlow=true;candidate.neutralBlock={id:neutralId(slot.range),prior:this.neutral.ids,ranges:proposed.ranges,locations:result.flow.locations.map(g=>({...g,at:g.at+rangeFrom-slot.range.from,end:g.end+rangeFrom-slot.range.from})),caretY:result.flow.caretY};
+            candidate.retainedFlow=true;candidate.retainedSource=this.neutral.ids.length?undefined:slot.basis.source;candidate.neutralBlock={id:neutralId(slot.range),prior:this.neutral.ids,ranges:proposed.ranges,locations:result.flow.locations.map(g=>({...g,at:g.at+rangeFrom-slot.range.from,end:g.end+rangeFrom-slot.range.from})),caretY:result.flow.caretY};
           }
         }else if(result.kind==='paragraph'||result.kind==='neutral'){
           const output=result.output,started=performance.now(),composed=await slot.compositor!.compose(output);
