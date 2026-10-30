@@ -68,6 +68,7 @@ function matchRaster(a:Uint8ClampedArray,b:Uint8ClampedArray,width:number,height
   const quota=(glyph:number)=>masks[glyph].outline===true?coverageLimit:glyphLimit;
   const grayInk=(pixels:Uint8ClampedArray,p:number)=>{const i=p*4;return pixels[i+3]===255&&pixels[i]<250&&pixels[i]===pixels[i+1]&&pixels[i]===pixels[i+2];};
   const faintGray=(pixels:Uint8ClampedArray,p:number)=>{const i=p*4;return pixels[i+3]===255&&pixels[i]>=192&&pixels[i]===pixels[i+1]&&pixels[i]===pixels[i+2];};
+  const opaqueGray=(pixels:Uint8ClampedArray,p:number)=>{const i=p*4;return pixels[i+3]===255&&pixels[i]===pixels[i+1]&&pixels[i]===pixels[i+2];};
   for(let y=top;y<bottom;y++)for(let x=left;x<right;x++){
     const p=y*width+x;
     // Only this integer crop is copied into the accepted canvas. PDF form
@@ -82,10 +83,11 @@ function matchRaster(a:Uint8ClampedArray,b:Uint8ClampedArray,width:number,height
     // Background, color, alpha and
     // missing/added ink remain subject to the original checks.
     let metric=false,metricGlyph=-1;
-    if(difference>32&&difference<=80&&(grayInk(a,p)&&grayInk(b,p)||faintGray(a,p)&&faintGray(b,p))&&metricPixels<coverageLimit){
+    if(difference>32&&difference<=80&&metricPixels<coverageLimit){
       const glyph=masks.findIndex(g=>x>=Math.floor(g.x)-1&&x<=Math.ceil(g.x+g.width)+1&&y>=Math.floor(g.y)-1&&y<=Math.ceil(g.y+g.height)+1);
       metricGlyph=glyph;
-      if(glyph>=0&&glyphPixels[glyph]<quota(glyph)){glyphPixels[glyph]++;metricPixels++;metricPositions.add(p);metric=true;}
+      const sameVector=glyph>=0&&masks[glyph].outline===true&&opaqueGray(a,p)&&opaqueGray(b,p);
+      if(glyph>=0&&(grayInk(a,p)&&grayInk(b,p)||faintGray(a,p)&&faintGray(b,p)||sameVector)&&glyphPixels[glyph]<quota(glyph)){glyphPixels[glyph]++;metricPixels++;metricPositions.add(p);metric=true;}
     }
     if(difference>32&&!metric||changed.length>limit||x<Math.floor(rect.x)-1||x>Math.ceil(rect.x+rect.width)+1||y<Math.floor(rect.y)-1||y>Math.ceil(rect.y+rect.height)+1)return {ok:false,differingPixels:changed.length,maxDifference,...(masks.length?{metricPixels,metricGlyph,metricGlyphPixels:metricGlyph>=0?glyphPixels[metricGlyph]:0}:{}),sample:[{x,y,a:[...a.slice(p*4,p*4+4)],b:[...b.slice(p*4,p*4+4)]}]};
   }
@@ -100,8 +102,7 @@ function matchRaster(a:Uint8ClampedArray,b:Uint8ClampedArray,width:number,height
   const glyphFringe=(p:number)=>{
     const x=p%width,y=Math.floor(p/width),glyph=masks.findIndex(g=>x>=Math.floor(g.x)-1&&x<=Math.ceil(g.x+g.width)+1&&y>=Math.floor(g.y)-1&&y<=Math.ceil(g.y+g.height)+1);
     if(glyph<0)return false;
-    const opaqueGray=(pixels:Uint8ClampedArray)=>{const at=p*4;return pixels[at+3]===255&&pixels[at]===pixels[at+1]&&pixels[at]===pixels[at+2];};
-    if(!opaqueGray(a)||!opaqueGray(b))return false;
+    if(!opaqueGray(a,p)||!opaqueGray(b,p))return false;
     if(!core.has(glyph)){
       const g=masks[glyph];let darkA=false,darkB=false;
       for(let yy=Math.max(0,Math.floor(g.y));yy<Math.min(height,Math.ceil(g.y+g.height));yy++)for(let xx=Math.max(0,Math.floor(g.x));xx<Math.min(width,Math.ceil(g.x+g.width));xx++){
@@ -110,7 +111,7 @@ function matchRaster(a:Uint8ClampedArray,b:Uint8ClampedArray,width:number,height
       core.set(glyph,darkA&&darkB);
     }
     if(!core.get(glyph))return false;
-    const fringe=(pixels:Uint8ClampedArray)=>{let ink=false,light=false;for(let dy=-2;dy<=2;dy++)for(let dx=-2;dx<=2;dx++){const xx=x+dx,yy=y+dy;if(xx<0||xx>=width||yy<0||yy>=height)continue;const at=(yy*width+xx)*4,value=Math.min(pixels[at],pixels[at+1],pixels[at+2]);ink ||=value<224;light ||=value>224;}return ink&&light;};
+    const fringe=(pixels:Uint8ClampedArray)=>{let ink=false,light=false;for(let dy=-2;dy<=2;dy++)for(let dx=-2;dx<=2;dx++){const xx=x+dx,yy=y+dy;if(xx<0||xx>=width||yy<0||yy>=height)continue;const at=(yy*width+xx)*4,value=Math.min(pixels[at],pixels[at+1],pixels[at+2]);ink ||=value<(masks[glyph].outline===true?250:224);light ||=value>224;}return ink&&light;};
     if(!fringe(a)||!fringe(b))return false;
     if(!metricPositions.has(p)){if(coveragePixels>=coverageLimit||glyphPixels[glyph]>=quota(glyph))return false;coveragePixels++;glyphPixels[glyph]++;}
     return true;

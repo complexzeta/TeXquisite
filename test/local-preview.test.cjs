@@ -132,5 +132,7 @@ test('Outline-verified glyphs can use the bounded patch pool while geometry alon
  const width=60,height=40,rect={x:1,y:1,width:58,height:38},a=new Uint8ClampedArray(width*height*4).fill(255),set=(im,x,y,v)=>{for(let c=0;c<3;c++)im[(y*width+x)*4+c]=v;};for(let x=10;x<30;x++){set(a,x,9,0);set(a,x,10,186);}const b=new Uint8ClampedArray(a);for(let x=10;x<30;x++)set(b,x,10,126);const glyph={x:9,y:8,width:23,height:5};
  assert.equal(matchLocalPatchRaster(a,b,width,height,rect,[glyph]).ok,false);
  assert.equal(matchLocalPatchRaster(a,b,width,height,rect,[{...glyph,outline:true}]).ok,true);
- const missing=new Uint8ClampedArray(b);set(missing,15,10,255);assert.equal(matchLocalPatchRaster(a,missing,width,height,rect,[{...glyph,outline:true}]).ok,false);
+ const missing=new Uint8ClampedArray(b);set(missing,15,9,255);assert.equal(matchLocalPatchRaster(a,missing,width,height,rect,[{...glyph,outline:true}]).ok,false,'The outline witness cannot hide disappearance of a core stroke');
+ const fringe=new Uint8ClampedArray(b);set(fringe,31,10,191);assert.equal(matchLocalPatchRaster(a,fringe,width,height,rect,[{...glyph,width:25,outline:true}]).ok,true,'Only identical outlines authorize a hinted edge crossing the white cutoff');
+ assert.equal(matchLocalPatchRaster(a,fringe,width,height,rect,[{...glyph,width:25}]).ok,false);
 });
