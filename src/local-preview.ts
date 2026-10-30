@@ -640,7 +640,7 @@ export class LocalPreview{
       try{
         const output=await this.output(slot,next);
         if(confirmedHint)this.recoveryHints.set(slot,confirmedHint);else this.recoveryHints.delete(slot);
-        return {...output,recovery:next.recovery,repairedSource:next.recovery?next.source:undefined,reusedRecovery:reused&&output.kind==='flow'};
+        return {...output,recovery:next.recovery,repairedSource:next.recovery?next.source:undefined,reusedRecovery:reused};
       }
       catch(error){
         confirmedHint=undefined;reused=false;this.recoveryHints.delete(slot);

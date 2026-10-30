@@ -127,6 +127,16 @@ test('A new publication releases the export wait even if its current paragraph c
  local.move(file,source.indexOf('Remote')+3);assert.equal(scheduled,2,'Moving to healthy text must schedule preparation instead of remaining in the export wait');local.stop();
 });
 
+test('Confirmed skips retain the same provisional policy in page and fixed-paragraph lanes',async()=>{
+ for(const kind of ['page','paragraph']){
+  const local=make(),slot={basis:{source:baseline},range,abort:new AbortController()};let calls=0;
+  local.output=async(_slot,r)=>{calls++;if(r.source.includes('\\broken'))throw new ResidentSourceError('! Undefined control sequence.\nl.3 Target \\broken\n');return {kind,output:{}};};
+  const first=await local.runOutput(slot,{source:draft,editId:'initial',at:20});assert.equal(calls,2);assert.equal(first.reusedRecovery,false);
+  const current=draft.replace('Target','Target more'),next=await local.runOutput(slot,{source:current,editId:'next',at:18});
+  assert.equal(calls,3);assert.equal(next.reusedRecovery,true);assert.ok(next.recovery);assert.equal(next.repairedSource,current.replace('\\broken','       '));assert.equal(next.sourceHealthy,undefined,'A reused skip never proves the original source healthy');
+ }
+});
+
 test('A recovered document accepts edits before and after its error while typesetting the repaired baseline',async()=>{
  const original='Before ordinary words.\n\nBroken \\bad words.\n\nAfter ordinary words.\n\n',compiled=original.replace('\\bad','    ');
  for(const marker of ['Before','After']){
