@@ -109,6 +109,16 @@ test('New automatic text edits hand off from the original recovered draft, not i
  try{assert.equal(local.resumeAutomatic(file,original.replace('Target','Target more'),'latest'),true);assert.equal(claims,1);assert.ok(local.pending.source.includes('\\broken'));}finally{local.stop();}
 });
 
+test('Ordinary edits around unchanged math retain diagnostics without washing out an unverified definition',async()=>{
+ const original='Broken \\bad.\n\nTarget $x^2$ words.\n\n',compiled=original.replace('\\bad','    '),active={from:original.indexOf('Target'),to:original.length},local=make(),candidates=[];
+ const issue={id:'remote',root:'main.tex',file:'main.tex',line:1,kind:'tex',severity:'error'};local.lecture=true;
+ const slot={ready:true,basis:{source:compiled,originalSource:original,recoveryIssues:[issue],bundle:{id:'base',recovered:true},options:{root:'main.tex'}},range:active,abort:new AbortController(),compiler:{prepareNextRegionEdit(){},stop(){}},compositor:{page:1}};local.slot=slot;
+ local.output=async()=>({kind:'flow',output:{pdf:Buffer.alloc(0)},flow:{stateChanged:true}});local.publish=async c=>{candidates.push(c);return true;};
+ const first=original.replace('Target','Target before'),second=first.replace('words.','words after.'),definition=second.replace('Target','Target \\global\\def\\bad{}');
+ for(const [i,source] of [first,second,definition,definition.replace('after.','after more.')].entries()){local.pending={source,editId:String(i),at:active.from+8};await local.drain();}
+ assert.deepEqual(candidates.map(c=>!!c.unchangedRecovery),[true,true,false,false]);assert.equal(slot.diagnosticSource,second);local.stop();
+});
+
 test('A recovered document accepts edits before and after its error while typesetting the repaired baseline',async()=>{
  const original='Before ordinary words.\n\nBroken \\bad words.\n\nAfter ordinary words.\n\n',compiled=original.replace('\\bad','    ');
  for(const marker of ['Before','After']){
