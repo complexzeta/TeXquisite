@@ -32,12 +32,15 @@ export function plainTextChange(before:string,after:string){
 // typing may move its offset; command/definition/structure edits must run TeX
 // again. Never reuse a structural repair or a pair of separate substitutions.
 export function carryUndefinedRepair(previous:string,repaired:string,current:string){
-  if(previous.length!==repaired.length||previous!==current&&!plainTextChange(previous,current))return;
+  if(previous.length!==repaired.length)return;
   let from=0,to=previous.length;
   while(from<to&&previous[from]===repaired[from])from++;
   while(to>from&&previous[to-1]===repaired[to-1])to--;
   const command=previous.slice(from,to);
   if(!/^\\[A-Za-z@]+$/.test(command)||repaired.slice(from,to)!==' '.repeat(to-from)||/[A-Za-z@]/.test(previous[to]??''))return;
+  // An unchanged prefix through the rejected token retains its proven
+  // undefined meaning, including plain words after an unbraced command.
+  if(previous!==current&&!current.startsWith(previous.slice(0,to))&&!plainTextChange(previous,current))return;
   let start=0,end=previous.length,endCurrent=current.length;
   while(start<end&&start<endCurrent&&previous[start]===current[start])start++;
   while(end>start&&endCurrent>start&&previous[end-1]===current[endCurrent-1]){end--;endCurrent--;}
