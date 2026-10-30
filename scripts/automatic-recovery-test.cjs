@@ -11,7 +11,7 @@ const hash=s=>createHash('sha256').update(s).digest('hex'),delay=ms=>new Promise
  const app=await electron.launch({...(process.env.PERSISTENT_TEX_EXECUTABLE?{executablePath:process.env.PERSISTENT_TEX_EXECUTABLE,args:[]}:{args:['.']}),env:{...process.env,PERSISTENT_TEX_TEST_DATA:profile,PERSISTENT_TEX_MULTI_BLOCK:'0',PERSISTENT_TEX_RETAINED_FLOW:'0',PERSISTENT_TEX_TEST_HIDDEN:'1'}});os.setPriority(app.process().pid,os.constants.priority.PRIORITY_BELOW_NORMAL);
  const result={passed:false,samples:[]},guard=setInterval(()=>{if(os.freemem()<256*1024**2)void app.evaluate(({app})=>app.exit(0)).catch(()=>{});},1000);guard.unref();let page;
  try{
-  page=await app.firstWindow();result.version=await app.evaluate(({app})=>app.getVersion());await page.evaluate(()=>{window.autoRecoveryCommits=0;window.desktop.on(m=>{if(m.type==='commit')window.autoRecoveryCommits++;});});
+  page=await app.firstWindow();result.rendererFailures=[];page.on('console',m=>{if(/^Local page output rejected/.test(m.text())&&result.rendererFailures.length<12)result.rendererFailures.push(m.text());});result.version=await app.evaluate(({app})=>app.getVersion());await page.evaluate(()=>{window.autoRecoveryCommits=0;window.desktop.on(m=>{if(m.type==='commit')window.autoRecoveryCommits++;});});
   const commits=()=>page.evaluate(()=>window.autoRecoveryCommits);
   const full=()=>page.waitForFunction(h=>[...document.querySelectorAll('#pages canvas')].some(c=>c.dataset.sourceHash===h&&!c.dataset.localEditId),hash(expected),{timeout:90000,polling:20});
   const focus=async at=>{await page.evaluate(async({root,at})=>{const v=document.querySelector('.cm-content').cmTile.root.view;v.dispatch({selection:{anchor:at}});v.focus();await window.desktop.call('localCursor',root,at);},{root,at});};

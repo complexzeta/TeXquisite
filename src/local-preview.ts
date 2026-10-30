@@ -709,7 +709,7 @@ export class LocalPreview{
         if(slot.compositor)candidate.inkBleedBp=slot.compositor.inkBleedBp;
         if(result.kind==='page'&&!result.recovery&&this.splitPageParagraph(slot,request.source,request.at))candidate.reprepareParagraph=true;
         const original=slot.basis.originalSource;
-        if(this.lecture&&!slot.input&&slot.basis.bundle.recovered&&original!==undefined&&slot.basis.recoveryIssues?.length&&result.kind==='flow'&&(!result.flow.stateChanged||plainTextChange(original.slice(slot.range.from,slot.range.to),text))){
+        if(this.lecture&&!slot.input&&slot.basis.bundle.recovered&&original!==undefined&&slot.basis.recoveryIssues?.length&&(result.kind==='flow'&&!result.flow.stateChanged||(result.kind==='flow'||result.kind==='page')&&plainTextChange(original.slice(slot.range.from,slot.range.to),text))){
           const firstLine=original.slice(0,slot.range.from).split('\n').length,lastLine=original.slice(0,slot.range.to).split('\n').length;
           const outside=slot.basis.recoveryIssues.filter(issue=>issue.file!==slot.basis.options.root||!issue.line||issue.line<firstLine||issue.line>=lastLine);
           candidate.unchangedRecovery=carryRecoveryDiagnostics(outside,slot.basis.options.root,original,request.source,candidate.sourceHash,request.editId);
