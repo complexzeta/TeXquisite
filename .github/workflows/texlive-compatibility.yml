@@ -7,6 +7,10 @@ on:
         type: choice
         default: compatibility
         options: [compatibility, retained-preview]
+      package_retained:
+        description: Build and test a portable after the retained suite passes
+        type: boolean
+        default: false
 permissions:
   contents: read
 concurrency:
@@ -175,6 +179,41 @@ jobs:
           $env:PERSISTENT_TEX_RETAINED_FLOW='1'
           node $harness
           if($LASTEXITCODE -ne 0){exit $LASTEXITCODE}
+      - name: Package the verified candidate
+        if: ${{ success() && inputs.package_retained }}
+        shell: pwsh
+        run: |
+          $env:ELECTRON_BUILDER_CACHE="$env:COMPATIBILITY_ROOT/builder-cache"
+          node node_modules/electron-builder/out/cli/cli.js --win portable --publish never "--config.directories.output=$env:COMPATIBILITY_ROOT/package"
+          if($LASTEXITCODE -ne 0){exit $LASTEXITCODE}
+          node scripts/verify-retained-package.cjs "$env:COMPATIBILITY_ROOT/package/win-unpacked/resources/app.asar"
+          exit $LASTEXITCODE
+      - name: Test the packaged candidate
+        if: ${{ success() && inputs.package_retained }}
+        shell: pwsh
+        run: |
+          $env:PERSISTENT_TEX_EXECUTABLE="$env:COMPATIBILITY_ROOT/package/win-unpacked/TeXquisite.exe"
+          $env:PERSISTENT_TEX_RETAINED_FLOW='1'
+          node scripts/retained-navigation-test.cjs
+          if($LASTEXITCODE -ne 0){exit $LASTEXITCODE}
+          $env:PERSISTENT_TEX_LECTURE_ROUNDS='6'
+          $env:PERSISTENT_TEX_LECTURE_PLAIN='1'
+          $env:PERSISTENT_TEX_SESSION_MULTI_BLOCK='1'
+          $env:PERSISTENT_TEX_SESSION_HEALTHY='0'
+          node scripts/lecture-session-test.cjs
+          if($LASTEXITCODE -ne 0){exit $LASTEXITCODE}
+          $env:PERSISTENT_TEX_LECTURE_PLAIN='0'
+          node scripts/lecture-session-test.cjs
+          exit $LASTEXITCODE
+      - name: Upload tested portable
+        if: ${{ success() && inputs.package_retained }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: retained-preview-portable
+          retention-days: 7
+          if-no-files-found: error
+          compression-level: 0
+          path: ${{ env.COMPATIBILITY_ROOT }}/package/TeXquisite-*-Windows.exe
       - name: Upload bounded integration evidence
         if: ${{ !cancelled() }}
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02

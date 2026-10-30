@@ -1,6 +1,9 @@
 const {test}=require('node:test'),assert=require('node:assert/strict'),{createHash}=require('node:crypto');
 const os=require('node:os');os.setPriority(0,os.constants.priority.PRIORITY_BELOW_NORMAL);
-const {LocalPreview}=require('../dist/local-preview'),{ResidentCompiler}=require('../dist/resident');
+// Match the application's single bundle so native error constructors retain
+// their identity across the compiler and its local recovery handler.
+const path=require('node:path'),runtime={exports:{}},code=require('esbuild').buildSync({stdin:{contents:"export {LocalPreview} from './local-preview';export {ResidentCompiler} from './resident';",resolveDir:path.resolve(__dirname,'../src')},bundle:true,platform:'node',format:'cjs',external:['pdf-lib'],write:false}).outputFiles[0].text;
+new Function('require','module','__dirname',code)(require,runtime,path.resolve(__dirname,'../dist'));const {LocalPreview,ResidentCompiler}=runtime.exports;
 const delay=ms=>new Promise(r=>setTimeout(r,ms)),hash=s=>createHash('sha256').update(s).digest('hex');
 async function until(check){for(let n=0;n<1500;n++){if(check())return;await delay(10);}throw Error('Retained preview timed out');}
 test('Retained native text survives height changes and checkpoint switches; math falls back with the complete source',{timeout:90000},async t=>{

@@ -855,9 +855,9 @@ api.on(async message=>{
             // The accepted build can finish after the editor has advanced.
             // Its first retained update supplies that immutable source once;
             // validate it against the accepted navigation, never today's draft.
-            if(typeof message.retainedSource!=='string'||message.retainedSource.length>2*1024*1024||!await matchesSource(basis.navigation,input.file,message.retainedSource))throw Error('Retained source baseline does not match its accepted navigation.');
+            const source=message.retainedSource;if(typeof source!=='string'||source.length>2*1024*1024||!await matchesSource(basis.navigation,input.file,source))throw Error('Retained source baseline does not match its accepted navigation.');
             if(token!==localRenderToken||continuousBasis!==basis||!mayShowLocal(message))return;
-            retainedBaseline=message.retainedSource;(basis.texts??={})[input.file]=retainedBaseline!;if(input.file===model.root)basis.text=retainedBaseline;
+            retainedBaseline=source;(basis.texts??={})[input.file]=source;if(input.file===model.root)basis.text=source;
           }else if(message.retainedSource!==undefined&&message.retainedSource!==retainedBaseline)throw Error('Retained source baseline differs from its accepted snapshot.');
           retainedNavigation.updated({root:message.root,file:input.file,baseId:message.baseId,sourceHash:message.sourceHash,editId:message.editId,text:input.text},retainedBaseline,{...block,page:message.page,retainedFlow:true},continuousBasis?.navigation);
         }
