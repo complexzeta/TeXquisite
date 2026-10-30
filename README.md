@@ -41,6 +41,8 @@ Choose **Build → Working mode** or the small mode selector in the preview tool
 
 An empty literal document body, including a comments-only body, produces one blank page. The placeholder is added only to the compilation copy; it never changes the editor or saved source.
 
+For an unexpectedly slow update, choose **Build > Copy performance report** immediately afterward. This copies a bounded timing/routing and memory summary, excluding source text, file paths and compiler logs. It separates local preview acknowledgements from full-document verification; these are renderer timings, not a measurement of the physical screen. Nothing is uploaded automatically.
+
 ## Files and privacy
 
 Documents remain ordinary local TeX files. The app creates local drafts, previews and periodic source backups. No account is required and no source or diagnostic is uploaded automatically. Native builds disable shell escape and latexmk configuration files. Local compilation is not a security sandbox for untrusted TeX documents.

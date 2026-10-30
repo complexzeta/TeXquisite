@@ -1,93 +1,83 @@
-# Retained lecture layout integration
+# Retained lecture layout: integration results
 
-Work in progress. The integration is opt-in with both
-`PERSISTENT_TEX_MULTI_BLOCK=1` and `PERSISTENT_TEX_RETAINED_FLOW=1`.
-The recommended executable remains 0.111. There is no new public release.
+Retained variable-height layout is implemented and correctness-tested, but stays
+**opt-in**. It has not demonstrated an overall editor speedup over 0.111.
+The normal 0.112 configuration keeps the existing preview algorithm.
 
-The native preview now carries independently proved ordinary-text paragraphs
-through height changes, using the retained compositor introduced in
-RETAINED-LAYOUT-RESULTS.md. Pixel placement and source navigation share the
-same immutable baseline layout. Normal full output remains responsible for
-export, document mode and unsupported edits. Inline math is deliberately
-excluded by the existing native character witness; unsupported math must
-fall back with the complete current source, including other carried edits.
+## Measured comparison
 
-Local checks passed for native text growth/contraction and checkpoint switching,
-complete-source math fallback, glyph coordinate projection, unchanged-pixel
-preservation, source-pixel scroll anchoring, device scale, bounded allocation and
-disposal. A same-bundle full publication now retires patched strips instead of
-returning early merely because the bundle ID and scale are unchanged. A normal
-single-block fallback retires the obsolete retained compositor.
+[Run 41004221190](https://github.com/complexzeta/TeXquisite/actions/runs/41004221190)
+passed build, 34 focused guards, isolated canvas tests, real native ownership and
+repair, full navigation/handoff tests and six serialized editing sessions.
+Measured source: `24bf5504895f983be25071736458e5bd887e4dab`; control:
+`73136916c1cbd5d59175dcbf0b05148652f6c01b` (0.111).
 
-The initial live editor test reached cross-page two-way navigation, unchanged
-source navigation, stale-click rejection, undo/redo and display handoffs. It did
-not pass its whole sequence: one fixture assumption was invalid after a large
-paragraph became a multi-page canonical paragraph; a later run timed out after
-layout changes. These are incomplete runs, not performance wins. The test now
-records rejection diagnostics and checks that a canonical frame is a nonzero
-full raster, rather than a provisional strip with cleared metadata.
-
-The local machine reached severe memory pressure during these experiments.
-Longer tests are being moved to a manual GitHub workflow, with serialized
-candidate/control runs against the exact 0.111 source commit. Test harnesses
-refuse low-memory startup and stop their own disposable app under severe
-pressure. They do not close user applications. Fixtures and profiles remain
-isolated from user documents.
-
-End-to-end comparison, the full handoff sequence and packaging remain pending.
-The earlier 33–41 ms component timings must not be reported as editor latency.
-
-The first cloud run, 40999401341, passed the build, 33 focused guards and isolated
-canvas integration check. Its installer mirror timed out before any native or
-live-editor test ran. The installer now tries alternate HTTPS CTAN mirrors and
-validates the ZIP before promoting a partial download. Using another specific
-mirror follows the [TeX Live installation guidance](https://www.tug.org/texlive/acquire-netinstall.html).
-
-The second run, 40999774762, installed TeX successfully, but its updated LaTeX
-kernel did not match the bundled format. The application correctly selected
-native compilation; the fixtures had incorrectly assumed resident preview was
-already available. The test setup now generates an installation-matched format
-with the existing self-test and dependency/fingerprint checks, then seeds each
-fresh test profile with that preparation. The baseline and candidate use the
-same installed inputs and engine identity. Compatibility checks remain enabled.
-
-The third run, 41000490096, passed the native retained ownership test and all four
-baseline/candidate sessions, including saving, strict export and normal reopen.
-Its navigation test stopped at a click helper that assumed every page was 612
-points wide; that assumption is being replaced with the view's actual scale.
-The plain-text candidate recorded median 56 / p95 154 / maximum 850 ms, versus
-56 / 318 / 398 ms for 0.111. Its maximum was an error-recovery action, so this is
-not an overall speedup claim. Mixed-math results were 131 / 361 / 376 ms versus
-140 / 351 / 381 ms. These cloud timings are not local physical-display timings.
-
-The next comparison explicitly specifies PDF paper dimensions in both fixtures,
-so an installation's default format paper size does not silently change the
-workload. Earlier page-output geometry rejections remain genuine fallbacks and
-are not suppressed. Neighboring retained paragraphs also leave preceding-line
-ink and crop bleed with their original owner, instead of sharing a vertical
-slice that could restore stale descenders.
-
-Run 41001860313 passed the complete correctness suite, including adjacent blocks,
-Follow typing, large contraction, stale clicks, undo/redo, zoom/layout/mode/file
-handoffs, save, strict export and reopen. With explicit letter PDF dimensions,
-the recovery/structure sessions measured:
-
-| Fixture | 0.111 median / p95 / max | Retained candidate median / p95 / max |
+| Workload | 0.111 median / p95 / maximum | Retained median / p95 / maximum |
 | --- | --- | --- |
-| Plain text | 55 / 103 / 147 ms | 62 / 178 / 203 ms |
-| Inline math | 73 / 166 / 251 ms | 75 / 167 / 263 ms |
+| Healthy plain text | 54 / 92 / 139 ms | 55 / 121 / 143 ms |
+| Plain text with errors and structural edits | 55 / 109 / 147 ms | 55 / 134 / 197 ms |
+| Inline math with errors and structural edits | 74 / 160 / 224 ms | 74 / 166 / 261 ms |
 
-The candidate was slower for plain text in this run. Six rejected local frames
-revealed a missing immutable source snapshot when typing advanced during full
-publication. The first retained update now supplies the bounded source snapshot
-once per block history; the renderer checks its SHA-256 against accepted
-navigation before caching it and rechecks the display token after that await.
-The session test explicitly refuses those missing-baseline rejections.
+These are bounded cloud renderer acknowledgements, including hash-confirmed
+slow action frames and intermediate typing frames. Each fresh 100-paragraph
+fixture used explicit letter PDF dimensions, a checked installation-matched
+format and four editing rounds. Baseline and candidate used identical inputs,
+engine and harness on the same runner, serially. Save, strict export of current
+source and normal reopen passed. No missing-baseline rejections remained.
+These are not physical-display measurements, local-machine guarantees, TikZ
+benchmarks, a six-platform/version compatibility rerun or BaKoMa comparisons.
+The 300 ms target held for these samples only. There is no measured basis for
+enabling the new retention algorithm by default.
 
-A sole retained active block can now use the existing bounded error repair,
-retiring its retained history and keeping the editor source unchanged. Repair
-still refuses to overwrite any other carried block history. This avoids a full
-build merely because the active paragraph already had a retained edit.
-An additional healthy-typing comparison separates ordinary paragraph switching
-from deliberate malformed commands and section insertion. These fixes and their
-updated native/browser tests still require a new cloud run before promotion.
+## Implementation and correctness
+
+Retained frames require the existing native character, write, state and flow
+witnesses, immutable source identity and exact reconstruction of carried edits.
+Native compiler/state-proof thresholds were not weakened. Inline math cannot be
+carried by the new mechanism; unsupported changes use guarded fallback. At most
+three independently edited paragraphs are carried. The original source is sent
+once per history, bounded to two million JavaScript code units, checked against
+accepted navigation with SHA-256, then followed by an epoch/view recheck.
+
+The compositor keeps unaffected strips attached, shifts following material,
+preserves viewport anchors, bounds display-pixel allocations, and disposes
+owned rasters at full, mode, file and ordinary-flow handoffs. Neighboring blocks
+keep previous-line ink and crop bleed with their original owner. Navigation
+jointly projects unchanged baseline glyphs and edited block-local glyphs.
+
+A sole retained active paragraph can use bounded temporary error repair,
+retiring its history without changing editor or saved source. Repair refuses to
+overwrite other carried edits. Tests cover unknown-command recovery/correction,
+math fallback, growth/shrinkage, multiple blocks, stale clicks, two-way navigation,
+Follow, undo/redo, zoom, fit width, pane changes, mode/file switching, canonical
+same-bundle resets, save/export and reopen.
+
+Development opt-in requires both `PERSISTENT_TEX_MULTI_BLOCK=1` and
+`PERSISTENT_TEX_RETAINED_FLOW=1`. The normal launcher sets neither.
+Earlier 33-41 ms component tests excluded preparation, source ownership,
+publication and navigation; they are not editor latency.
+
+## CI repair and reliability follow-up
+
+The email's run 40999401341 stopped at a TeX Live mirror timeout after build,
+guards and canvas checks passed. The installer now validates bounded HTTPS
+downloads and tries alternate mirrors, following the
+[TeX Live installation guidance](https://www.tug.org/texlive/acquire-netinstall.html).
+A later runner's updated LaTeX kernel correctly triggered native fallback;
+fixtures now generate a matching format with the existing self-test and exact
+input fingerprints. No compatibility guard was disabled. Other exploratory
+runs caught a fixture page-scale assumption and a TypeScript error; the green
+run above verifies their fixes.
+
+The 0.112 follow-up adds **Build > Copy performance report**, an explicit
+whitelist of in-memory timing, routing and memory fields. It excludes source,
+paths, edit IDs and compiler logs; local and full verification timing are
+separate. Nothing is uploaded. Switching from any local lecture flow into
+Document mode now requests canonical document pages, even without retention.
+Final 0.112 packaging verification is pending; no released binary is claimed.
+
+Bulk profiles, fixtures and local temporary files use Kingston. Long GUI/TeX
+sessions run on disposable cloud machines after low free memory was observed
+locally. The cause of the reported crash is not established. Closed local
+fixtures are removed only after reports are copied and verified; user documents,
+profiles and the installed 0.111 executable remain untouched.

@@ -115,7 +115,7 @@ jobs:
         run: |
           npm run build
           if($LASTEXITCODE -ne 0){exit $LASTEXITCODE}
-          node --test --test-concurrency=1 test/retained-layout.test.cjs test/retained-navigation.test.cjs test/contraction-probe.test.cjs test/window-page-fallback.test.cjs test/region-navigation-cache.test.cjs test/local-preview.test.cjs test/raster-bytes.test.cjs test/ink-bounds.test.cjs test/local-recovery.test.cjs test/pdf-work-queue.test.cjs
+          node --test --test-concurrency=1 test/retained-layout.test.cjs test/retained-navigation.test.cjs test/contraction-probe.test.cjs test/window-page-fallback.test.cjs test/region-navigation-cache.test.cjs test/local-preview.test.cjs test/raster-bytes.test.cjs test/ink-bounds.test.cjs test/local-recovery.test.cjs test/pdf-work-queue.test.cjs test/performance-report.test.cjs
           if($LASTEXITCODE -ne 0){exit $LASTEXITCODE}
           node scripts/retained-layout-test.cjs
           exit $LASTEXITCODE
@@ -132,6 +132,8 @@ jobs:
       - name: Native retained ownership and unsupported math fallback
         id: native_retained
         run: node --test --test-concurrency=1 test/retained-preview.test.cjs
+      - name: Default-mode report privacy, menu and canonical handoff
+        run: node scripts/performance-report-test.cjs
       - name: Retained navigation, wrapping, deletion and display handoffs
         env:
           PERSISTENT_TEX_RETAINED_FLOW: '1'
@@ -198,8 +200,11 @@ jobs:
           if($LASTEXITCODE -ne 0){exit $LASTEXITCODE}
           $env:PERSISTENT_TEX_LECTURE_ROUNDS='6'
           $env:PERSISTENT_TEX_LECTURE_PLAIN='1'
-          $env:PERSISTENT_TEX_SESSION_MULTI_BLOCK='1'
+          $env:PERSISTENT_TEX_SESSION_MULTI_BLOCK='0'
+          $env:PERSISTENT_TEX_RETAINED_FLOW='0'
           $env:PERSISTENT_TEX_SESSION_HEALTHY='0'
+          node scripts/performance-report-test.cjs
+          if($LASTEXITCODE -ne 0){exit $LASTEXITCODE}
           node scripts/lecture-session-test.cjs
           if($LASTEXITCODE -ne 0){exit $LASTEXITCODE}
           $env:PERSISTENT_TEX_LECTURE_PLAIN='0'

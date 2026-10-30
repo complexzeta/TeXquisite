@@ -3,6 +3,8 @@ import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import {pathToFileURL} from 'node:url';
 import {randomUUID} from 'node:crypto';
+import {freemem,totalmem} from 'node:os';
+import {performanceReport} from './performance-report';
 import {themeIconPath,followIconTheme} from './theme-icon';
 import {ArtifactStore,BuildController,Bundle,hash} from './core';
 import {saveDocument,sourceBytes,SourceConflictError} from './saving';
@@ -295,6 +297,11 @@ async function build(sourceText?:string,automatic=sourceText!==undefined) {
 function updateAppMenu(){Menu.setApplicationMenu(appMenu(state,(action,value)=>send({type:'menuAction',action,value})));if(window&&!window.isDestroyed()){window.setAutoHideMenuBar(false);window.setMenuBarVisibility(true);}}
 async function handle(method:string,args:unknown[]) {
   switch(method){
+    case 'performanceReport':
+    case 'copyPerformanceReport': {
+      const report=performanceReport({version:app.getVersion(),mode:state.previewMode??'document',continuous:!!state.continuousPreview,automatic:state.onSave,visible:!!window?.isVisible()&&!window.isMinimized(),localReady:localPreview.ready,localBusy:localPreview.busy,fastAvailable:!!toolchain?.fast.available,fastPreparable:!!toolchain?.fast.preparable,freeMiB:freemem()/1048576,totalMiB:totalmem()/1048576,latestEditId,standby:controller?.standbyReport.state,retained:process.env.PERSISTENT_TEX_MULTI_BLOCK==='1'&&process.env.PERSISTENT_TEX_RETAINED_FLOW==='1'},previewTrace);
+      if(method==='copyPerformanceReport'){clipboard.writeText(JSON.stringify(report,null,2));setStatus('Performance report copied. Source text and file paths are excluded.');}return report;
+    }
     case 'previewPerformance': return {standby:controller?.standbyReport,localReady:localPreview.ready,localBusy:localPreview.busy,localRange:localPreview.preparedRange,...(args[0]===true?{trace:previewTrace.slice()}: {})};
     case 'localRefresh': {
       if(process.env.PERSISTENT_TEX_MULTI_BLOCK==='1'){
