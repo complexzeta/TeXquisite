@@ -245,7 +245,7 @@ function renderRecoveryNotice(reason?:string){
  notice.hidden=!issue&&!recovered&&!reason;if(notice.hidden)return;
  const stale=!!issue&&issue.editId!==latestEdit?.id,where=issue?.file&&issue.line?` (${issue.file.split(/[\\/]/).at(-1)}, line ${issue.line})`:'';
  el('previewNoticeTitle').textContent=stale?'Checking newer edits':issue?issue.message+where:recovered?'Temporary preview':'Navigation needs attention';
- el('previewNoticeText').textContent=reason??(stale?'This error belongs to an earlier edit. The preview will check your current source.':issue?(diagnosticAdvice(issue.message)??'Open Details to inspect the build log, then Retry preview.')+(recovered?' Unchanged mapped text remains navigable; repaired text may not be.':' The previous preview is retained.'): 'This preview contains temporary repairs. Retry preview to check the current source.');
+ el('previewNoticeText').textContent=reason??(stale?(model.onSave?'This error belongs to an earlier edit. Rechecking after typing pauses.':'This error belongs to an earlier edit. Automatic checking is paused; choose Retry preview.'):issue?(diagnosticAdvice(issue.message)??'Open Details to inspect the build log, then Retry preview.')+(recovered?' Navigation is limited to unchanged mapped text. Direct PDF editing resumes after the error is fixed.':' The previous preview is retained.'): 'This preview contains temporary repairs. Retry preview to check the current source.');
  const go=el<HTMLButtonElement>('previewNoticeError');go.hidden=!issue?.file||!issue.line;go.disabled=stale;
 }
 function explainNavigation(reason:string){el('navState').textContent=reason;renderRecoveryNotice(reason);}
@@ -622,7 +622,7 @@ async function locateSource(explicit:boolean){
   }
   markLocation(row,explicit);
 }
-el('editPreview').onclick=()=>void command(async()=>{navigationToken++;endPreview();const enabled=model.previewEditing=!model.previewEditing;renderTabs();await flush();await api.call('previewEditing',enabled);el('navState').textContent=enabled?'Preparing editable text · click plain text after the preview updates':'Click PDF text to show its source';});
+el('editPreview').onclick=()=>void command(async()=>{if(current?.navigation?.recovery||current?.timing?.recovered||localCanvas?.dataset.localRecovered==='true'){explainNavigation('Direct PDF editing is paused for this temporary preview. Use the source editor or Go to error, then Retry preview.');return;}navigationToken++;endPreview();const enabled=model.previewEditing=!model.previewEditing;renderTabs();await flush();await api.call('previewEditing',enabled);el('navState').textContent=enabled?'Preparing editable text · click plain text after the preview updates':'Click PDF text to show its source';});
 el('locate').onclick=()=>void command(()=>locateSource(true));
 el('follow').onclick=()=>void command(async()=>{navigationToken++;const enabled=model.followPreview=!model.followPreview;renderTabs();await api.call('follow',enabled);if(enabled&&model.followPreview)await locateSource(true);});
 el('pages').addEventListener('click',event=>void command(async()=>{
@@ -882,7 +882,7 @@ api.on(async message=>{
         livePages=undefined;liveFlow={root:message.root,baseId:message.baseId,sourceHash:message.sourceHash,editId:message.editId,file:message.sourceFile??message.root,stateChanged:!!message.flowOutput.stateChanged,text:input.text,from:message.rangeFrom,to:message.rangeTo,baseTo:message.flowOutput.baseRangeTo,page:message.page,canvas,blocked:message.flowOutput.blocked?.map((g:any)=>({...g,y:g.y+leadingCorrection})),locations:(message.flowOutput.locations??[]).map((g:any)=>({...g,y:g.y+leadingCorrection}))};
         if(message.retainedFlow)liveFlow=undefined;
         canvas.dataset.renderScope='local';canvas.dataset.localLayout=message.retainedFlow?'retained-flow':'flow';canvas.dataset.localStateChanged=String(!!message.flowOutput.stateChanged);canvas.dataset.localSourceHash=message.sourceHash;canvas.dataset.localEditId=message.editId;canvas.dataset.sourceHash=current?.canvas.dataset.sourceHash??'';
-        canvas.dataset.localRecovered=String(!!message.recovery);
+        canvas.dataset.localRecovered=String(!!message.recovery||!!message.recoveredBasis);
         canvas.dataset.localPipeline=JSON.stringify({compiler:message.timing,receiveMs:receivedAt-inputAt,checkedRegionMs:tiledAt-receivedAt,pdfWorker:{queueMs:tile.queueMs,loadMs:tile.loadMs,rasterMs:tile.rasterMs,checkMs:tile.checkMs,cropMs:tile.cropMs,workerMs:tile.workerMs,rasterPasses:tile.rasterPasses},canvasMs:performance.now()-tiledAt});
         if(model.followPreview&&Number.isFinite(message.flowOutput.caretY))continuousView.reveal(canvas,message.flowOutput.caretY+leadingCorrection);
         const finish=()=>{if(token!==localRenderToken||localCanvas!==canvas)return;const latency=Math.ceil(performance.now()-inputAt);input.displayedLatencyMs??=latency;canvas.dataset.localLatencyMs=String(latency);canvas.dataset.localLatencyEditId=message.editId;canvas.dataset.timingEndpoint=message.visible?'paint opportunity':'canvas (window hidden)';void api.call('localWarm',message.root,message.baseId,message.editId,Math.ceil(performance.now()-inputAt),canvas.dataset.localLayout).catch(()=>{});localStatus=`Continuous block updated in ${latency} ms from edit. Paginated PDF verification pending.`;refreshPreviewStatus();};
@@ -926,7 +926,7 @@ api.on(async message=>{
             livePages=message.pageLocations?{root:message.root,file:message.sourceFile??message.root,baseId:message.baseId,editId:message.editId,sourceHash:message.sourceHash,text:input.text,from:0,to:input.text.length,pages:message.pageLocations.map((p:any)=>({...p,canvas:canvases[p.page-proof.span.first]})).filter((p:any)=>!!p.canvas)}:undefined;
             const baselineText=continuousBasis?.texts?.[input.file]??(input.file===model.root?continuousBasis?.text:undefined);
             if(livePages&&continuousBasis&&baselineText!==undefined)livePages.pages.push(...unchangedPageLocations(continuousBasis.navigation,input.file,baselineText,input.text,{first:span.first,last:proof.span.last}).map(p=>({...p,canvas:p.page>=proof.span.first&&p.page<span.first?canvases[p.page-proof.span.first]:undefined})));
-            for(const c of canvases)c.dataset.localRecovered=String(!!message.recovery);
+            for(const c of canvases)c.dataset.localRecovered=String(!!message.recovery||!!message.recoveredBasis);
             for(const c of canvases){c.dataset.renderScope='local';c.dataset.localLayout='continuous-pages';c.dataset.localSourceHash=message.sourceHash;c.dataset.localEditId=message.editId;c.dataset.localFirstPage=String(proof.span.first);c.dataset.localLastPage=String(span.last);c.dataset.localPipeline=JSON.stringify({compiler:message.timing,receiveMs:receivedAt-inputAt,loadRenderMs:performance.now()-receivedAt});}
             if(model.followPreview){
               const page=Math.max(span.first,Math.min(span.last,message.cursorPage??span.first)),target=message.cursorPosition;
@@ -944,7 +944,7 @@ api.on(async message=>{
         localPatch={x:0,y:0,width:canvas.width,height:canvas.height,page};displayedSequence=input.sequence;
         canvas.dataset.renderScope='local';canvas.dataset.localLayout='page';canvas.dataset.localProofKey=proofKey(message);canvas.dataset.localSourceHash=message.sourceHash;canvas.dataset.localEditId=message.editId;canvas.dataset.sourceHash=current?.canvas.dataset.sourceHash??'';
         canvas.dataset.localFirstPage=String(span.first);canvas.dataset.localLastPage=String(span.last);el('pages').replaceChildren(canvas);el('empty').hidden=true;pageNumber=page;el('pageLabel').textContent=`${pageNumber} / …`;
-        canvas.dataset.localRecovered=String(!!message.recovery);
+        canvas.dataset.localRecovered=String(!!message.recovery||!!message.recoveredBasis);
         if(model.followPreview&&message.cursorPosition)continuousView.reveal(canvas,message.cursorPosition.y+message.cursorPosition.height,scale);
         const finish=()=>{if(token!==localRenderToken||localCanvas!==canvas||canvas.dataset.localEditId!==message.editId)return;void api.call('localWarm',message.root,message.baseId,message.editId,Math.ceil(performance.now()-inputAt),canvas.dataset.localLayout).catch(()=>{});const latency=Math.ceil(performance.now()-inputAt);input.displayedLatencyMs??=latency;canvas.dataset.localLatencyMs=String(latency);canvas.dataset.localLatencyEditId=message.editId;canvas.dataset.timingEndpoint=message.visible?'paint opportunity':'canvas (window hidden)';localStatus=`Affected ${span.last>span.first?'pages':'page'} updated in ${latency} ms from edit. Full document verification pending.`+(!message.visible?' Window hidden; measured to canvas.':'');refreshPreviewStatus();};
         if(message.visible)requestAnimationFrame(()=>requestAnimationFrame(finish));else finish();return;
@@ -992,7 +992,7 @@ api.on(async message=>{
         localPatch={x:tile.x,y:tile.y,width:tile.patchWidth,height:tile.patchHeight,page:message.page};
         displayedSequence=input.sequence;
         canvas.dataset.renderScope='local';canvas.dataset.localLayout='paragraph';canvas.dataset.localProofKey=key;canvas.dataset.localSourceHash=message.sourceHash;canvas.dataset.localEditId=message.editId;canvas.dataset.sourceHash=current?.canvas.dataset.sourceHash??'';canvas.dataset.localRasterMs=String(tile.rasterMs);
-        canvas.dataset.localRecovered=String(!!message.recovery);
+        canvas.dataset.localRecovered=String(!!message.recovery||!!message.recoveredBasis);
         canvas.dataset.localPipeline=JSON.stringify({compiler:message.timing,receiveMs:receivedAt-inputAt,loadAndInkMs:checkedAt-receivedAt,tileMs:tiledAt-checkedAt,canvasMs:performance.now()-tiledAt});
         if(canvas.parentElement!==el('pages'))el('pages').replaceChildren(canvas);el('empty').hidden=true;pageNumber=message.page;el('pageLabel').textContent=`${pageNumber} / ${current?.pdf.numPages??'?'}`;
         const finish=()=>{if(token!==localRenderToken||localCanvas!==canvas||canvas.dataset.localEditId!==message.editId)return;void api.call('localWarm',message.root,message.baseId,message.editId,Math.ceil(performance.now()-inputAt),canvas.dataset.localLayout).catch(()=>{});const latency=Math.ceil(performance.now()-inputAt);input.displayedLatencyMs??=latency;canvas.dataset.localLatencyMs=String(latency);canvas.dataset.localLatencyEditId=message.editId;canvas.dataset.timingEndpoint=message.visible?'paint opportunity':'canvas (window hidden)';localStatus=`Local paragraph updated in ${latency} ms from edit. Full document verification pending.`+(!message.visible?' Window hidden; measured to canvas.':'');refreshPreviewStatus();};
