@@ -268,3 +268,125 @@ The trial is staged on Kingston with its checksum/provenance and a launcher that
 preserves the established profile, normal flags and external temporary storage.
 This remains a draft-branch trial, without a main merge, tag or new public binary
 release.
+
+## 0.118: automatic recovery without a full check between words
+
+An active or previous error could impose work that healthy Lecture typing did
+not: a recovered local frame requested a whole-document check after 650 ms,
+and a correction retained an obsolete error until that check finished. A
+confirmed undefined-command hint also required every character before the
+command to stay identical, so typing before it retried the failing input.
+
+There was also a stranded ownership wait after Export/full verification. A new
+publication left the wait flag set; if the current paragraph intersected a
+temporary repair, preparation returned before borrowing the compiler. Later
+cursor moves then returned early indefinitely. Accepting a new basis now clears
+that wait before paragraph checks. Actual compiler transfers still use the same
+ownership guards. A focused regression and the GUI session deliberately let the
+repaired paragraph be inspected first, then move to healthy text.
+
+The new hint is bound to an exact engine-confirmed original/repaired pair and
+its prepared slot. It handles ordinary text changes on either side of a literal
+undefined command, shifting the skip only outside the changed text. Changing
+the command or preceding definitions reconsiders the skip. An unchanged prefix
+through the rejected token keeps the existing fast path for subsequent input.
+Compound or structural substitutions cannot seed this hint; the actual repaired
+copy still has to compile and pass normal local-output/rendering checks.
+
+Confirmed recovery now uses the same provisional policy as healthy Lecture
+output across flow, fixed-paragraph and page rendering, including its existing
+handling of state changes and navigation limits. Formatting/argument edits that
+invalidate the literal hint must run TeX again. If every resulting repair freshly
+confirms a known canonical error, the same warm context may continue; a new fault
+requests canonical checking. Neither path promotes repaired input to healthy source.
+It stays explicitly approximate. Unchanged remote diagnostics may be projected
+through ordinary text edits; that projection grants no compiler, editing or
+export authority. A recovered canonical source can also hand a newer automatic
+ordinary-text revision to the local queue using the original editor draft,
+rather than comparing the new text to its spaces-only repair.
+Diagnostic projection advances its comparison source only after an accepted
+frame carrying the known remote errors. Separate ordinary edits around unchanged
+math therefore remain ordinary edits; an unverified definition cannot be washed
+out by the next word. This applies to both flowing and proved page output.
+
+When an unmodified local compile succeeds and the complete reconstructed compiler
+input equals the actual editor draft, obsolete root errors can clear immediately.
+If native flow state also matches, Lecture mode keeps the healthy local compiler.
+If state changed, a required full check is scheduled immediately instead of
+waiting another 650 ms. Repairs outside the active region, included-file or
+unlocated diagnostics and retained projected history cannot claim this equality.
+Build and Export still require a current full unmodified-source validation.
+
+Length-changing repairs that preserve line count, such as a temporary math
+closer, can now offer a local basis for other unchanged paragraphs. Editor
+positions stay in the original draft; compiled ranges are mapped by complete
+lines and must match the active text exactly before native and raster proofs.
+The repaired paragraph itself is refused when its bytes do not match. This does
+not turn a repair into verified source or permit approximate export.
+
+The missing-closer test also exposed a page-rendering refusal for fractional
+paper sizes. The PDF library floors raster/CSS dimensions but returns exact
+dimensions from its native page-size API. Page and band replacement now compare
+those exact native dimensions, stored separately on each new canvas. Ordinary
+metadata copying cannot overwrite them with another page's size. Raster sizes,
+CSS behavior and pixel proofs are unchanged; genuine geometry changes, invalid
+or partial metadata still refuse replacement under the existing tolerance.
+
+The notice explains automatic checking while Live is on; its optional button is
+called Check now. Routine correction and navigation messages no longer tell the
+user to retry manually. Pausing Live still offers Retry preview.
+The notice is refreshed after each accepted local frame, so an old recovered
+full baseline cannot bring its error banner back after the next healthy word.
+Navigation explanations preserve the concrete command/brace/argument advice.
+
+The new synthetic source/packaged session types before and after an error across
+one-second pauses, moves to another paragraph, returns and corrects the command,
+checks immediate local diagnostic clearing and automatic state-change verification,
+continues healthy typing, checks exact saving, then performs strict PDF export.
+It also types in another paragraph with a missing math closer and automatically
+checks its subsequent correction. The existing definition-based correction
+session records the time until its automatic error-free publication.
+Focused guards cover hint invalidation, original-draft handoff, state-change
+metadata, remote errors and a mismatched retained full-source history.
+
+Validation for runtime/test source `c14c5e3c5669b669ae27d1e1c9adca53cdfafd67`
+passed in [the cloud source and packaged run](https://github.com/complexzeta/TeXquisite/actions/runs/41142305544):
+75 focused guards, the separate native ownership guard, and all 26 integration
+and package result records. Existing navigation, normal/high-density paragraph
+split, report privacy, editing/save/export/reopen and serialized comparison
+sessions passed. No Retry or Build was used by the new automatic-recovery session.
+
+Across its source and packaged sessions, warm edits around the undefined command
+were 19–23 ms, remote edits 24–32 ms, command correction 18/26 ms, and subsequent
+healthy typing 17/17 ms. Remote edits around unchanged math with a missing closer
+were 32–35 ms in continuous page output. Both runs stayed warm across one-second
+pauses, cleared the corrected error locally, saved exactly, exported corrected
+source strictly and automatically verified the structural correction. Both also
+recorded a refused smaller block patch (`Continuous block ink exceeds its bounds`)
+before continuing successfully through the existing fallback; proof refusals are
+not disabled. The separate definition-based correction required an automatic
+canonical publication, taking 456/507 ms. Initial idle-fixture updates were
+105–197 ms; subsequent warm words were 12–21 ms.
+
+These are small hidden-renderer synthetic observations, not physical-screen or
+BaKoMa parity measurements, a paired overall version comparison, or an arbitrary
+document guarantee. Newly encountered errors, unsupported active repaired regions,
+structural changes and definition changes can still require a full check or new
+preparation. Document mode retains its verification policy. No new broad TeX Live
+matrix or complex TikZ campaign was run; the TeX WASM is unchanged. All builds,
+GUI tests and packaging ran in the cloud, without benchmarking the user's
+manuscript locally or interacting with their running 0.117 app.
+
+Nineteen packaged runtime assets matched the build; version/licensing, private
+path and development-file exclusions passed. All 385 tracked source files passed
+the private-data audit. The verified portable is 119,507,062 bytes, SHA-256:
+
+```text
+d81a664792a39be6c5b7872f8460e08c0637f0fc1d52a3892cc1f12b983c62f3
+```
+
+The trial, checksum and provenance are staged on Kingston with the existing
+profile, normal flags and external temporary storage. The duplicate portable
+download archive was removed after staged-byte verification. Bulk evidence stays
+on Kingston. This remains a draft-branch trial without a main merge, tag or new
+public binary release, pending a convenient normal restart.
