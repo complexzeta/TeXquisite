@@ -332,7 +332,7 @@ async function handle(method:string,args:unknown[]) {
       if(method==='copyPerformanceReport'){clipboard.writeText(JSON.stringify(report,null,2));setStatus('Performance report copied. Source text and file paths are excluded.');}return report;
     }
     case 'retryPreview': {localPreview.prepareFullVerification();await build(undefined,true);return true;}
-    case 'previewPerformance': return {standby:controller?.standbyReport,localReady:localPreview.ready,localBusy:localPreview.busy,localRange:localPreview.preparedRange,...(args[0]===true?{trace:previewTrace.slice()}: {})};
+    case 'previewPerformance': return {standby:controller?.standbyReport,localReady:localPreview.ready,localBusy:localPreview.busy,localRange:localPreview.preparedRange,preparation:localPreview.preparationStatus,...(args[0]===true?{trace:previewTrace.slice()}: {})};
     case 'localRefresh': {
       if(process.env.PERSISTENT_TEX_MULTI_BLOCK==='1'){
         if(localPreview.hasLocalChanges){localPreview.stop();if(controller)void build(undefined,true).catch(e=>setStatus(String(e)));}

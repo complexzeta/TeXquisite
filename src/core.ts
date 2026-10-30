@@ -452,6 +452,7 @@ export class BuildController {
       // in the original draft; LocalPreview maps whole lines to compiler input,
       // refuses any changed paragraph, and repeats native/raster proofs.
       if(recoveryIssues.length&&!localRecoveryEligible&&source.split('\n').length===compilerSource.split('\n').length){localSource=source;localRecoveryEligible=true;}
+      if(recoveryIssues.length)this.log('Recovered local basis: '+JSON.stringify({eligible:localRecoveryEligible,sourceCharacters:source.length,compiledCharacters:compilerSource.length,sourceLines:source.split('\n').length,compiledLines:compilerSource.split('\n').length})+'\n');
       // Recovered output is never proof of the unmodified editor source.
       if(backend.startsWith('Preamble')||recoveryIssues.length&&localRecoveryEligible)try{this.viewer.localBasis?.({bundle,options,source:recoveryIssues.length?localSource:source,originalSource:recoveryIssues.length?source:undefined,recoveryIssues:recoveryIssues.length?recoveryIssues:undefined,compilerSource,project,pdf,canBuildAlongside:()=>this.independentLocalOwner,takeCompiler:()=>{
         // Transfer ownership only after publication and only while idle. Future

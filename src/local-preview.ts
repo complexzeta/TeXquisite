@@ -99,6 +99,7 @@ export class LocalPreview{
   private readonly neutralEnabled=process.env.PERSISTENT_TEX_MULTI_BLOCK==='1';
   private readonly retainedFlowEnabled=process.env.PERSISTENT_TEX_RETAINED_FLOW==='1'&&this.neutralEnabled;
   get ready(){return !!this.slot?.ready;}
+  get preparationStatus(){const b=this.basis;return {basis:!!b,recovered:!!b?.bundle.recovered,sourceCharacters:b?.source.length,compilerCharacters:b?.compilerSource.length,originalCharacters:b?.originalSource?.length,cursorAt:this.cursor?.at,cursorInRoot:!!b&&this.cursor?.file===b.options.root,verifyingWithOwner:this.verifyingWithOwner,warm:!!this.warmCompiler?.initialized,slot:!!this.slot};}
   get preparedRange(){const s=this.slot;if(!s)return;const range=this.neutral?.actual(s.range)??{from:s.range.from,to:s.liveEnd};return {file:s.file??s.basis.options.root,sourceHash:hash(s.sourceText??s.basis.source),...range};}
   get busy(){return !!this.pending||this.running||!!this.slot&&!this.slot.ready;}
   private continuous=false;
@@ -310,11 +311,12 @@ export class LocalPreview{
     const expanded=range.to!==paragraph.to;
     const before=sourceText.slice(0,range.from).split('\n').length-1,after=sourceText.slice(0,range.to).split('\n').length-1;
     const compiledRange=input?{...range}:{from:lineOffset(basis.compilerSource,before),to:lineOffset(basis.compilerSource,after)};
-    if(compiledRange.from<0||compiledRange.to<0||(input?sourceText:basis.source).slice(range.from,range.to)!==(input?sourceText:basis.compilerSource).slice(compiledRange.from,compiledRange.to)){const pending=this.pending?.editId;this.pending=undefined;if(pending)this.fallback(pending);return;}
+    if(compiledRange.from<0||compiledRange.to<0||(input?sourceText:basis.source).slice(range.from,range.to)!==(input?sourceText:basis.compilerSource).slice(compiledRange.from,compiledRange.to)){this.log('Local paragraph intersects a compilation-only repair: '+JSON.stringify({range,compiledRange,expanded})+'\n');const pending=this.pending?.editId;this.pending=undefined;if(pending)this.fallback(pending);return;}
     const borrowed=background||this.warmCompiler?undefined:basis.takeCompiler?.();
     // An intermediate publication may still have newer full work queued.
     // Wait for its next ownership offer instead of cold-starting a local lane.
     if(!borrowed&&(this.verifyingWithOwner||!background&&!this.warmCompiler&&!!basis.takeCompiler)){
+      if(!background)this.log('Local compiler ownership is not yet available.\n');
       this.verifyingWithOwner=true;const pending=this.pending?.editId;this.pending=undefined;
       if(pending)this.fallback(pending);return;
     }
