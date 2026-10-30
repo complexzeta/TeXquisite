@@ -115,7 +115,7 @@ jobs:
         run: |
           npm run build
           if($LASTEXITCODE -ne 0){exit $LASTEXITCODE}
-          node --test --test-concurrency=1 test/retained-layout.test.cjs test/retained-navigation.test.cjs test/contraction-probe.test.cjs test/window-page-fallback.test.cjs test/region-navigation-cache.test.cjs test/local-preview.test.cjs test/raster-bytes.test.cjs test/ink-bounds.test.cjs test/local-recovery.test.cjs test/pdf-work-queue.test.cjs test/performance-report.test.cjs test/recovery-navigation.test.cjs
+          node --test --test-concurrency=1 test/retained-layout.test.cjs test/retained-navigation.test.cjs test/contraction-probe.test.cjs test/window-page-fallback.test.cjs test/region-navigation-cache.test.cjs test/local-preview.test.cjs test/raster-bytes.test.cjs test/ink-bounds.test.cjs test/local-recovery.test.cjs test/preview-recovery.test.cjs test/pdf-work-queue.test.cjs test/performance-report.test.cjs test/recovery-navigation.test.cjs
           if($LASTEXITCODE -ne 0){exit $LASTEXITCODE}
           node scripts/retained-layout-test.cjs
           exit $LASTEXITCODE

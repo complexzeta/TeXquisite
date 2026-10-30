@@ -1,5 +1,14 @@
 // These edits exist only in a disposable compilation copy. They never authorize
 // source edits, local checkpoint proofs, navigation, or a verified PDF export.
+function literalContextEnd(text:string,shown:string):number|undefined{
+ // TeX shortens long input lines with a leading ellipsis. Recover the
+ // location only when the remaining literal suffix identifies one occurrence.
+ // Short or repeated suffixes cannot establish which token TeX rejected.
+ if(!shown.startsWith('...'))return text.startsWith(shown)?shown.length:undefined;
+ const suffix=shown.slice(3);if(suffix.length<16)return;
+ const at=text.indexOf(suffix);if(at<0||text.indexOf(suffix,at+1)!==-1)return;
+ return at+suffix.length;
+}
 export function previewRepair(source:string,log:string):{source:string;message:string;line:number}|undefined{
  const context=/^l\.(\d+)[ \t]+([^\r\n]*)/m.exec(log);
  if(!context)return;
@@ -9,8 +18,9 @@ export function previewRepair(source:string,log:string):{source:string;message:s
   const beforeContext=log.slice(log.indexOf('Undefined control sequence'),context.index);
   if(/->|<argument>|<template>|<inserted text>|<to be read again>/.test(beforeContext))return;
   const command=/\\[A-Za-z@]+\s*$/.exec(context[2])?.[0].trim();if(!command)return;
-  const prefix=context[2].trimEnd(),at=prefix.length-command.length;
-  if(at<0||!text.startsWith(prefix)||/[A-Za-z@]/.test(text[at+command.length]??''))return;
+  const prefix=context[2].trimEnd(),end=literalContextEnd(text,prefix);if(end===undefined)return;
+  const at=end-command.length;
+  if(at<0||/[A-Za-z@]/.test(text[at+command.length]??''))return;
   // An expanded package/macro error must not delete a similarly named root
   // command. Require the diagnostic's source prefix to match literally.
   if(text.slice(at,at+command.length)!==command)return;

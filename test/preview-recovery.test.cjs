@@ -12,6 +12,16 @@ test('Undefined root commands can be skipped without changing source line or col
  assert.equal(previewRepair(repeated,'! Undefined control sequence.\nl.2 Hello \\tyop').source,repeated.replace('\\tyop','     '));
 });
 
+test('A long TeX line can locate one literal command from its truncated diagnostic suffix',()=>{
+ const head='Earlier ordinary context repeated for a long input line. '.repeat(4),tail='unique marker $\\unknownCommand',line=head+tail+'$ following text.',source='Before\n'+line+'\nAfter';
+ const log='! Undefined control sequence.\n<recently read> \\unknownCommand\nl.2 ...'+tail+'\n $ following text.';
+ const fixed=previewRepair(source,log);assert.ok(fixed);assert.equal(fixed.source,source.replace('\\unknownCommand',' '.repeat('\\unknownCommand'.length)));
+ assert.equal(previewRepair(source.replace('\\unknownCommand','\\unknownCommandMore'),log),undefined);
+ assert.equal(previewRepair('Before\n'+head+tail+' '+tail+'$\nAfter',log),undefined,'Repeated suffixes must not guess a token');
+ assert.equal(previewRepair(source,log.replace('...'+tail,'...\\unknownCommand')),undefined,'A short suffix is not sufficient evidence');
+ assert.equal(previewRepair(source,log.replace('<recently read>','<argument>')),undefined,'An expanded argument is not a literal root error');
+});
+
 test('Bounded structural repairs close math groups before delimiters and match literal environments',()=>{
  const cases=[
   ['$\\frac{1}{2$ words.','$\\frac{1}{2}$ words.'],

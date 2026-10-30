@@ -129,7 +129,7 @@ export class ArtifactStore {
 
 export interface BuildOptions { focus?:{line:number;column:number}; root: string; engine: string; executable: string; timeoutMs: number; sourceRevision?:number; sourceText?:string; characterMapping?:boolean; sourceFiles?:Record<string,string>; supportFolders?:string[]; editId?:string; automatic?:boolean; }
 export interface DisplayTiming {editId?:string;backend:string;requestToCommitMs:number;recovered?:boolean;}
-export interface LocalBasis {bundle:Bundle;options:BuildOptions;source:string;compilerSource:string;project:ResidentContext;pdf:Uint8Array;canBuildAlongside?:()=>boolean;takeCompiler?:()=>ResidentCompiler|undefined;replaceCompiler?:(previous:ResidentCompiler)=>ResidentCompiler|undefined;returnCompiler?:(compiler:ResidentCompiler)=>boolean;claimAutomatic?:(editId:string,source:string,previous?:ResidentCompiler)=>ResidentCompiler|undefined;}
+export interface LocalBasis {bundle:Bundle;options:BuildOptions;source:string;originalSource?:string;compilerSource:string;project:ResidentContext;pdf:Uint8Array;canBuildAlongside?:()=>boolean;takeCompiler?:()=>ResidentCompiler|undefined;replaceCompiler?:(previous:ResidentCompiler)=>ResidentCompiler|undefined;returnCompiler?:(compiler:ResidentCompiler)=>boolean;claimAutomatic?:(editId:string,source:string,previous?:ResidentCompiler)=>ResidentCompiler|undefined;}
 export interface Viewer { prepare(bundle: Bundle,pdf?:Uint8Array,navigation?:Navigation,displayFocus?:PreviewFocus): Promise<void>; commit(bundle: Bundle,timing?:DisplayTiming): void; discard(bundle: Bundle): void; diagnostic?(issue:BuildDiagnostic):void; problems?(issues:BuildDiagnostic[],editId?:string):void; localBasis?(basis:LocalBasis):void; performance?(report:Record<string,unknown>):void; }
 export class BuildController {
   private static protectedDirectories=new Set<string>();
@@ -450,7 +450,7 @@ export class BuildController {
       // A length-preserving recovered source can seed approximate LOCAL output
       // from exactly the bytes actually compiled. It is never a proof of the
       // unmodified editor source; that source must still pass region checks.
-      if(backend.startsWith('Preamble')||recoveryIssues.length&&localRecoveryEligible)try{this.viewer.localBasis?.({bundle,options,source:recoveryIssues.length?localSource:source,compilerSource,project,pdf,canBuildAlongside:()=>this.independentLocalOwner,takeCompiler:()=>{
+      if(backend.startsWith('Preamble')||recoveryIssues.length&&localRecoveryEligible)try{this.viewer.localBasis?.({bundle,options,source:recoveryIssues.length?localSource:source,originalSource:recoveryIssues.length?source:undefined,compilerSource,project,pdf,canBuildAlongside:()=>this.independentLocalOwner,takeCompiler:()=>{
         // Transfer ownership only after publication and only while idle. Future
         // full verification gets its own worker; local edits cannot race it.
         // A failed local page proof may stop its transferred worker. That

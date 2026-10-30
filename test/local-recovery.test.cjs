@@ -67,3 +67,22 @@ test('Confirmed skips cannot cross prepared slots or changes outside their sourc
  const outside=draft.replace('After','ChangedAfter');
  await assert.rejects(local.runOutput(slot,{source:outside,editId:'outside',at:20}),ResidentSourceError);assert.equal(calls,5);
 });
+
+test('A recovered document accepts edits before and after its error while typesetting the repaired baseline',async()=>{
+ const original='Before ordinary words.\n\nBroken \\bad words.\n\nAfter ordinary words.\n\n',compiled=original.replace('\\bad','    ');
+ for(const marker of ['Before','After']){
+  const from=original.indexOf(marker),to=original.indexOf('\n\n',from)+2,range={from,to},local=make();local.continuous=true;let rendered;
+  const basis={source:compiled,originalSource:original,compilerSource:compiled,options:{root:'main.tex'},project:{}};
+  const slot={basis,range,compiledRange:range,sourceText:compiled,abort:new AbortController(),diskInputs:[],compiler:{useRegion(){},async previewRegionFlow(source){rendered=source;return {navigation:'',fragment:{page:1},pdf:Buffer.alloc(0)};}},compositor:{flow(){return {rect:{x:0,y:0,width:1,height:1},fragmentRect:{x:0,y:0,width:1,height:1},leading:0};}}};
+  const draft=original.slice(0,from)+original.slice(from).replace('ordinary','new ordinary'),request={source:draft,editId:marker,at:from+8};
+  assert.ok(local.regionText(slot,draft));const result=await local.runOutput(slot,request);assert.equal(result.kind,'flow');assert.equal(result.recovery,undefined);
+  assert.equal(rendered,draft.replace('\\bad','    '));assert.ok(request.source.includes('\\bad'));assert.equal(basis.source,compiled);
+  assert.equal(local.regionText(slot,draft.replace('\\bad','\\different')),undefined,'A new change outside this region still needs validation');
+ }
+});
+
+test('Original root text does not replace an included-file baseline, and healthy publication retires recovery context',()=>{
+ const local=make(),basis={source:'Repaired root',originalSource:'Original root',options:{root:'main.tex'},project:{},bundle:{recovered:true}},text='Included words.\n\n';
+ assert.equal(local.regionText({basis,input:{file:'chapter.tex',text},sourceText:text,range:{from:0,to:text.length}},'Included new words.\n\n'),'Included new words.\n\n');
+ assert.equal(local.sameContext({basis},{...basis,bundle:{recovered:false}}),false);
+});

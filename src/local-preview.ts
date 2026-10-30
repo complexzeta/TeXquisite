@@ -195,6 +195,7 @@ export class LocalPreview{
   }
   private sameContext(slot:Slot,basis:LocalBasis){
     if(slot.basis.options.root!==basis.options.root||slot.basis.project.environmentKey!==basis.project.environmentKey)return false;
+    if(!!slot.basis.bundle.recovered!==!!basis.bundle.recovered)return false;
     if(!slot.input)return slot.basis.project.resourceKey===basis.project.resourceKey;
     return slot.basis.compilerSource===basis.compilerSource&&slot.otherResources===resourceIdentity((basis.project.resources??[]).filter(([name])=>name!==slot.input!.file));
   }
@@ -211,7 +212,7 @@ export class LocalPreview{
     this.cancelIdle();if(replaced){this.parked=[];this.idleAttempts.clear();}
     this.basis=basis;
     const s=this.slot;
-    if(s&&!(this.neutralEnabled&&replaced)&&this.sameContext(s,basis)){const next=this.sourceFor(basis,s.file??s.basis.options.root);if(next&&this.regionText(s,next.text)!==undefined){this.scheduleIdle();return;}}
+    if(s&&!(this.neutralEnabled&&replaced)&&this.sameContext(s,basis)){const next=this.sourceFor(basis,s.file??s.basis.options.root);if(next&&this.regionText(s,s.input?next.text:basis.originalSource??next.text)!==undefined){this.scheduleIdle();return;}}
     const compatible=!!prior&&prior.options.root===basis.options.root&&prior.project.resourceKey===basis.project.resourceKey&&prior.project.environmentKey===basis.project.environmentKey;
     this.disarm(compatible);
     this.schedule();
@@ -429,8 +430,11 @@ export class LocalPreview{
       if(expanded&&!slot.abort.signal.aborted){const pending=this.pending;this.log('Adjacent-paragraph preparation narrowed: '+String(error)+'\n');this.disarm(true);this.pending=pending;await this.arm(true);return;}
       const pending=this.pending?.editId;this.log('Local preview unavailable for this paragraph: '+String(error)+'\n');this.disarm(true);if(this.warmCompiler===slot.compiler&&slot.basis.returnCompiler?.(slot.compiler)){this.warmCompiler=undefined;this.verifyingWithOwner=!!pending;if(this.publishedCompiler===slot.compiler)this.publishedCompiler=undefined;this.log('Local preparation returned the warm compiler for full updates.\n');}if(pending)this.fallback(pending);}}finally{if(background&&this.backgroundSlot===slot){this.backgroundSlot=undefined;slot.compiler.protectRegion();const active=this.slot;if(active?.ready){active.compiler.useRegion(active.regionKey);if(!active.compiler.busy)active.compiler.prepareNextRegionEdit();}}}
   }
-  private regionText(slot:Pick<Slot,'basis'|'range'|'sourceText'>,source:string){
-    const original=slot.sourceText??slot.basis.source,prefix=original.slice(0,slot.range.from),suffix=original.slice(slot.range.to);
+  private regionText(slot:Pick<Slot,'basis'|'range'|'sourceText'>&{input?:IncludedInput},source:string){
+    // A repaired compiler baseline is not the editor's baseline. Outside the
+    // active region, compare against the exact original draft, including its
+    // reported error; keep using compiled bytes for typesetting and proofs.
+    const original=(!slot.input?slot.basis.originalSource:undefined)??slot.sourceText??slot.basis.source,prefix=original.slice(0,slot.range.from),suffix=original.slice(slot.range.to);
     if(!source.startsWith(prefix)||!source.endsWith(suffix)||source.length<prefix.length+suffix.length)return;
     const text=source.slice(prefix.length,source.length-suffix.length);
     if(!/\n[\t ]*\n$/.test(text))return;
@@ -468,7 +472,7 @@ export class LocalPreview{
       if(!basis||!cursor||cursor.file!==file){this.releaseForFull();if(cursor&&cursor.file!==file)this.basis=undefined;return false;}
       const selected=this.sourceFor(basis,file);if(!selected){this.releaseForFull();return false;}
       const range=this.continuous&&!this.neutral?flowWindowAt(selected.text,cursor.at):paragraphAt(selected.text,cursor.at);
-      if(!range||this.regionText({basis,range,sourceText:selected.text},source)===undefined){this.releaseForFull();return false;}
+      if(!range||this.regionText({basis,range,sourceText:selected.text,input:selected.input},source)===undefined){this.releaseForFull();return false;}
       // The first keystroke can beat the scheduled preparation after a cursor
       // move. Queue it against the checked baseline instead of cold-building
       // the whole document while its warm compiler sits here unused.
