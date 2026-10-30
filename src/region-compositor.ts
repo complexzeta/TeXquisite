@@ -1,6 +1,7 @@
 import {PDFDocument,rgb,pushGraphicsState,popGraphicsState,rectangle,clip,endPath} from 'pdf-lib';
 import type {RegionFragment,PageSpan} from './resident';
 import {LOCAL_INK_BLEED_BP} from './local-raster';
+import {retainedStateCompatible} from './retained-layout';
 const sourceMatches=(file:string,name:string)=>{const actual=file.replaceAll('\\','/').replace(/^\/work\//,'').replace(/^\.\//,'').toLowerCase(),wanted=(name+'.tex').toLowerCase();return actual===wanted||!wanted.includes('/')&&actual.split('/').at(-1)===wanted;};
 const spToBp=72/(72.27*65536);
 export type ParagraphOutput={pdf:Uint8Array;fragment:RegionFragment;navigation:string};
@@ -105,6 +106,7 @@ export class RegionCompositor{
       (a.heightSp===b.heightSp&&JSON.stringify(a.shape)===JSON.stringify(b.shape)||sameSingleLinePlacement(a,b));
   }
   neutralCompatible(output:ParagraphOutput){const a=this.original.fragment,b=output.fragment;return !!a.neutralCharacters&&!!a.neutralWriteFree&&!!b.neutralCharacters&&!!b.neutralWriteFree&&!b.lectureSideEffects&&a.flowStateHash===b.flowStateHash&&this.compatible(output);}
+  retainedCompatible(output:ParagraphOutput){return retainedStateCompatible(this.original.fragment,output.fragment);}
   neutralExclusions(output:ParagraphOutput){const a=this.original.fragment,b=output.fragment;return {baselineCharacters:!a.neutralCharacters,editedCharacters:!b.neutralCharacters,baselineWrites:!a.neutralWriteFree,editedWrites:!b.neutralWriteFree,sideEffects:!!b.lectureSideEffects,flowState:a.flowStateHash!==b.flowStateHash,layoutOrTable:!this.compatible(output),table:a.stateHash!==b.stateHash,width:a.widthSp!==b.widthSp,height:a.heightSp!==b.heightSp,depth:a.depthSp!==b.depthSp,padding:a.paddingSp!==b.paddingSp,shape:JSON.stringify(a.shape)!==JSON.stringify(b.shape),singleLine:sameSingleLinePlacement(a,b)};}
   inkTopSp(output:ParagraphOutput){return output.fragment.paddingSp+output.fragment.heightSp-this.original.fragment.heightSp;}
   flow(output:ParagraphOutput,allowStateChanges=false){

@@ -65,7 +65,7 @@ let neutralBaseId='';const neutralPages=new Map<number,HTMLCanvasElement>(),neut
 let retainedNavigation=new RetainedNavigation();
 let retainedExperiment=false,canonicalRequested=false;
 function retainedContext(canvas?:HTMLCanvasElement):RetainedFrame|undefined{const frame=retainedNavigation.frame;if(!frame||!view)return;return {root:model.root,file:active,baseId:continuousView.id,sourceHash:canvas?.dataset.localSourceHash??frame.sourceHash,editId:latestEdit?.id??'',text:view.state.doc.toString()};}
-function clearNeutralMetadata(){for(const c of neutralPages.values()){delete c.dataset.localSourceHash;delete c.dataset.localEditId;delete c.dataset.localLayout;delete c.dataset.neutralActive;}neutralPages.clear();neutralIds.clear();neutralBaseId='';retainedNavigation=new RetainedNavigation();}
+function clearNeutralMetadata(){for(const c of new Set([...neutralPages.values(),...continuousView.retainedCanvases()])){delete c.dataset.localSourceHash;delete c.dataset.localEditId;delete c.dataset.localLayout;delete c.dataset.neutralActive;}neutralPages.clear();neutralIds.clear();neutralBaseId='';retainedNavigation=new RetainedNavigation();}
 function clearLocalProofs(){for(const proof of localProofs.values())proof.release();localProofs.clear();localPageProofs.clear();for(const held of localPageBaselines.values())held.release();localPageBaselines.clear();}
 let compileIssue:BuildDiagnostic|undefined;
 let projectProblems:BuildDiagnostic[]=[];
@@ -571,7 +571,7 @@ async function locateContinuous(explicit:boolean){
   if(!valid())return;
   const line=view!.state.doc.lineAt(at).number,flow=liveFlow?.canvas.isConnected?liveFlow:undefined,basis=continuousBasis;
   const status=(ok:boolean)=>{if(ok)el('navState').textContent=`${file.split(/[\\/]/).at(-1)} · line ${line}`;else if(explicit)el('navState').textContent='No current mapped output here; wait for the preview to update.';};
-  if(neutralIds.size){const context=retainedContext(),found=context&&retainedNavigation.forward(context,at);if(found&&valid()){const marked=continuousView.mark(found.page,found.glyph,false,explicit);if(marked)pageNumber=found.page;status(marked);}else status(false);return;}
+  if(neutralIds.size){const context=retainedContext(),found=context&&retainedNavigation.forward(context,at,continuousView.retainedProjection);if(found&&valid()){const marked=continuousView.mark(found.page,found.glyph,false,explicit);if(marked)pageNumber=found.page;status(marked);}else status(false);return;}
   const pages=currentLivePages();
   if(pages){
     const found=pages.pages.flatMap(p=>p.locations.map(g=>({p,g}))).filter(({g})=>view!.state.doc.lineAt(g.at).number===line).sort((a,b)=>Math.abs(a.g.at-at)-Math.abs(b.g.at-at))[0];
@@ -616,8 +616,8 @@ el('follow').onclick=()=>void command(async()=>{navigationToken++;const enabled=
 el('pages').addEventListener('click',event=>void command(async()=>{
   const target=event.target as HTMLElement,canvas=target instanceof HTMLCanvasElement?target:undefined;
   if(model.continuousPreview&&canvas&&neutralIds.size&&view){
-    const page=Number(canvas.closest<HTMLElement>('.flow-page')?.dataset.page),context=retainedContext(canvas),rect=canvas.getBoundingClientRect();
-    const at=canvas.isConnected&&continuousView.ownsCanvas(page,canvas)&&context&&(!neutralPages.has(page)||canvas.dataset.localEditId===context.editId)?retainedNavigation.inverse(context,page,(event.clientX-rect.left)/scale,(event.clientY-rect.top)/scale):undefined;
+    const page=Number(canvas.closest<HTMLElement>('.flow-page')?.dataset.page),context=retainedContext(canvas),point=continuousView.canvasPoint(page,canvas,event.clientX,event.clientY);
+    const at=canvas.isConnected&&point&&context&&(!neutralPages.has(page)||canvas.dataset.localEditId===context.editId)?retainedNavigation.inverse(context,page,point.x,point.y,continuousView.retainedProjection):undefined;
     if(at!==undefined){endPreview();navigationToken++;pageNumber=page;suppressFollow=true;try{view.dispatch({selection:{anchor:at},effects:EditorView.scrollIntoView(at,{y:'center'})});view.focus();}finally{suppressFollow=false;}el('navState').textContent=`${active.split(/[\\/]/).at(-1)} · line ${view.state.doc.lineAt(at).number}`;return;}
     el('navState').textContent='No current mapped output here; wait for the preview to update.';return;
   }
@@ -827,13 +827,14 @@ api.on(async message=>{
     if(!mayShowLocal(message)){await api.call('localAck',message.token,!message.neutralBlock);return;}
     const input=localInputs.get(message.editId)!,inputAt=input.startedAt;
     const receivedAt=performance.now();
-    const task=message.flowOutput?undefined:loadPdf(message.pdf,true,true);let keepTask=false;
+    const task=message.flowOutput?undefined:loadPdf(message.pdf,true,true);let keepTask=false,flowImage:ImageBitmap|undefined;
     try{
       if(message.flowOutput){
-        clearNeutralMetadata();
+        if(!message.retainedFlow)clearNeutralMetadata();
         if(!model.continuousPreview)throw Error('Continuous preview was turned off.');
         const proof=localProofs.get(proofKey(message));if(!proof)throw Error('Continuous block needs a verified baseline.');
         const tile=await renderCheckedPdfRegion(message.pdf,message.fragment.page,message.flowOutput.fragmentRect,localInkBounds(message),scale,window.devicePixelRatio||1),tiledAt=performance.now();
+        flowImage=tile.image;
         if(tile.safe!==true)throw Error('Continuous block ink exceeds its bounds.');
         await continuousSetup;
         if(token!==localRenderToken||!mayShowLocal(message)){tile.image?.close();return;}
@@ -843,9 +844,23 @@ api.on(async message=>{
           continuousBasis=continuousBases.get(message.baseId);
           continuousSetup=continuousView.show(message.baseId,baseline,copy,message.page,scale,window.devicePixelRatio||1);await continuousSetup;
         }
-        const canvas=continuousView.patch(message.page,proof.canvas,tile,message.flowOutput),leadingCorrection=Number(canvas.dataset.flowLeadingCorrection??0);localCanvas=canvas;localPatch=undefined;displayedSequence=input.sequence;
+        let retainedBaseline:string|undefined;
+        if(message.retainedFlow){
+          const block=message.neutralBlock;if(!block||message.recovery||message.flowOutput.stateChanged)throw Error('Retained flow has no independent source proof.');
+          if(neutralBaseId!==message.baseId){clearNeutralMetadata();neutralBaseId=message.baseId;}
+          if(block.prior.length!==neutralIds.size||block.prior.some((id:string)=>!neutralIds.has(id)))throw Error('Retained display history changed.');
+          retainedBaseline=continuousBasis?.texts?.[input.file]??(input.file===model.root?continuousBasis?.text:undefined);if(retainedBaseline===undefined)throw Error('Retained source baseline is unavailable.');
+          retainedNavigation.updated({root:message.root,file:input.file,baseId:message.baseId,sourceHash:message.sourceHash,editId:message.editId,text:input.text},retainedBaseline,{...block,page:message.page,retainedFlow:true},continuousBasis?.navigation);
+        }
+        const canvas=message.retainedFlow?continuousView.patchRetained(message.page,proof.canvas,tile,message.flowOutput,message.neutralBlock.id):continuousView.patch(message.page,proof.canvas,tile,message.flowOutput),leadingCorrection=Number(canvas.dataset.flowLeadingCorrection??0);localCanvas=canvas;localPatch=undefined;displayedSequence=input.sequence;
+        if(message.retainedFlow){
+          const block=message.neutralBlock;retainedNavigation=retainedNavigation.updated({root:message.root,file:input.file,baseId:message.baseId,sourceHash:message.sourceHash,editId:message.editId,text:input.text},retainedBaseline!,{...block,page:message.page,retainedFlow:true,locations:block.locations.map((g:any)=>({...g,y:g.y+leadingCorrection}))},continuousBasis?.navigation);
+          neutralPages.set(message.page,canvas);neutralIds.add(block.id);retainedExperiment=true;ok=true;
+          for(const c of continuousView.retainedCanvases()){c.dataset.renderScope='local';c.dataset.localLayout='retained-flow';c.dataset.neutralActive=String(c===canvas);c.dataset.localSourceHash=message.sourceHash;c.dataset.localEditId=message.editId;c.dataset.sourceHash=current?.canvas.dataset.sourceHash??'';}
+        }
         livePages=undefined;liveFlow={root:message.root,baseId:message.baseId,sourceHash:message.sourceHash,editId:message.editId,file:message.sourceFile??message.root,stateChanged:!!message.flowOutput.stateChanged,text:input.text,from:message.rangeFrom,to:message.rangeTo,baseTo:message.flowOutput.baseRangeTo,page:message.page,canvas,locations:(message.flowOutput.locations??[]).map((g:any)=>({...g,y:g.y+leadingCorrection}))};
-        canvas.dataset.renderScope='local';canvas.dataset.localLayout='flow';canvas.dataset.localStateChanged=String(!!message.flowOutput.stateChanged);canvas.dataset.localSourceHash=message.sourceHash;canvas.dataset.localEditId=message.editId;canvas.dataset.sourceHash=current?.canvas.dataset.sourceHash??'';
+        if(message.retainedFlow)liveFlow=undefined;
+        canvas.dataset.renderScope='local';canvas.dataset.localLayout=message.retainedFlow?'retained-flow':'flow';canvas.dataset.localStateChanged=String(!!message.flowOutput.stateChanged);canvas.dataset.localSourceHash=message.sourceHash;canvas.dataset.localEditId=message.editId;canvas.dataset.sourceHash=current?.canvas.dataset.sourceHash??'';
         canvas.dataset.localRecovered=String(!!message.recovery);if(message.recovery){liveFlow=undefined;livePages=undefined;}
         canvas.dataset.localPipeline=JSON.stringify({compiler:message.timing,receiveMs:receivedAt-inputAt,checkedRegionMs:tiledAt-receivedAt,pdfWorker:{queueMs:tile.queueMs,loadMs:tile.loadMs,rasterMs:tile.rasterMs,checkMs:tile.checkMs,cropMs:tile.cropMs,workerMs:tile.workerMs,rasterPasses:tile.rasterPasses},canvasMs:performance.now()-tiledAt});
         if(model.followPreview&&Number.isFinite(message.flowOutput.caretY))continuousView.reveal(canvas,message.flowOutput.caretY+leadingCorrection);
@@ -962,7 +977,7 @@ api.on(async message=>{
         const finish=()=>{if(token!==localRenderToken||localCanvas!==canvas||canvas.dataset.localEditId!==message.editId)return;void api.call('localWarm',message.root,message.baseId,message.editId,Math.ceil(performance.now()-inputAt),canvas.dataset.localLayout).catch(()=>{});const latency=Math.ceil(performance.now()-inputAt);input.displayedLatencyMs??=latency;canvas.dataset.localLatencyMs=String(latency);canvas.dataset.localLatencyEditId=message.editId;canvas.dataset.timingEndpoint=message.visible?'paint opportunity':'canvas (window hidden)';localStatus=`Local paragraph updated in ${latency} ms from edit. Full document verification pending.`+(!message.visible?' Window hidden; measured to canvas.':'');refreshPreviewStatus();};
         if(message.visible)requestAnimationFrame(()=>requestAnimationFrame(finish));else finish();
       }else tile.image?.close();
-    }catch(error){console.debug('Local page output rejected',String(error));ok=false;}finally{if(!keepTask)await task?.destroy();await api.call('localAck',message.token,ok);}
+    }catch(error){console.debug('Local page output rejected',String(error));ok=false;}finally{flowImage?.close();if(!keepTask)await task?.destroy();await api.call('localAck',message.token,ok);}
     return;
   }
   if(message.type==='backupStatus'){el('backupStatus').textContent=message.text;el('backupWarning').hidden=!message.error;el('backupWarning').querySelector('span')!.textContent=message.text;return;}

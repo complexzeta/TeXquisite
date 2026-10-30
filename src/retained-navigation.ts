@@ -3,14 +3,15 @@ import type {Navigation} from './navigation';
 export type RetainedFrame=Omit<LiveFlowFrame,'from'|'to'>;
 export type RetainedGlyph={at:number;end:number;x:number;y:number;width:number;height:number};
 export type RetainedRange={id:string;from:number;to:number;baseFrom:number;baseTo:number};
-type Block=RetainedRange&{page:number;locations:RetainedGlyph[]};
+type Block=RetainedRange&{page:number;local?:boolean;locations:RetainedGlyph[]};
+export type RetainedProjection=(page:number,y:number,id?:string)=>number|undefined;
 /** Navigation only. These maps never authorize editing or a visual patch. */
 export class RetainedNavigation{
   private blocks=new Map<string,Block>();
   private baseline='';
   private baselineGlyphs:(RetainedGlyph&{page:number})[]=[];
   frame?:RetainedFrame;
-  updated(frame:RetainedFrame,baseline:string,patch:{id:string;page:number;prior:string[];ranges:RetainedRange[];locations:RetainedGlyph[]},navigation?:Navigation){
+  updated(frame:RetainedFrame,baseline:string,patch:{id:string;page:number;prior:string[];ranges:RetainedRange[];locations:RetainedGlyph[];retainedFlow?:boolean},navigation?:Navigation){
     const fail=()=>{throw Error('Retained navigation context does not match the displayed source.');};
     if(!frame.root||frame.root!==frame.file||!frame.baseId||!frame.sourceHash||!frame.editId||!Number.isSafeInteger(patch.page)||patch.page<1)fail();
     if(this.frame&&(['root','file','baseId'] as const).some(k=>this.frame![k]!==frame[k])||this.frame&&this.baseline!==baseline)fail();
@@ -23,7 +24,7 @@ export class RetainedNavigation{
       if(!active&&(!prior||prior.baseFrom!==r.baseFrom||prior.baseTo!==r.baseTo||this.frame!.text.slice(prior.from,prior.to)!==frame.text.slice(r.from,r.to)))fail();
       const shift=prior?r.from-prior.from:0,locations=active?patch.locations.map(g=>({...g})):prior!.locations.map(g=>({...g,at:g.at+shift,end:g.end+shift}));
       if(!locations.length||locations.some(g=>!Number.isSafeInteger(g.at)||!Number.isSafeInteger(g.end)||g.at<r.from||g.end>r.to||g.end<=g.at||![g.x,g.y,g.width,g.height].every(Number.isFinite)||g.width<=0||g.height<=0))fail();
-      next.blocks.set(r.id,{...r,page:active?patch.page:prior!.page,locations});
+      next.blocks.set(r.id,{...r,page:active?patch.page:prior!.page,local:active?patch.retainedFlow:prior!.local,locations});
       reconstructed+=baseline.slice(baseAt,r.baseFrom)+frame.text.slice(r.from,r.to);baseAt=r.baseTo;actualAt=r.to;delta+=r.to-r.from-(r.baseTo-r.baseFrom);
     }
     if(!next.blocks.has(patch.id)||[...this.blocks.keys()].some(id=>!next.blocks.has(id))||reconstructed+baseline.slice(baseAt)!==frame.text)fail();
@@ -40,20 +41,20 @@ export class RetainedNavigation{
     }
     return next;
   }
-  private locations(){return [...this.blocks.values()].flatMap(b=>b.locations.map(g=>({...g,page:b.page}))).concat(this.baselineGlyphs.flatMap(g=>{
-    let delta=0;for(const b of this.blocks.values()){if(g.at<b.baseTo&&g.end>b.baseFrom)return [];if(b.baseTo<=g.at)delta+=b.to-b.from-(b.baseTo-b.baseFrom);}return [{...g,at:g.at+delta,end:g.end+delta}];
+  private locations(project?:RetainedProjection){const locate=(g:RetainedGlyph&{page:number},id?:string)=>{const y=project?project(g.page,g.y,id):id?undefined:g.y;return y===undefined?[]:[{...g,y}];};return [...this.blocks.values()].flatMap(b=>b.locations.flatMap(g=>locate({...g,page:b.page},b.local?b.id:undefined))).concat(this.baselineGlyphs.flatMap(g=>{
+    let delta=0;for(const b of this.blocks.values()){if(g.at<b.baseTo&&g.end>b.baseFrom)return [];if(b.baseTo<=g.at)delta+=b.to-b.from-(b.baseTo-b.baseFrom);}return locate({...g,at:g.at+delta,end:g.end+delta});
   }));}
   matches(current:RetainedFrame){return !!this.frame&&(['root','file','baseId','sourceHash','editId','text'] as const).every(k=>this.frame![k]===current[k]);}
-  inverse(current:RetainedFrame,page:number,x:number,y:number){
+  inverse(current:RetainedFrame,page:number,x:number,y:number,project?:RetainedProjection){
     if(!this.matches(current))return;
-    return liveFlowPosition({...this.frame!,from:0,to:current.text.length},current,this.locations().filter(g=>g.page===page),x,y);
+    return liveFlowPosition({...this.frame!,from:0,to:current.text.length},current,this.locations(project).filter(g=>g.page===page),x,y);
   }
-  forward(current:RetainedFrame,at:number){
+  forward(current:RetainedFrame,at:number,project?:RetainedProjection){
     if(!this.matches(current)||!Number.isSafeInteger(at))return;
     if(at<0||at>current.text.length)return;
     const from=current.text.lastIndexOf('\n',at-1)+1,end=current.text.indexOf('\n',at),to=end<0?current.text.length:end;
     if(!sourceLineHasOutput(current.text.slice(from,to)))return;
-    const glyph=this.locations().filter(g=>g.at>=from&&g.at<to).reduce<(RetainedGlyph&{page:number})|undefined>((best,g)=>!best||Math.abs(g.at-at)<Math.abs(best.at-at)?g:best,undefined);
+    const glyph=this.locations(project).filter(g=>g.at>=from&&g.at<to).reduce<(RetainedGlyph&{page:number})|undefined>((best,g)=>!best||Math.abs(g.at-at)<Math.abs(best.at-at)?g:best,undefined);
     return glyph?{page:glyph.page,glyph}:undefined;
   }
 }

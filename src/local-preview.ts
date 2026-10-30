@@ -54,7 +54,7 @@ export function flowWindowAt(source:string,at:number):RegionRange|undefined{
 const lineOffset=(source:string,line:number)=>{let at=0;while(line-->0){at=source.indexOf('\n',at);if(at<0)return -1;at++;}return at;};
 type Request={source:string;fullSource?:string;editId:string;at:number;recovery?:{message:string;line:number};};
 export interface LocalCandidate {recovery?:{message:string;line:number};recoveredBasis?:boolean;}
-export interface LocalCandidate {pageLocations?:{page:number;locations:ReturnType<typeof flowLocations>}[];}
+export interface LocalCandidate {pageLocations?:{page:number;locations:ReturnType<typeof flowLocations>}[];retainedFlow?:boolean;}
 type DiskInput={file:string;mtime:number;ctime:number;ino:number;size:number;};
 type Slot={pageProbe?:{source:string;range:RegionRange;output:Awaited<ReturnType<ResidentCompiler['previewRegionPage']>>};neutralLast?:boolean;cancelWork?:()=>void;epoch?:number;cancelled?:boolean;regionKey?:string;edited?:boolean;latestSource?:string;file?:string;input?:IncludedInput;sourceText?:string;otherResources?:string;basis:LocalBasis;range:RegionRange;liveEnd:number;compiledRange:RegionRange;compiler:ResidentCompiler;compositor?:RegionCompositor;ready:boolean;abort:AbortController;diskInputs:DiskInput[];pageMode?:boolean;pageReady?:boolean;pageCostMs?:number;proofPage?:number;sourcePages?:PageSpan;baselineSpan?:PageSpan;continuation?:string;verifyPageRange?:()=>Promise<void>;};
 export interface LocalCandidate {neutralBlock?:{id:string;prior:string[];ranges:{id:string;from:number;to:number;baseFrom:number;baseTo:number}[];locations:ReturnType<typeof flowLocations>;caretY?:number};sourceFile?:string;root:string;baseId:string;editId:string;sourceHash:string;pdf:Uint8Array;page:number;timing:unknown;fragmentPdf?:Uint8Array;fragment?:RegionFragment;inkTopSp?:number;flowOutput?:{stateChanged?:boolean;locations?:ReturnType<typeof flowLocations>;baseRangeTo?:number;caretY?:number;rect:{x:number;y:number;width:number;height:number};leading:number;baselineLeading:number;fragmentRect:{x:number;y:number;width:number;height:number}};rangeFrom:number;rangeTo:number;footprint?:{x:number;y:number;width:number;height:number};pageOutput?:boolean;pageSpan?:PageSpan;sourcePages?:PageSpan;proofPage?:number;cursorPage?:number;cursorPosition?:ReturnType<typeof cursorPosition>;baselineSpan?:PageSpan;continuation?:string;}
@@ -74,6 +74,7 @@ export class LocalPreview{
   private editorSource?:string;
   private editorCursor?:{file:string;at:number};
   private readonly neutralEnabled=process.env.PERSISTENT_TEX_MULTI_BLOCK==='1';
+  private readonly retainedFlowEnabled=process.env.PERSISTENT_TEX_RETAINED_FLOW==='1'&&this.neutralEnabled;
   get ready(){return !!this.slot?.ready;}
   get preparedRange(){const s=this.slot;if(!s)return;const range=this.neutral?.actual(s.range)??{from:s.range.from,to:s.liveEnd};return {file:s.file??s.basis.options.root,...range};}
   get busy(){return !!this.pending||this.running||!!this.slot&&!this.slot.ready;}
@@ -492,6 +493,7 @@ export class LocalPreview{
         if(flow){const y=flowCaretY(output.navigation,source,slot.compiledRange.from+request.at-slot.range.from,sourceName,output.fragment.page);
           if(this.neutral&&!request.recovery){
             const unchanged=request.source===(slot.sourceText??slot.basis.source)||plainTextChange(slot.sourceText??slot.basis.source,request.source);
+            if(this.retainedFlowEnabled&&unchanged&&!flow.stateChanged&&slot.compositor.retainedCompatible(output))return {kind:'retainedFlow' as const,output,flow:{...flow,baseRangeTo:slot.range.to,locations:flowLocations(output.navigation,source,sourceName,output.fragment.page,range.from,range.to).map(g=>({...g,at:g.at-slot.compiledRange.from+slot.range.from,end:g.end-slot.compiledRange.from+slot.range.from,x:flow.rect.x+g.x-flow.fragmentRect.x,y:flow.leading+g.y-flow.fragmentRect.y})),caretY:y===undefined?undefined:flow.leading+y-flow.fragmentRect.y}};
             if(unchanged&&!flow.stateChanged&&slot.compositor.neutralCompatible(output))return {kind:'neutral' as const,output,locations:flowLocations(output.navigation,source,sourceName,output.fragment.page,range.from,range.to).map(g=>({...g,at:g.at-slot.compiledRange.from+slot.range.from,end:g.end-slot.compiledRange.from+slot.range.from,x:slot.compositor!.x+g.x,y:slot.compositor!.y+g.y-(slot.compositor!.inkTopSp(output)-output.fragment.paddingSp)*72/(72.27*65536)})),caretY:y===undefined?undefined:slot.compositor.y+y-(slot.compositor.inkTopSp(output)-output.fragment.paddingSp)*72/(72.27*65536)};
             this.log('Retained block excluded: '+JSON.stringify(slot.compositor.neutralExclusions(output))+'\n');
             if(this.neutral.dirty.some(b=>b.id!==neutralId(slot.range)))throw new Error('A carried block changed layout or state.');
@@ -587,8 +589,13 @@ export class LocalPreview{
         const identity={sourceFile:slot.file,recoveredBasis:!!slot.basis.bundle.recovered,root:slot.basis.options.root,baseId:slot.basis.bundle.id,editId:request.editId,sourceHash:hash(request.fullSource??request.source),rangeFrom,rangeTo:rangeFrom+text.length};
         let candidate:LocalCandidate;
         let proposed:NeutralBlocks|undefined;
-        if(result.kind==='flow'){
+        if(result.kind==='flow'||result.kind==='retainedFlow'){
           candidate={...identity,pdf:result.output.pdf,page:slot.compositor!.page,timing:result.output.timing,fragment:result.output.fragment,flowOutput:result.flow};
+          if(result.kind==='retainedFlow'){
+            if(!this.neutral)throw new Error('Retained context expired.');proposed=this.neutral.proposed(slot.range,text);
+            if(proposed.source()!==(request.fullSource??request.source))throw new Error('Retained projection does not match the editor.');
+            candidate.retainedFlow=true;candidate.neutralBlock={id:neutralId(slot.range),prior:this.neutral.ids,ranges:proposed.ranges,locations:result.flow.locations.map(g=>({...g,at:g.at+rangeFrom-slot.range.from,end:g.end+rangeFrom-slot.range.from})),caretY:result.flow.caretY};
+          }
         }else if(result.kind==='paragraph'||result.kind==='neutral'){
           const output=result.output,started=performance.now(),composed=await slot.compositor!.compose(output);
           candidate={...identity,pdf:composed.pdf,page:composed.page,timing:{...output.timing,compositionMs:performance.now()-started},fragmentPdf:output.pdf,fragment:output.fragment,inkTopSp:slot.compositor!.inkTopSp(output),footprint:composed.footprint};

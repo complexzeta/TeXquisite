@@ -8,6 +8,9 @@ export class RetainedPage{
   private strips=new Map<string,HTMLCanvasElement>();
   private disposed=false;
   layout:RetainedLayout;
+  owns(canvas:HTMLCanvasElement){return !this.disposed&&canvas.parentElement===this.host&&[...this.host.children].includes(canvas);}
+  get canvases(){return [...this.host.children].filter(c=>c instanceof HTMLCanvasElement) as HTMLCanvasElement[];}
+  rescale(ratio:number){if(!Number.isFinite(ratio)||ratio<=0||this.disposed)throw Error('Invalid retained scale.');this.ratio=ratio;for(const c of this.canvases){c.style.width=c.width/ratio+'px';c.style.height=c.height/ratio+'px';}}
   constructor(private host:HTMLElement,baseline:HTMLCanvasElement,private viewport:HTMLElement,private ratio=1,private pixelLimit=16000000){
     if(!Number.isFinite(ratio)||ratio<=0||!Number.isSafeInteger(pixelLimit)||pixelLimit<1||!baseline.width||!baseline.height||baseline.width*baseline.height>pixelLimit)throw Error('Invalid retained page raster.');
     this.layout=new RetainedLayout(baseline.height);
@@ -37,7 +40,7 @@ export class RetainedPage{
       if(at<this.baseline.height){const key=at+':'+this.baseline.height,c=this.strips.get(key)??this.copy(this.baseline,at,this.baseline.height-at);strips.set(key,c);nodes.push(c);}
       const ctx=canvas.getContext('2d')!;ctx.clearRect(0,0,canvas.width,canvas.height);ctx.drawImage(tile,0,0);
     }catch(error){for(const [key,c]of strips)if(!this.strips.has(key))c.width=c.height=0;if(canvas!==old)canvas.width=canvas.height=0;throw error;}
-    this.blocks.set(slice.id,canvas);this.layout=next;
+    canvas.dataset.retainedBlock=slice.id;this.blocks.set(slice.id,canvas);this.layout=next;
     // Ordinary character edits preserve the attached canvas and every strip.
     const current=[...this.host.children];if(current.length!==nodes.length||nodes.some((n,i)=>n!==current[i]))this.host.replaceChildren(...nodes);
     for(const [key,c]of this.strips)if(!strips.has(key))c.width=c.height=0;

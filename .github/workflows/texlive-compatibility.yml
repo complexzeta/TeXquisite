@@ -1,6 +1,12 @@
 name: TeX Live compatibility
 on:
   workflow_dispatch:
+    inputs:
+      suite:
+        description: Test suite
+        type: choice
+        default: compatibility
+        options: [compatibility, retained-preview]
 permissions:
   contents: read
 concurrency:
@@ -8,6 +14,7 @@ concurrency:
   cancel-in-progress: false
 jobs:
   windows:
+    if: ${{ inputs.suite != 'retained-preview' }}
     name: ${{ matrix.os }} / TeX Live ${{ matrix.year }}
     runs-on: ${{ matrix.os }}
     timeout-minutes: 90
@@ -74,3 +81,88 @@ jobs:
             ${{ env.PERSISTENT_TEX_TEST_ARTIFACTS }}/**/failure.log
             ${{ env.COMPATIBILITY_ROOT }}/installation/installation.json
             ${{ env.COMPATIBILITY_ROOT }}/published-package/portable-package.json
+  retained:
+    if: ${{ inputs.suite == 'retained-preview' }}
+    name: Retained lecture integration
+    runs-on: windows-2025
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '24'
+      - name: Choose ephemeral storage
+        shell: pwsh
+        run: |
+          $root=Join-Path $env:RUNNER_TEMP 'texquisite-retained'
+          New-Item -ItemType Directory -Path "$root/temporary","$root/artifacts" -Force | Out-Null
+          "COMPATIBILITY_ROOT=$root" >> $env:GITHUB_ENV
+          "PERSISTENT_TEX_TEST_ARTIFACTS=$root/artifacts" >> $env:GITHUB_ENV
+          "TEMP=$root/temporary" >> $env:GITHUB_ENV
+          "TMP=$root/temporary" >> $env:GITHUB_ENV
+          "npm_config_cache=$root/npm-cache" >> $env:GITHUB_ENV
+      - run: npm ci --no-audit --no-fund
+      - name: Build and check geometry, publication and recovery guards
+        shell: pwsh
+        run: |
+          npm run build
+          if($LASTEXITCODE -ne 0){exit $LASTEXITCODE}
+          node --test --test-concurrency=1 test/retained-layout.test.cjs test/retained-navigation.test.cjs test/contraction-probe.test.cjs test/window-page-fallback.test.cjs test/region-navigation-cache.test.cjs test/local-preview.test.cjs test/raster-bytes.test.cjs test/ink-bounds.test.cjs test/local-recovery.test.cjs test/pdf-work-queue.test.cjs
+          if($LASTEXITCODE -ne 0){exit $LASTEXITCODE}
+          node scripts/retained-layout-test.cjs
+          exit $LASTEXITCODE
+      - name: Install isolated TeX Live 2026
+        shell: pwsh
+        run: |
+          & scripts/install-test-texlive.ps1 -Year 2026 -WorkRoot "$env:COMPATIBILITY_ROOT/installation"
+          if($LASTEXITCODE -ne 0){exit $LASTEXITCODE}
+          "$env:COMPATIBILITY_ROOT/installation/texlive/bin/windows" >> $env:GITHUB_PATH
+      - name: Native retained ownership and unsupported math fallback
+        run: node --test --test-concurrency=1 test/retained-preview.test.cjs
+      - name: Retained navigation, wrapping, deletion and display handoffs
+        env:
+          PERSISTENT_TEX_RETAINED_FLOW: '1'
+        run: node scripts/retained-navigation-test.cjs
+      - name: Build exact 0.111 control in a disposable checkout
+        shell: pwsh
+        run: |
+          git fetch --depth=1 origin 73136916c1cbd5d59175dcbf0b05148652f6c01b
+          if($LASTEXITCODE -ne 0){exit $LASTEXITCODE}
+          git worktree add --detach "$env:COMPATIBILITY_ROOT/baseline" 73136916c1cbd5d59175dcbf0b05148652f6c01b
+          if($LASTEXITCODE -ne 0){exit $LASTEXITCODE}
+          Push-Location "$env:COMPATIBILITY_ROOT/baseline"
+          try {
+            npm ci --no-audit --no-fund
+            if($LASTEXITCODE -ne 0){exit $LASTEXITCODE}
+            npm run build
+            if($LASTEXITCODE -ne 0){exit $LASTEXITCODE}
+          } finally { Pop-Location }
+      - name: Serialized matching baseline and candidate sessions
+        shell: pwsh
+        run: |
+          $harness=Join-Path $env:GITHUB_WORKSPACE 'scripts/lecture-session-test.cjs'
+          $env:PERSISTENT_TEX_LECTURE_ROUNDS='4'
+          foreach($plain in @('1','0')) {
+            $env:PERSISTENT_TEX_LECTURE_PLAIN=$plain
+            $env:PERSISTENT_TEX_SESSION_MULTI_BLOCK='0'
+            $env:PERSISTENT_TEX_RETAINED_FLOW='0'
+            Push-Location "$env:COMPATIBILITY_ROOT/baseline"
+            try { node $harness; if($LASTEXITCODE -ne 0){exit $LASTEXITCODE} } finally { Pop-Location }
+            $env:PERSISTENT_TEX_SESSION_MULTI_BLOCK='1'
+            $env:PERSISTENT_TEX_RETAINED_FLOW='1'
+            node $harness
+            if($LASTEXITCODE -ne 0){exit $LASTEXITCODE}
+          }
+      - name: Upload bounded integration evidence
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: retained-preview-results
+          retention-days: 7
+          if-no-files-found: warn
+          path: |
+            ${{ env.PERSISTENT_TEX_TEST_ARTIFACTS }}/**/result.json
+            ${{ env.PERSISTENT_TEX_TEST_ARTIFACTS }}/**/build.log
+            ${{ env.PERSISTENT_TEX_TEST_ARTIFACTS }}/**/build-before-reopen.log
