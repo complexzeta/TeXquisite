@@ -6,7 +6,7 @@ on:
         description: Test suite
         type: choice
         default: compatibility
-        options: [compatibility, retained-preview]
+        options: [compatibility, retained-preview, editing-position]
       package_retained:
         description: Build and test a portable after the retained suite passes
         type: boolean
@@ -18,7 +18,7 @@ concurrency:
   cancel-in-progress: false
 jobs:
   windows:
-    if: ${{ inputs.suite != 'retained-preview' }}
+    if: ${{ inputs.suite == 'compatibility' }}
     name: ${{ matrix.os }} / TeX Live ${{ matrix.year }}
     runs-on: ${{ matrix.os }}
     timeout-minutes: 90
@@ -85,6 +85,51 @@ jobs:
             ${{ env.PERSISTENT_TEX_TEST_ARTIFACTS }}/**/failure.log
             ${{ env.COMPATIBILITY_ROOT }}/installation/installation.json
             ${{ env.COMPATIBILITY_ROOT }}/published-package/portable-package.json
+  position:
+    if: ${{ inputs.suite == 'editing-position' }}
+    name: Editing position diagnosis
+    runs-on: windows-2025
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '24'
+      - name: Choose ephemeral storage
+        shell: pwsh
+        run: |
+          $root=Join-Path $env:RUNNER_TEMP 'texquisite-position'
+          New-Item -ItemType Directory -Path "$root/temporary","$root/artifacts" -Force | Out-Null
+          "COMPATIBILITY_ROOT=$root" >> $env:GITHUB_ENV
+          "PERSISTENT_TEX_TEST_ARTIFACTS=$root/artifacts" >> $env:GITHUB_ENV
+          "PERSISTENT_TEX_TEST_FORMAT_CACHE=$root/test-formats" >> $env:GITHUB_ENV
+          "PERSISTENT_TEX_TEST_RESOURCE_FILE=$root/test-formats/resources.json" >> $env:GITHUB_ENV
+          "TEMP=$root/temporary" >> $env:GITHUB_ENV
+          "TMP=$root/temporary" >> $env:GITHUB_ENV
+          "npm_config_cache=$root/npm-cache" >> $env:GITHUB_ENV
+      - run: npm ci --no-audit --no-fund
+      - run: npm run build
+      - name: Install isolated TeX Live 2026
+        shell: pwsh
+        run: |
+          & scripts/install-test-texlive.ps1 -Year 2026 -WorkRoot "$env:COMPATIBILITY_ROOT/installation"
+          if($LASTEXITCODE -ne 0){exit $LASTEXITCODE}
+          "$env:COMPATIBILITY_ROOT/installation/texlive/bin/windows" >> $env:GITHUB_PATH
+      - run: node scripts/retained-test-format.cjs
+      - name: Compare early and late editing
+        run: node scripts/editing-position-test.cjs
+      - name: Upload bounded diagnostic evidence
+        if: ${{ always() }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: editing-position-results
+          retention-days: 7
+          if-no-files-found: warn
+          path: |
+            ${{ env.PERSISTENT_TEX_TEST_ARTIFACTS }}/**/result.json
+            ${{ env.PERSISTENT_TEX_TEST_ARTIFACTS }}/**/build.log
   retained:
     if: ${{ inputs.suite == 'retained-preview' }}
     name: Retained lecture integration
