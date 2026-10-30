@@ -48,13 +48,15 @@ export function flowInkBounds(data:Uint8Array|Uint8ClampedArray,width:number,hei
 }
 type RasterRect={x:number;y:number;width:number;height:number};
 export function matchLocalRaster(a:Uint8ClampedArray,b:Uint8ClampedArray,width:number,height:number,rect:RasterRect){return matchRaster(a,b,width,height,rect,false);}
-export function matchLocalPatchRaster(a:Uint8ClampedArray,b:Uint8ClampedArray,width:number,height:number,rect:RasterRect,calibratedGlyphs:RasterRect[]=[]){return matchRaster(a,b,width,height,rect,true,calibratedGlyphs);}
-function matchRaster(a:Uint8ClampedArray,b:Uint8ClampedArray,width:number,height:number,rect:RasterRect,patchOnly:boolean,calibratedGlyphs:RasterRect[]=[]){
+export function matchLocalPatchRaster(a:Uint8ClampedArray,b:Uint8ClampedArray,width:number,height:number,rect:RasterRect,calibratedGlyphs:RasterRect[]=[],pixelScale=1){return matchRaster(a,b,width,height,rect,true,calibratedGlyphs,pixelScale);}
+function matchRaster(a:Uint8ClampedArray,b:Uint8ClampedArray,width:number,height:number,rect:RasterRect,patchOnly:boolean,calibratedGlyphs:RasterRect[]=[],pixelScale=1){
   const changed:number[]=[],limit=Math.max(64,Math.floor(width*height*.0001));let maxDifference=0,metricPixels=0;
   if(!Number.isSafeInteger(width)||!Number.isSafeInteger(height)||width<1||height<1||!Object.values(rect).every(Number.isFinite)||rect.width<=0||rect.height<=0)return {ok:false,differingPixels:0,maxDifference};
   if(a.length!==b.length||a.length!==width*height*4)return {ok:false,differingPixels:0,maxDifference};
   const left=patchOnly?Math.max(0,Math.floor(rect.x)):0,right=patchOnly?Math.min(width,Math.ceil(rect.x+rect.width)):width,top=patchOnly?Math.max(0,Math.floor(rect.y)):0,bottom=patchOnly?Math.min(height,Math.ceil(rect.y+rect.height)):height;
   const masks=patchOnly&&calibratedGlyphs.length<=4096?calibratedGlyphs.filter(g=>Object.values(g).every(Number.isFinite)&&g.width>0&&g.height>0&&g.width<=256&&g.height<=256):[];
+  const glyphPixels=new Uint8Array(masks.length);
+  const density=Math.min(4,Math.max(1,Number.isFinite(pixelScale)?pixelScale:1)),glyphLimit=Math.min(64,Math.ceil(8*density*density));
   const grayInk=(pixels:Uint8ClampedArray,p:number)=>{const i=p*4;return pixels[i+3]===255&&pixels[i]<250&&pixels[i]===pixels[i+1]&&pixels[i]===pixels[i+2];};
   for(let y=top;y<bottom;y++)for(let x=left;x<right;x++){
     const p=y*width+x;
@@ -63,10 +65,18 @@ function matchRaster(a:Uint8ClampedArray,b:Uint8ClampedArray,width:number,height
     let difference=0;for(let c=0;c<4;c++)difference=Math.max(difference,Math.abs(a[p*4+c]-b[p*4+c]));
     if(!difference)continue;maxDifference=Math.max(maxDifference,difference);changed.push(p);
     // Only independently matched PDF glyph geometry can authorize these
-    // eight opaque grayscale coverage pixels. Background, color, alpha and
+    // eight opaque grayscale coverage pixels per matched glyph at 1x, scaling
+    // with pixel density. The entire patch, including any one glyph, is capped
+    // at 64. Independent glyph geometry and both stroke-edge checks still apply.
+    // Background, color, alpha and
     // missing/added ink remain subject to the original checks.
-    const metric=difference>32&&difference<=80&&grayInk(a,p)&&grayInk(b,p)&&masks.some(g=>x>=Math.floor(g.x)-1&&x<=Math.ceil(g.x+g.width)+1&&y>=Math.floor(g.y)-1&&y<=Math.ceil(g.y+g.height)+1)&&++metricPixels<=8;
-    if(difference>32&&!metric||changed.length>limit||x<Math.floor(rect.x)-1||x>Math.ceil(rect.x+rect.width)+1||y<Math.floor(rect.y)-1||y>Math.ceil(rect.y+rect.height)+1)return {ok:false,differingPixels:changed.length,maxDifference,sample:[{x,y,a:[...a.slice(p*4,p*4+4)],b:[...b.slice(p*4,p*4+4)]}]};
+    let metric=false,metricGlyph=-1;
+    if(difference>32&&difference<=80&&grayInk(a,p)&&grayInk(b,p)&&metricPixels<64){
+      const glyph=masks.findIndex(g=>x>=Math.floor(g.x)-1&&x<=Math.ceil(g.x+g.width)+1&&y>=Math.floor(g.y)-1&&y<=Math.ceil(g.y+g.height)+1);
+      metricGlyph=glyph;
+      if(glyph>=0&&glyphPixels[glyph]<glyphLimit){glyphPixels[glyph]++;metricPixels++;metric=true;}
+    }
+    if(difference>32&&!metric||changed.length>limit||x<Math.floor(rect.x)-1||x>Math.ceil(rect.x+rect.width)+1||y<Math.floor(rect.y)-1||y>Math.ceil(rect.y+rect.height)+1)return {ok:false,differingPixels:changed.length,maxDifference,...(masks.length?{metricPixels,metricGlyph,metricGlyphPixels:metricGlyph>=0?glyphPixels[metricGlyph]:0}:{}),sample:[{x,y,a:[...a.slice(p*4,p*4+4)],b:[...b.slice(p*4,p*4+4)]}]};
   }
   // PDF form placement can change a handful of edge coverage values at high
   // DPI even with equivalent coordinates. Permit only small changes adjacent

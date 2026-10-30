@@ -140,6 +140,10 @@ jobs:
         run: node scripts/recovery-idle-test.cjs
       - name: Re-prove text separated from a drawing
         run: node scripts/paragraph-split-test.cjs
+      - name: Check separated text at high display density
+        env:
+          PERSISTENT_TEX_TEST_DPR: '2.5'
+        run: node scripts/paragraph-split-test.cjs
       - name: Normal-mode local error recovery and continued typing
         shell: pwsh
         run: |
@@ -229,6 +233,10 @@ jobs:
           if($LASTEXITCODE -ne 0){exit $LASTEXITCODE}
           node scripts/paragraph-split-test.cjs
           if($LASTEXITCODE -ne 0){exit $LASTEXITCODE}
+          $env:PERSISTENT_TEX_TEST_DPR='2.5'
+          node scripts/paragraph-split-test.cjs
+          if($LASTEXITCODE -ne 0){exit $LASTEXITCODE}
+          Remove-Item Env:PERSISTENT_TEX_TEST_DPR
           node scripts/lecture-session-test.cjs
           if($LASTEXITCODE -ne 0){exit $LASTEXITCODE}
           $env:PERSISTENT_TEX_LECTURE_PLAIN='0'

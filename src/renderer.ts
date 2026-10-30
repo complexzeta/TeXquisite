@@ -816,7 +816,7 @@ api.on(async message=>{
       const [frame,composedRaster,ink,tile]=await Promise.all(reads).catch(async error=>{await Promise.allSettled(reads);throw error;});
       readAt=performance.now();
       const a=frame.value.canvas,pa=frame.value.pixels,pb=composedRaster.pixels;
-      const factor=scale*(window.devicePixelRatio||1),box=message.footprint,result=matchLocalPatchRaster(pa,pb,a.width,a.height,{x:box.x*factor,y:box.y*factor,width:box.width*factor,height:box.height*factor},(message.calibration?.calibratedGlyphs??[]).map((g:any)=>({x:g.x*factor,y:g.y*factor,width:g.width*factor,height:g.height*factor})));
+      const factor=scale*(window.devicePixelRatio||1),box=message.footprint,result=matchLocalPatchRaster(pa,pb,a.width,a.height,{x:box.x*factor,y:box.y*factor,width:box.width*factor,height:box.height*factor},(message.calibration?.calibratedGlyphs??[]).map((g:any)=>({x:g.x*factor,y:g.y*factor,width:g.width*factor,height:g.height*factor})),factor);
       ok=ink&&a.width===composedRaster.width&&a.height===composedRaster.height&&result.ok;
       comparedAt=performance.now();
       if(ok)ok=await tileMatchesFull(composed,message.footprint,composedRaster,pb,tile);

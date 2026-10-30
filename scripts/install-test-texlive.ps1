@@ -82,7 +82,7 @@ try{
   if($version -notmatch "TeX Live $Year"){throw 'Repository version does not match the requested test year.'}
   # Only this shell sees the test bin. No registry, desktop or global PATH edits.
   $env:PATH=$bin+';'+$env:PATH
-  & (Join-Path $bin 'tlmgr.bat') --repository $repository install collection-latex latexmk amsmath tools graphics pgf xcolor geometry hyperref babel-english ec
+  & (Join-Path $bin 'tlmgr.bat') --repository $repository install collection-latex latexmk amscls amsmath tools graphics pgf xcolor geometry hyperref babel-english ec
   if($LASTEXITCODE -ne 0){throw 'Installing the compatibility fixture packages failed.'}
   if(-not (Test-Path -LiteralPath (Join-Path $bin 'pdflatex.exe'))){throw 'The LaTeX collection did not provide pdfLaTeX.'}
   if([Environment]::GetEnvironmentVariable('Path','User') -ne $beforeUserPath -or [Environment]::GetEnvironmentVariable('Path','Machine') -ne $beforeMachinePath){throw 'The installer unexpectedly changed persistent PATH.'}
