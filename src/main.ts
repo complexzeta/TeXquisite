@@ -151,7 +151,7 @@ const localPreview=new LocalPreview(
           currentProblems=retained.problems;currentDiagnostic=retained.diagnostic;
           send({type:'diagnostic',issue:currentDiagnostic});send({type:'problems',root:candidate.root,editId:candidate.editId,issues:currentProblems});
           tracePreview({event:'recovery-retained',editId:candidate.editId,count:candidate.unchangedRecovery!.length});
-        }else if(currentDiagnostic||candidate.recoveredBasis||candidate.recoveryCleared||resolved)scheduleFullVerification(candidate.editId,candidate.recoveryCleared||resolved?0:650,true);
+        }else if(currentDiagnostic||candidate.recoveredBasis||candidate.recoveryCleared||resolved)scheduleFullVerification(candidate.editId,0,true);
         else if(candidate.reprepareParagraph){tracePreview({event:'paragraph-split-refresh',editId:candidate.editId});scheduleFullVerification(candidate.editId,300,true);}
         else scheduleFullVerification(candidate.editId);
       }
