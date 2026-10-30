@@ -140,7 +140,12 @@ const localPreview=new LocalPreview(
         // A healthy local paragraph cannot clear an error elsewhere.
         // Recheck once after typing pauses; only a full publication clears it.
         const retained=state.previewMode==='lecture'&&candidate.unchangedRecovery?retainRecoveryProblems(candidate.unchangedRecovery,currentProblems,currentDiagnostic):undefined;
-        if(retained){
+        if(state.previewMode==='lecture'&&candidate.sourceHealthy&&!currentDiagnostic&&!currentProblems.some(issue=>issue.severity!=='warning')){
+          // The proved compiler input is already the actual draft. A history
+          // of repairs must not reclaim its healthy local worker after a word.
+          clearTimeout(fullVerification);fullVerification=undefined;
+          if(candidate.recoveryCleared||resolved)tracePreview({event:'recovery-healthy-retained',editId:candidate.editId});
+        }else if(retained){
           clearTimeout(fullVerification);fullVerification=undefined;
           currentProblems=retained.problems;currentDiagnostic=retained.diagnostic;
           send({type:'diagnostic',issue:currentDiagnostic});send({type:'problems',root:candidate.root,editId:candidate.editId,issues:currentProblems});
