@@ -76,6 +76,15 @@ test('Calibrated glyph geometry permits only eight opaque grayscale coverage pix
  const flatA=new Uint8ClampedArray(width*height*4).fill(255),flatB=new Uint8ClampedArray(flatA);set(flatA,10,10,186);set(flatB,10,10,126);assert.equal(matchLocalPatchRaster(flatA,flatB,width,height,rect,glyphs).ok,false,'Geometry without a dark/light stroke in both images rejects');
 });
 
+test('Aligned origins can supply glyph calibration without authorizing shifts or weak consensus',()=>{
+ const aligned=Array.from({length:8},()=>({x:12,y:24}));
+ assert.equal(placementCorrection(aligned,{x:12,y:24}),false);
+ assert.deepEqual(placementCorrection(aligned,{x:12,y:24},true),{dx:0,dy:0});
+ assert.equal(placementCorrection(aligned.slice(0,2),{x:12,y:24},true),false);
+ assert.equal(placementCorrection([...aligned.slice(0,4),...aligned.slice(0,4).map(()=>({x:12.1,y:24}))],{x:12,y:24},true),false);
+ assert.equal(placementCorrection(aligned,{x:0,y:0},true),false);
+});
+
 test('Independent matched glyphs share a capped coverage allowance without hiding a changed glyph',()=>{
  const width=1100,height=900,rect={x:1,y:1,width:1098,height:898},a=new Uint8ClampedArray(width*height*4).fill(255),b=new Uint8ClampedArray(a),glyphs=[];
  const set=(im,x,y,v)=>{for(let c=0;c<3;c++)im[(y*width+x)*4+c]=v;};

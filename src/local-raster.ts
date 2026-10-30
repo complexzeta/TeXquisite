@@ -93,12 +93,13 @@ function matchRaster(a:Uint8ClampedArray,b:Uint8ClampedArray,width:number,height
 // Glyph bounding boxes can contain a metric outlier even when the paragraph
 // origins agree. A strong geometric consensus may propose a tiny translation;
 // callers must still repeat the raster and ink proof afterwards.
-export function placementCorrection(offsets:{x:number;y:number}[],current:{x:number;y:number}){
+export function placementCorrection(offsets:{x:number;y:number}[],current:{x:number;y:number},allowAligned=false){
   if(offsets.length<3||![current.x,current.y,...offsets.flatMap(o=>[o.x,o.y])].every(Number.isFinite))return false;
   const median=(values:number[])=>values.sort((a,b)=>a-b)[Math.floor(values.length/2)];
   const x=median(offsets.map(o=>o.x)),y=median(offsets.map(o=>o.y)),inliers=offsets.filter(o=>Math.abs(o.x-x)<=.004&&Math.abs(o.y-y)<=.004);
   if(inliers.length<Math.max(3,Math.ceil(offsets.length*.9)))return false;
   const dx=median(inliers.map(o=>o.x))-current.x,dy=median(inliers.map(o=>o.y))-current.y;
-  if(Math.abs(dx)>.01||Math.abs(dy)>.01||Math.abs(dx)+Math.abs(dy)<.00001)return false;
+  if(Math.abs(dx)>.01||Math.abs(dy)>.01)return false;
+  if(Math.abs(dx)+Math.abs(dy)<.00001)return allowAligned?{dx:0,dy:0}:false;
   return {dx,dy};
 }

@@ -756,7 +756,11 @@ async function localCorrection(message:any,base:any,fragment:any){
   const fullLookup=new GlyphLookup<PdfCharacter>(fullGlyphs),fragmentLookup=new GlyphLookup<PdfCharacter>(fragmentGlyphs);
   const offsets:{x:number;y:number;full:PdfCharacter;fragment:PdfCharacter}[]=[];
   for(const a of message.calibration?.anchors??[]){const full=fullLookup.nearest(a.code,a.full),local=fragmentLookup.nearest(a.code,a.fragment);if(full&&local)offsets.push({x:full[1]-local[1],y:full[2]-local[2],full,fragment:local});}
-  const correction=placementCorrection(offsets,message.calibration);if(!correction)return false;
+  const correction=placementCorrection(offsets,message.calibration,true);if(!correction)return false;
+  // An already aligned origin still needs independently matched glyph boxes
+  // for bounded antialiasing coverage. Do not repeat an identical proposal
+  // after those boxes have already failed their raster check.
+  if(correction.dx===0&&correction.dy===0&&message.calibration?.calibratedGlyphs?.length)return false;
   const x=message.calibration.x+correction.dx,y=message.calibration.y+correction.dy,calibratedGlyphs:{x:number;y:number;width:number;height:number}[]=[];
   for(const g of fragmentGlyphs){
     const full=fullLookup.nearest(g[0],[g[1]+x,g[2]+y,g[3],g[4]]);if(!full)continue;
