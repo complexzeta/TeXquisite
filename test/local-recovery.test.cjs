@@ -86,3 +86,18 @@ test('Original root text does not replace an included-file baseline, and healthy
  assert.equal(local.regionText({basis,input:{file:'chapter.tex',text},sourceText:text,range:{from:0,to:text.length}},'Included new words.\n\n'),'Included new words.\n\n');
  assert.equal(local.sameContext({basis},{...basis,bundle:{recovered:false}}),false);
 });
+
+test('Only successful state-preserving lecture edits outside repaired text can retain a known error',async()=>{
+ const original='Target ordinary words.\n\nBroken \\bad words.\n\n',compiled=original.replace('\\bad','    '),range={from:0,to:original.indexOf('Broken')},issue={id:'known',root:'main.tex',file:'main.tex',line:3,kind:'tex',severity:'error',message:'Undefined control sequence.'};
+ for(const mode of ['safe','state-change','document','repaired-region','new-repair']){
+  const local=make();local.lecture=mode!=='document';let candidate;local.publish=async value=>{candidate=value;return true;};
+  const from=mode==='repaired-region'?range.to:0,to=mode==='repaired-region'?original.length:range.to,active={from,to};
+  const slot={ready:true,basis:{source:compiled,originalSource:original,recoveryIssues:[issue],bundle:{id:'base',recovered:true},options:{root:'main.tex'}},range:active,abort:new AbortController(),compiler:{prepareNextRegionEdit(){},stop(){}},compositor:{page:1}};
+  local.slot=slot;local.pending={source:mode==='repaired-region'?original.replace('Broken','Broken new'):original.replace('ordinary','new ordinary'),editId:'new',at:from+8};
+  local.output=async()=>({kind:'flow',output:{pdf:Buffer.alloc(0)},flow:{...(mode==='state-change'?{stateChanged:true}:{})}});
+  if(mode==='new-repair')local.recoverOutput=async()=>({kind:'flow',output:{pdf:Buffer.alloc(0)},flow:{},recovery:{message:'Another repair',line:1},repairedSource:original});
+  await local.drain();assert.ok(candidate,mode);assert.equal(!!candidate.unchangedRecovery,mode==='safe',mode);
+  if(mode==='safe'){assert.equal(candidate.unchangedRecovery[0].editId,'new');assert.equal(candidate.recoveredBasis,true);}
+  local.stop();
+ }
+});

@@ -20,6 +20,7 @@ import {BackupStore} from './backups';
 import {graphicxInsertion,documentBodyStart} from './image-paste';
 import {panelPreferences,PanelPreferences} from './panel-layout';
 import {LocalPreview,LocalVerification} from './local-preview';
+import {retainRecoveryProblems} from './recovery-navigation';
 import {nativeForward,nativeBackward,cancelNativeNavigation} from './native-navigation';
 import {inspectToolchain,toolEnvironment,ToolchainReport} from './toolchain';
 import {generateInstalledFormat,fingerprintFiles} from './format-cache';
@@ -124,7 +125,13 @@ const localPreview=new LocalPreview(
       }else{
         // A healthy local paragraph cannot clear an error elsewhere.
         // Recheck once after typing pauses; only a full publication clears it.
-        if(currentDiagnostic||candidate.recoveredBasis)scheduleFullVerification(candidate.editId,650,true);
+        const retained=state.previewMode==='lecture'&&candidate.unchangedRecovery?retainRecoveryProblems(candidate.unchangedRecovery,currentProblems,currentDiagnostic):undefined;
+        if(retained){
+          clearTimeout(fullVerification);fullVerification=undefined;
+          currentProblems=retained.problems;currentDiagnostic=retained.diagnostic;
+          send({type:'diagnostic',issue:currentDiagnostic});send({type:'problems',root:candidate.root,editId:candidate.editId,issues:currentProblems});
+          tracePreview({event:'recovery-retained',editId:candidate.editId,count:candidate.unchangedRecovery!.length});
+        }else if(currentDiagnostic||candidate.recoveredBasis)scheduleFullVerification(candidate.editId,650,true);
         else scheduleFullVerification(candidate.editId);
       }
     }

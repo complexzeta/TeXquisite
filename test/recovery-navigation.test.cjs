@@ -1,6 +1,19 @@
 const {test}=require('node:test'),assert=require('node:assert/strict');
 const {sourceCorrespondence,recoveryNavigation,recoveryLocations}=require('../dist/recovery-navigation'),{forwardPosition,backward,liveFlowPosition}=require('../dist/navigation-query'),{encodeNavigation,decodeNavigation}=require('../dist/navigation-codec');
 const root='main.tex',row=(line,y)=>[root,line,1,10,y,80,8],glyph=(line,y)=>[root,line,0,1,10,y,4,8,65,1];
+
+test('Unchanged recovery diagnostics follow source line shifts without clearing unrelated errors',()=>{
+ const {carryRecoveryDiagnostics,retainRecoveryProblems}=require('../dist/recovery-navigation');
+ const previous='Before\n\\broken\nAfter',current='Before\nmore words\n\\broken\nAfter',issue={id:'known',root,file:root,line:2,kind:'tex',severity:'error',message:'Undefined control sequence.',editId:'old',sourceHash:'old'};
+ const carried=carryRecoveryDiagnostics([issue],root,previous,current,'new-hash','new-edit');
+ assert.equal(carried[0].line,3);assert.equal(carried[0].editId,'new-edit');assert.equal(carried[0].sourceHash,'new-hash');assert.equal(issue.line,2);
+ const warning={...issue,id:'warning',severity:'warning'},retained=retainRecoveryProblems(carried,[issue,warning],issue);
+ assert.equal(retained.problems[0],carried[0]);assert.equal(retained.problems[1],warning);assert.equal(retained.diagnostic,carried[0]);
+ assert.equal(retainRecoveryProblems(carried,[issue,{...issue,id:'another-error'}],issue),undefined);
+ assert.equal(retainRecoveryProblems(carried,[issue],{...issue,id:'another-error'}),undefined);
+ assert.equal(carryRecoveryDiagnostics([issue],root,previous,current.replace('\\broken','\\fixed'),'new','edit'),undefined);
+ assert.equal(carryRecoveryDiagnostics([{...issue,file:'chapter.tex'}],root,previous,current,'new','edit'),undefined);
+});
 test('Recovery preserves every unchanged line between multiple repairs, with the original source identity',()=>{
  const source='Alpha\n\\broken\nMiddle\n\\oops\nTail',compiled='Alpha\n       \nMiddle\n     \nTail',nav={schema:1,sources:{[root]:'compiled',chapter:'chapter-hash'},regions:[1,2,3,4,5].map(i=>row(i,i*20)).concat([['chapter',2,2,10,10,50,8]]),characters:[1,2,3,4,5].map(i=>glyph(i,i*20))};
  const result=recoveryNavigation(nav,root,source,compiled,'original');assert.deepEqual(result.regions.filter(r=>r[0]===root).map(r=>r[1]),[1,3,5]);assert.deepEqual(result.characters.map(g=>g[1]),[1,3,5]);assert.equal(result.sources[root],'original');assert.equal(result.sources.chapter,'chapter-hash');assert.equal(result.regions.at(-1)[0],'chapter');assert.deepEqual(result.recovery.excluded[root],[2,4]);assert.equal(nav.sources[root],'compiled');assert.equal(nav.regions.length,6);assert.deepEqual(decodeNavigation(encodeNavigation(result)),result);

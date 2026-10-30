@@ -9,7 +9,8 @@ import {ResidentCompiler,ResidentSourceError,ResidentSupersededError,RegionRange
 import type {LocalBasis} from './core';
 import {RegionCompositor,ParagraphAnchor,paragraphPages,cursorPosition,flowCaretY,flowLocations} from './region-compositor';
 import {previewRepair,previewRegionRepair} from './preview-recovery';
-import {recoveryLocations} from './recovery-navigation';
+import {recoveryLocations,carryRecoveryDiagnostics} from './recovery-navigation';
+import type {BuildDiagnostic} from './diagnostics';
 type CalibrationGlyph={x:number;y:number;width:number;height:number};
 export type LocalVerification=boolean|{dx:number;dy:number;calibratedGlyphs?:CalibrationGlyph[]};
 export interface LocalCalibration {x:number;y:number;anchors:ParagraphAnchor[];calibratedGlyphs?:CalibrationGlyph[];}
@@ -54,7 +55,7 @@ export function flowWindowAt(source:string,at:number):RegionRange|undefined{
 }
 const lineOffset=(source:string,line:number)=>{let at=0;while(line-->0){at=source.indexOf('\n',at);if(at<0)return -1;at++;}return at;};
 type Request={source:string;fullSource?:string;editId:string;at:number;recovery?:{message:string;line:number};};
-export interface LocalCandidate {recovery?:{message:string;line:number};recoveredBasis?:boolean;}
+export interface LocalCandidate {recovery?:{message:string;line:number};recoveredBasis?:boolean;unchangedRecovery?:BuildDiagnostic[];}
 export interface LocalCandidate {pageLocations?:{page:number;locations:ReturnType<typeof flowLocations>;blocked?:{x:number;y:number;width:number;height:number}[]}[];retainedFlow?:boolean;retainedSource?:string;}
 type DiskInput={file:string;mtime:number;ctime:number;ino:number;size:number;};
 type Slot={pageProbe?:{source:string;range:RegionRange;output:Awaited<ReturnType<ResidentCompiler['previewRegionPage']>>};neutralLast?:boolean;cancelWork?:()=>void;epoch?:number;cancelled?:boolean;regionKey?:string;edited?:boolean;latestSource?:string;file?:string;input?:IncludedInput;sourceText?:string;otherResources?:string;basis:LocalBasis;range:RegionRange;liveEnd:number;compiledRange:RegionRange;compiler:ResidentCompiler;compositor?:RegionCompositor;ready:boolean;abort:AbortController;diskInputs:DiskInput[];pageMode?:boolean;pageReady?:boolean;pageCostMs?:number;proofPage?:number;sourcePages?:PageSpan;baselineSpan?:PageSpan;continuation?:string;verifyPageRange?:()=>Promise<void>;};
@@ -212,7 +213,10 @@ export class LocalPreview{
     this.cancelIdle();if(replaced){this.parked=[];this.idleAttempts.clear();}
     this.basis=basis;
     const s=this.slot;
-    if(s&&!(this.neutralEnabled&&replaced)&&this.sameContext(s,basis)){const next=this.sourceFor(basis,s.file??s.basis.options.root);if(next&&this.regionText(s,s.input?next.text:basis.originalSource??next.text)!==undefined){this.scheduleIdle();return;}}
+    // A full recovered publication supplies fresh diagnostic identities. Keep
+    // its worker warm, but re-prove the region against that publication rather
+    // than carrying an older error snapshot through an explicit recheck.
+    if(s&&!basis.bundle.recovered&&!(this.neutralEnabled&&replaced)&&this.sameContext(s,basis)){const next=this.sourceFor(basis,s.file??s.basis.options.root);if(next&&this.regionText(s,s.input?next.text:basis.originalSource??next.text)!==undefined){this.scheduleIdle();return;}}
     const compatible=!!prior&&prior.options.root===basis.options.root&&prior.project.resourceKey===basis.project.resourceKey&&prior.project.environmentKey===basis.project.environmentKey;
     this.disarm(compatible);
     this.schedule();
@@ -652,6 +656,10 @@ export class LocalPreview{
             if(candidate.flowOutput){const projected=recoveryLocations(candidate.flowOutput.locations??[],request.source,result.repairedSource);candidate.flowOutput={...candidate.flowOutput,...projected};}
             if(candidate.pageLocations)candidate.pageLocations=candidate.pageLocations.map(p=>({...p,...recoveryLocations(p.locations,request.source,result.repairedSource!)}));
           }else candidate.pageLocations=undefined;
+        }
+        const original=slot.basis.originalSource;
+        if(this.lecture&&!slot.input&&slot.basis.bundle.recovered&&original!==undefined&&slot.basis.recoveryIssues?.length&&!result.recovery&&result.kind==='flow'&&!result.flow.stateChanged&&original.slice(slot.range.from,slot.range.to)===slot.basis.source.slice(slot.range.from,slot.range.to)){
+          candidate.unchangedRecovery=carryRecoveryDiagnostics(slot.basis.recoveryIssues,slot.basis.options.root,original,request.source,candidate.sourceHash,request.editId);
         }
         const accepted=await this.publish(candidate);
         if(!accepted)throw new Error('The local page could not be displayed.');

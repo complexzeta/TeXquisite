@@ -1,4 +1,5 @@
 import type {Navigation,Region,Character} from './navigation';
+import type {BuildDiagnostic} from './diagnostics';
 // A correspondence authorizes navigation only, never editing, compiler reuse,
 // raster proofs or export. A changed line is deliberately unmapped as a whole.
 export function sourceCorrespondence(original:string,compiled:string){
@@ -33,4 +34,25 @@ export const recoveryPointBlocked=(nav:Navigation,page:number,x:number,y:number)
 export function recoveryLocations<T extends {at:number;end:number;x:number;y:number;width:number;height:number}>(locations:readonly T[],original:string,compiled:string){
  const map=sourceCorrespondence(original,compiled),kept:T[]=[],blocked:{x:number;y:number;width:number;height:number}[]=[];
  for(const g of locations){const position=map.position(g.at,g.end);if(position)kept.push({...g,...position});else blocked.push({x:g.x,y:g.y,width:g.width,height:g.height});}return {locations:kept,blocked};
+}
+
+// Diagnostic projection is not a compiler proof. Callers separately require a
+// successful local flow with unchanged native state and no repaired active text.
+export function carryRecoveryDiagnostics(issues:readonly BuildDiagnostic[],root:string,previous:string,current:string,sourceHash:string,editId:string){
+ if(!issues.length)return;
+ const map=sourceCorrespondence(current,previous),result:BuildDiagnostic[]=[];
+ for(const issue of issues){
+  if(issue.root!==root||issue.file!==root||!issue.line||issue.severity==='warning')return;
+  const line=map.lines.get(issue.line);if(line===undefined)return;
+  result.push({...issue,line,editId,sourceHash});
+ }
+ return result;
+}
+export function retainRecoveryProblems(carried:readonly BuildDiagnostic[],problems:readonly BuildDiagnostic[],diagnostic?:BuildDiagnostic){
+ const byId=new Map(carried.map(issue=>[issue.id,issue]));if(!byId.size||byId.size!==carried.length)return;
+ const errors=[...problems,...(diagnostic?[diagnostic]:[])].filter(issue=>issue.severity!=='warning');
+ if(!errors.length||errors.some(issue=>!byId.has(issue.id)))return;
+ const next=problems.map(issue=>byId.get(issue.id)??issue);
+ for(const issue of carried)if(!next.some(prior=>prior.id===issue.id))next.push(issue);
+ return {problems:next,diagnostic:diagnostic?byId.get(diagnostic.id)??carried[0]:carried[0]};
 }
