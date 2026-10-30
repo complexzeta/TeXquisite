@@ -120,11 +120,12 @@ const localPreview=new LocalPreview(
     if(accepted&&state.onSave&&candidate.root===state.root&&candidate.editId===latestEditId){
       if(candidate.recovery){
         const issue:BuildDiagnostic={id:'local-recovery-'+candidate.editId,root:candidate.root,editId:candidate.editId,file:candidate.sourceFile??candidate.root,line:candidate.recovery.line,kind:'tex',severity:'error',sourceHash:candidate.sourceHash,message:candidate.recovery.message+' Saved source is unchanged.'};
-        currentDiagnostic=issue;currentProblems=[issue];send({type:'diagnostic',issue});send({type:'problems',root:candidate.root,editId:candidate.editId,issues:[issue]});
+        currentDiagnostic=issue;currentProblems=[issue];send({type:'diagnostic',issue});send({type:'problems',root:candidate.root,editId:candidate.editId,issues:[issue]});scheduleFullVerification(candidate.editId,650,true);
       }else{
-        const resolvedStaleSourceError=currentDiagnostic&&currentDiagnostic.editId!==candidate.editId&&(!currentDiagnostic.file||currentDiagnostic.file===(candidate.sourceFile??candidate.root))&&!candidate.flowOutput?.stateChanged;
-        if(currentDiagnostic?.id.startsWith('local-recovery-')||candidate.recoveredBasis||resolvedStaleSourceError){currentDiagnostic=undefined;currentProblems=[];send({type:'localRecovered',root:candidate.root,editId:candidate.editId});}
-        scheduleFullVerification(candidate.editId);
+        // A healthy local paragraph cannot clear an error elsewhere.
+        // Recheck once after typing pauses; only a full publication clears it.
+        if(currentDiagnostic||candidate.recoveredBasis)scheduleFullVerification(candidate.editId,650,true);
+        else scheduleFullVerification(candidate.editId);
       }
     }
     return accepted;
@@ -302,6 +303,7 @@ async function handle(method:string,args:unknown[]) {
       const report=performanceReport({version:app.getVersion(),mode:state.previewMode??'document',continuous:!!state.continuousPreview,automatic:state.onSave,visible:!!window?.isVisible()&&!window.isMinimized(),localReady:localPreview.ready,localBusy:localPreview.busy,fastAvailable:!!toolchain?.fast.available,fastPreparable:!!toolchain?.fast.preparable,freeMiB:freemem()/1048576,totalMiB:totalmem()/1048576,latestEditId,standby:controller?.standbyReport.state,retained:process.env.PERSISTENT_TEX_MULTI_BLOCK==='1'&&process.env.PERSISTENT_TEX_RETAINED_FLOW==='1'},previewTrace);
       if(method==='copyPerformanceReport'){clipboard.writeText(JSON.stringify(report,null,2));setStatus('Performance report copied. Source text and file paths are excluded.');}return report;
     }
+    case 'retryPreview': {localPreview.prepareFullVerification();await build(undefined,true);return true;}
     case 'previewPerformance': return {standby:controller?.standbyReport,localReady:localPreview.ready,localBusy:localPreview.busy,localRange:localPreview.preparedRange,...(args[0]===true?{trace:previewTrace.slice()}: {})};
     case 'localRefresh': {
       if(process.env.PERSISTENT_TEX_MULTI_BLOCK==='1'){

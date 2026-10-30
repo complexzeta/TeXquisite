@@ -2,7 +2,7 @@ import {createHash} from 'node:crypto';
 import {mathRanges,parseMath} from './math-edit';
 export type Region=[file:string,line:number,page:number,x:number,y:number,width:number,height:number];
 export type Character=[file:string,line:number,column:number,page:number,x:number,y:number,width:number,height:number,character:number,length?:number];
-export interface Navigation {characters?:Character[];mathCharacters?:Character[];schema:1;sources:Record<string,string>;regions:Region[];nativeInputs?:Record<string,string>;}
+export interface Navigation {characters?:Character[];mathCharacters?:Character[];schema:1;sources:Record<string,string>;regions:Region[];nativeInputs?:Record<string,string>;recovery?:{excluded:Record<string,number[]>;blocked:Region[]};}
 export const textHash=(text:string)=>createHash('sha256').update(text.replace(/\r\n/g,'\n')).digest('hex');
 export function sourceIdentities(root:string,source:string,resources:[string,Uint8Array][],origins:Record<string,string>){
  const sources:Record<string,string>={[root]:textHash(source)};

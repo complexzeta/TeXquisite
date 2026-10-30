@@ -22,6 +22,7 @@ import {RetainedNavigation,RetainedFrame} from './retained-navigation';
 import {forwardPosition,backward,sourceLineHasOutput,previewFocusTarget,previewFocusPrefix,PreviewFocus,liveFlowPosition,LiveFlowFrame,unchangedPageLocations} from './navigation-query';
 import type {BuildDiagnostic} from './diagnostics';
 import {diagnosticAdvice} from './diagnostics';
+import {recoveryLineBlocked,recoveryPointBlocked} from './recovery-navigation';
 import type {Navigation,Region} from './navigation';
 declare global {interface Window {desktop:{call:(method:string,...args:unknown[])=>Promise<any>;on:(callback:(message:any)=>void)=>void};}}
 const api=window.desktop;
@@ -52,12 +53,12 @@ const verifiedPageOutputs=new Set<string>();
 let localDocument:{pdf:any;task:ReturnType<typeof loadPdf>;span:{first:number;last:number}}|undefined;
 function releaseLocalDocument(){const doc=localDocument;localDocument=undefined;void doc?.task.destroy();}
 type FlowLocation={at:number;end:number;x:number;y:number;width:number;height:number};
-let livePages:(LiveFlowFrame&{pages:{page:number;canvas?:HTMLCanvasElement;locations:FlowLocation[]}[]})|undefined;
+let livePages:(LiveFlowFrame&{pages:{page:number;canvas?:HTMLCanvasElement;locations:FlowLocation[];blocked?:{x:number;y:number;width:number;height:number}[]}[]})|undefined;
 function currentLivePages(){
   const frame=livePages;
   return frame&&model.continuousPreview&&localCanvas&&view&&frame.root===model.root&&frame.file===active&&frame.text===view.state.doc.toString()&&frame.baseId===continuousView.id&&frame.pages.every(p=>!p.canvas||p.canvas.isConnected&&p.canvas.dataset.localSourceHash===frame.sourceHash&&p.canvas.dataset.localEditId===frame.editId)?frame:undefined;
 }
-let liveFlow:(LiveFlowFrame&{stateChanged?:boolean;baseTo:number;page:number;canvas:HTMLCanvasElement;locations:FlowLocation[]})|undefined;
+let liveFlow:(LiveFlowFrame&{stateChanged?:boolean;baseTo:number;page:number;canvas:HTMLCanvasElement;locations:FlowLocation[];blocked?:{x:number;y:number;width:number;height:number}[]})|undefined;
 const continuousBases=new Map<string,{id:string;navigation:Navigation;text?:string;texts?:Record<string,string>}>();
 let continuousBasis:{id:string;navigation:Navigation;text?:string;texts?:Record<string,string>}|undefined;
 let localPatch:{x:number;y:number;width:number;height:number;page:number}|undefined;
@@ -195,7 +196,7 @@ function renderProblems(){
   const row=document.createElement('div');row.className='problem-row';row.setAttribute('role','listitem');row.dataset.severity=issue.severity??'error';
   const label=document.createElement('strong');label.textContent=issue.severity==='warning'?'Warning':'Error';
   const message=document.createElement('span');message.textContent=issue.message;
-  row.append(label,message);
+  const copy=document.createElement('div');copy.className='problem-copy';copy.append(message);const advice=diagnosticAdvice(issue.message);if(advice){const hint=document.createElement('span');hint.className='problem-advice';hint.textContent=advice;copy.append(hint);}row.append(label,copy);
   if(issue.file&&issue.line){const link=document.createElement('button');link.textContent=issue.file.split(/[\\/]/).at(-1)+' · line '+issue.line;link.title=issue.file;link.disabled=issue.editId!==latestEdit?.id;link.onclick=()=>void command(()=>navigateProblem(issue));row.append(link);}
   list.append(row);
  }
@@ -228,7 +229,7 @@ function renderIssue(){
   syncErrorMarker();
   // Automatic diagnostics stay in the stable Problems badge/list and gutter.
   // Opening/closing a top banner resized CodeMirror on every error revision.
-  const panel=el('diagnostics');panel.hidden=true;if(!compileIssue)return;
+  renderRecoveryNotice();const panel=el('diagnostics');panel.hidden=true;if(!compileIssue)return;
   const stale=compileIssue.editId!==latestEdit?.id;
   el('diagnosticMessage').textContent=compileIssue.message;
   el('diagnosticHint').textContent=diagnosticAdvice(compileIssue.message)??'';
@@ -239,6 +240,18 @@ function renderIssue(){
   link.title=compileIssue.file??'';
   panel.dataset.kind=compileIssue.kind;
 }
+function renderRecoveryNotice(reason?:string){
+ const issue=compileIssue?.root===model.root?compileIssue:projectProblems.find(i=>i.root===model.root&&i.severity!=='warning'),recovered=current?.timing?.recovered||localCanvas?.dataset.localRecovered==='true',notice=el('previewNotice');
+ notice.hidden=!issue&&!recovered&&!reason;if(notice.hidden)return;
+ const stale=!!issue&&issue.editId!==latestEdit?.id,where=issue?.file&&issue.line?` (${issue.file.split(/[\\/]/).at(-1)}, line ${issue.line})`:'';
+ el('previewNoticeTitle').textContent=stale?'Checking newer edits':issue?issue.message+where:recovered?'Temporary preview':'Navigation needs attention';
+ el('previewNoticeText').textContent=reason??(stale?'This error belongs to an earlier edit. The preview will check your current source.':issue?(diagnosticAdvice(issue.message)??'Open Details to inspect the build log, then Retry preview.')+(recovered?' Unchanged mapped text remains navigable; repaired text may not be.':' The previous preview is retained.'): 'This preview contains temporary repairs. Retry preview to check the current source.');
+ const go=el<HTMLButtonElement>('previewNoticeError');go.hidden=!issue?.file||!issue.line;go.disabled=stale;
+}
+function explainNavigation(reason:string){el('navState').textContent=reason;renderRecoveryNotice(reason);}
+el('previewNoticeError').onclick=()=>{const issue=compileIssue??projectProblems.find(i=>i.severity!=='warning');if(issue)void command(()=>navigateProblem(issue));};
+el('previewNoticeDetails').onclick=()=>{if(projectProblems.length){el<HTMLDetailsElement>('problems').open=true;el<HTMLSelectElement>('problemFilter').value='all';renderProblems();}else el<HTMLDetailsElement>('logs').open=true;};
+el('previewNoticeRetry').onclick=()=>void command(async()=>{const button=el<HTMLButtonElement>('previewNoticeRetry');button.disabled=true;try{await flush();canonicalRequested=true;await api.call('retryPreview');}finally{button.disabled=false;}});
 el('diagnosticLog').onclick=()=>{el<HTMLDetailsElement>('logs').open=true;el('logs').querySelector('summary')!.focus();};
 el('diagnosticLocation').onclick=()=>{if(compileIssue)void command(()=>navigateProblem(compileIssue!));};
 async function navigateProblem(issue:BuildDiagnostic){
@@ -564,13 +577,12 @@ function markLocation(row:Region,highlight=true){
   el('navState').textContent=`${row[0].split(/[\\/]/).at(-1)} · line ${row[1]}`;
 }
 async function locateContinuous(explicit:boolean){
-  if(localCanvas?.dataset.localRecovered==='true'){if(explicit)el('navState').textContent='Source navigation resumes after correcting the preview error.';return;}
   const token=++navigationToken,file=active,text=view!.state.doc.toString(),at=view!.state.selection.main.head;
   await continuousSetup;
   const valid=()=>token===navigationToken&&model.continuousPreview&&active===file&&view?.state.doc.toString()===text&&view.state.selection.main.head===at;
   if(!valid())return;
-  const line=view!.state.doc.lineAt(at).number,flow=liveFlow?.canvas.isConnected?liveFlow:undefined,basis=continuousBasis;
-  const status=(ok:boolean)=>{if(ok)el('navState').textContent=`${file.split(/[\\/]/).at(-1)} · line ${line}`;else if(explicit)el('navState').textContent='No current mapped output here; wait for the preview to update.';};
+  const line=view!.state.doc.lineAt(at).number;if(!sourceLineHasOutput(view!.state.doc.line(line).text)){if(explicit)el('navState').textContent='This source line produces no visible output.';return;}const flow=liveFlow?.canvas.isConnected?liveFlow:undefined,basis=continuousBasis;
+  const status=(ok:boolean)=>{if(ok)el('navState').textContent=`${file.split(/[\\/]/).at(-1)} · line ${line}`;else if(explicit)explainNavigation('This location has no current mapping. Go to the reported error, or Retry preview.');};
   if(neutralIds.size){const context=retainedContext(),found=context&&retainedNavigation.forward(context,at,continuousView.retainedProjection);if(found&&valid()){const marked=continuousView.mark(found.page,found.glyph,false,explicit);if(marked)pageNumber=found.page;status(marked);}else status(false);return;}
   const pages=currentLivePages();
   if(pages){
@@ -578,10 +590,10 @@ async function locateContinuous(explicit:boolean){
     const marked=!!found&&(found.p.canvas?continuousView.markCanvas(found.p.canvas,found.g,explicit):continuousView.mark(found.p.page,found.g,false,explicit));if(marked)pageNumber=found.p.page;status(marked);return;
   }
   if(flow&&file===flow.file&&text===flow.text&&at>=flow.from&&at<flow.to){
-    const glyph=flow.locations.reduce<FlowLocation|undefined>((best,g)=>!best||Math.abs(g.at-at)<Math.abs(best.at-at)?g:best,undefined);
+    const glyph=flow.locations.filter(g=>view!.state.doc.lineAt(g.at).number===line).reduce<FlowLocation|undefined>((best,g)=>!best||Math.abs(g.at-at)<Math.abs(best.at-at)?g:best,undefined);
     const found=!!glyph&&continuousView.mark(flow.page,glyph,true,explicit);if(found)pageNumber=flow.page;status(found);return;
   }
-  if(flow?.stateChanged){status(false);return;}
+  if(flow?.stateChanged&&at>=flow.from){status(false);return;}
   if(!basis){status(false);return;}
   let mappedText=text,mappedAt=at;
   if(flow&&file===flow.file){
@@ -595,14 +607,14 @@ async function locateContinuous(explicit:boolean){
 }
 async function locateSource(explicit:boolean){
   if(model.continuousPreview&&view){if(explicit)endPreview();await locateContinuous(explicit);return;}
-  if(localCanvas){if(explicit)el('navState').textContent='PDF navigation resumes after full document verification.';return;}
+  if(localCanvas){if(explicit)explainNavigation('This local preview has no mapping here. Retry preview to build a complete source map.');return;}
   if(!explicit&&previewSession)return;
   if(explicit)endPreview();
   const token=++navigationToken,candidate=current;
-  if(!candidate?.navigation){if(explicit)el('navState').textContent='Source navigation is unavailable for this preview.';return;}
+  if(!candidate?.navigation){if(explicit)explainNavigation('This preview has no source map. Retry preview, or open Details for the build error.');return;}
   const row=await cursorLocation(candidate.navigation,candidate.page,candidate.id);
   if(token!==navigationToken||candidate.id!==current?.id)return;
-  if(!row){if(explicit)el('navState').textContent='No current mapped output here; the preview may be behind your edits.';return;}
+  if(!row){if(explicit)explainNavigation('This source location is not mapped in the displayed preview. Go to error or Retry preview.');return;}
   if(row[2]!==candidate.page){
     const canvas=await render(candidate.pdf,row[2]);if(token!==navigationToken||candidate.id!==current?.id){canvas.width=canvas.height=0;return;}
     copyCanvasMetadata(canvas,candidate.canvas);
@@ -622,29 +634,29 @@ el('pages').addEventListener('click',event=>void command(async()=>{
     el('navState').textContent='No current mapped output here; wait for the preview to update.';return;
   }
   if(localCanvas){
-    if(localCanvas.dataset.localRecovered==='true'){el('navState').textContent='Source navigation resumes after correcting the preview error.';return;}
     const pages=currentLivePages(),mapped=pages?.pages.find(p=>(p.canvas??continuousView.canvasForPage(p.page))===canvas);
     if(pages&&mapped&&canvas&&view){
-      const rect=canvas.getBoundingClientRect(),at=liveFlowPosition(pages,{root:model.root,file:active,baseId:continuousView.id,sourceHash:pages.sourceHash,editId:pages.editId,text:view.state.doc.toString()},mapped.locations,(event.clientX-rect.left)/scale,(event.clientY-rect.top)/scale);
+      const rect=canvas.getBoundingClientRect(),at=liveFlowPosition(pages,{root:model.root,file:active,baseId:continuousView.id,sourceHash:pages.sourceHash,editId:pages.editId,text:view.state.doc.toString()},mapped.locations,(event.clientX-rect.left)/scale,(event.clientY-rect.top)/scale,mapped.blocked);
       if(at!==undefined){endPreview();navigationToken++;pageNumber=mapped.page;suppressFollow=true;try{view.dispatch({selection:{anchor:at},effects:EditorView.scrollIntoView(at,{y:'center'})});view.focus();}finally{suppressFollow=false;}el('navState').textContent=`${active.split(/[\\/]/).at(-1)} · line ${view.state.doc.lineAt(at).number}`;return;}
     }
     const flow=liveFlow;
     if(model.continuousPreview&&flow&&canvas===flow.canvas&&localCanvas===flow.canvas&&canvas.isConnected&&view){
-      const rect=canvas.getBoundingClientRect(),at=liveFlowPosition(flow,{root:model.root,file:active,baseId:continuousView.id,sourceHash:canvas.dataset.localSourceHash,editId:canvas.dataset.localEditId,text:view.state.doc.toString()},flow.locations,(event.clientX-rect.left)/scale,(event.clientY-rect.top)/scale);
+      const rect=canvas.getBoundingClientRect(),at=liveFlowPosition(flow,{root:model.root,file:active,baseId:continuousView.id,sourceHash:canvas.dataset.localSourceHash,editId:canvas.dataset.localEditId,text:view.state.doc.toString()},flow.locations,(event.clientX-rect.left)/scale,(event.clientY-rect.top)/scale,flow.blocked);
       if(at!==undefined){
         endPreview();navigationToken++;pageNumber=flow.page;suppressFollow=true;
         try{view.dispatch({selection:{anchor:at},effects:EditorView.scrollIntoView(at,{y:'center'})});view.focus();}finally{suppressFollow=false;}
         el('navState').textContent=`${flow.file.split(/[\\/]/).at(-1)} · line ${view.state.doc.lineAt(at).number}`;return;
       }
     }
-    el('navState').textContent='Local preview is awaiting full verification. Continue editing in the source pane.';return;
+    explainNavigation('This area has no current source mapping. Retry preview for a complete map; Details explains any reported error.');return;
   }
   if(retainedExperiment&&model.continuousPreview&&continuousView.id!==current?.id)return;
   const flowPage=model.continuousPreview?canvas?.closest<HTMLElement>('.flow-page'):undefined;
   const candidate=current&&flowPage?{...current,canvas,page:Number(flowPage.dataset.page)}:current;
-  if(!candidate?.navigation||!canvas||canvas!==candidate.canvas||model.continuousPreview&&!flowPage)return;
+  if(!canvas||model.continuousPreview&&!flowPage)return;if(!candidate?.navigation||canvas!==candidate.canvas){explainNavigation('This preview has no source map. Retry preview, or open Details for the build error.');return;}
   endPreview();const pointToken=++navigationToken,priorFile=active,priorText=view?.state.doc.toString();
   const rect=candidate.canvas.getBoundingClientRect(),x=(event.clientX-rect.left)/scale,y=(event.clientY-rect.top)/scale;
+  if(recoveryPointBlocked(candidate.navigation,candidate.page,x,y)){explainNavigation('This text contains a temporary repair. Use Go to error to correct its source, then Retry preview.');return;}
   const row=candidate.navigation.nativeInputs?await api.call('nativeNavigation',candidate.id,'backward',{page:candidate.page,x,y}):backward(candidate.navigation,candidate.page,x,y);
   if(current?.id!==candidate.id||pointToken!==navigationToken)return;if(!row){el('navState').textContent='No source location near this point.';return;}
   try{
@@ -655,8 +667,8 @@ el('pages').addEventListener('click',event=>void command(async()=>{
       const glyph=[...(candidate.navigation.characters??[]),...(candidate.navigation.mathCharacters??[])].filter(g=>g[0]===row[0]&&g[1]===row[1]&&g[3]===candidate.page).map(g=>({g,d:Math.max(g[4]-x,0,x-g[4]-g[6])**2+Math.max(g[5]-y,0,y-g[5]-g[7])**2})).sort((a,b)=>a.d-b.d)[0];
       if(text!==undefined&&glyph&&glyph.d<24*24){const lines=text.split('\n'),start=lines.slice(0,row[1]-1).reduce((n,line)=>n+line.length+1,0),line=lines[row[1]-1]??'';position=start+new TextDecoder().decode(new TextEncoder().encode(line).slice(0,glyph.g[2])).length;}
     }
-    if(model.previewEditing&&!candidate.navigation.nativeInputs){const text=result.state.docs.find((doc:any)=>doc.path===row[0])?.text;const glyphs=pageGlyphs=await candidate.pdf.glyphs(candidate.page);if(text!==undefined)for(const span of proseSpans(candidate.navigation,row[0],row[1],candidate.page,text,glyphs)){const at=nearestCaret(span,x,y);if(at!==undefined){mapped=span;position=at;break;}}}
-    if(model.previewEditing&&!mapped&&!candidate.navigation.nativeInputs){const text=result.state.docs.find((doc:any)=>doc.path===row[0])?.text;if(text!==undefined)for(const span of mathSpans(candidate.navigation,row[0],row[1],candidate.page,text,pageGlyphs)){const caret=nearestMathCaret(span,x,y);if(caret){mapped=span;position=caret.at;mathSlot=caret.slot;break;}}}
+    if(model.previewEditing&&!candidate.navigation.nativeInputs&&!candidate.navigation.recovery){const text=result.state.docs.find((doc:any)=>doc.path===row[0])?.text;const glyphs=pageGlyphs=await candidate.pdf.glyphs(candidate.page);if(text!==undefined)for(const span of proseSpans(candidate.navigation,row[0],row[1],candidate.page,text,glyphs)){const at=nearestCaret(span,x,y);if(at!==undefined){mapped=span;position=at;break;}}}
+    if(model.previewEditing&&!mapped&&!candidate.navigation.nativeInputs&&!candidate.navigation.recovery){const text=result.state.docs.find((doc:any)=>doc.path===row[0])?.text;if(text!==undefined)for(const span of mathSpans(candidate.navigation,row[0],row[1],candidate.page,text,pageGlyphs)){const caret=nearestMathCaret(span,x,y);if(caret){mapped=span;position=caret.at;mathSlot=caret.slot;break;}}}
     if(pointToken!==navigationToken||active!==priorFile||view?.state.doc.toString()!==priorText||current?.id!==candidate.id)return;
     const follow=model.followPreview,editing=model.previewEditing;model=result.state;model.followPreview=follow;model.previewEditing=editing;renderEditor();void api.call('active',active,true).catch(e=>{el('navState').textContent=String(e);});
     if(model.continuousPreview)pageNumber=candidate.page;
@@ -666,7 +678,7 @@ el('pages').addEventListener('click',event=>void command(async()=>{
         el('pages').querySelector('.navigation-marker')?.remove();previewInput.value='';previewInput.focus({preventScroll:true});drawPreviewCaret();updateMathTools();el('navState').textContent=isMath(mapped)?'Editing math · Tab moves between parts and cells · Esc returns to source':'Editing plain text · Esc returns to source';
       }else{view.focus();markLocation(row);if(editing)el('navState').textContent='Use the source editor for this text.';}
     }
-  }catch(e){el('navState').textContent=String(e).replace(/^.*Error: /,'');}
+  }catch(e){explainNavigation(String(e).replace(/^.*Error: /,'')+' Use Retry preview if the source has changed.');}
 }));
 function copyCanvasMetadata(canvas:HTMLCanvasElement,source:HTMLCanvasElement){for(const [key,value] of Object.entries(source.dataset))if(value!==undefined&&!['renderScale','renderRatio','pageWidth','pageHeight','rasterMs','workerMs','renderMs'].includes(key))canvas.dataset[key]=value;}
 async function render(pdf:any,page:number,includePixels=false,urgent=false){
@@ -867,10 +879,10 @@ api.on(async message=>{
           neutralPages.set(message.page,canvas);neutralIds.add(block.id);retainedExperiment=true;ok=true;
           for(const c of continuousView.retainedCanvases()){c.dataset.renderScope='local';c.dataset.localLayout='retained-flow';c.dataset.neutralActive=String(c===canvas);c.dataset.localSourceHash=message.sourceHash;c.dataset.localEditId=message.editId;c.dataset.sourceHash=current?.canvas.dataset.sourceHash??'';}
         }
-        livePages=undefined;liveFlow={root:message.root,baseId:message.baseId,sourceHash:message.sourceHash,editId:message.editId,file:message.sourceFile??message.root,stateChanged:!!message.flowOutput.stateChanged,text:input.text,from:message.rangeFrom,to:message.rangeTo,baseTo:message.flowOutput.baseRangeTo,page:message.page,canvas,locations:(message.flowOutput.locations??[]).map((g:any)=>({...g,y:g.y+leadingCorrection}))};
+        livePages=undefined;liveFlow={root:message.root,baseId:message.baseId,sourceHash:message.sourceHash,editId:message.editId,file:message.sourceFile??message.root,stateChanged:!!message.flowOutput.stateChanged,text:input.text,from:message.rangeFrom,to:message.rangeTo,baseTo:message.flowOutput.baseRangeTo,page:message.page,canvas,blocked:message.flowOutput.blocked?.map((g:any)=>({...g,y:g.y+leadingCorrection})),locations:(message.flowOutput.locations??[]).map((g:any)=>({...g,y:g.y+leadingCorrection}))};
         if(message.retainedFlow)liveFlow=undefined;
         canvas.dataset.renderScope='local';canvas.dataset.localLayout=message.retainedFlow?'retained-flow':'flow';canvas.dataset.localStateChanged=String(!!message.flowOutput.stateChanged);canvas.dataset.localSourceHash=message.sourceHash;canvas.dataset.localEditId=message.editId;canvas.dataset.sourceHash=current?.canvas.dataset.sourceHash??'';
-        canvas.dataset.localRecovered=String(!!message.recovery);if(message.recovery){liveFlow=undefined;livePages=undefined;}
+        canvas.dataset.localRecovered=String(!!message.recovery);
         canvas.dataset.localPipeline=JSON.stringify({compiler:message.timing,receiveMs:receivedAt-inputAt,checkedRegionMs:tiledAt-receivedAt,pdfWorker:{queueMs:tile.queueMs,loadMs:tile.loadMs,rasterMs:tile.rasterMs,checkMs:tile.checkMs,cropMs:tile.cropMs,workerMs:tile.workerMs,rasterPasses:tile.rasterPasses},canvasMs:performance.now()-tiledAt});
         if(model.followPreview&&Number.isFinite(message.flowOutput.caretY))continuousView.reveal(canvas,message.flowOutput.caretY+leadingCorrection);
         const finish=()=>{if(token!==localRenderToken||localCanvas!==canvas)return;const latency=Math.ceil(performance.now()-inputAt);input.displayedLatencyMs??=latency;canvas.dataset.localLatencyMs=String(latency);canvas.dataset.localLatencyEditId=message.editId;canvas.dataset.timingEndpoint=message.visible?'paint opportunity':'canvas (window hidden)';void api.call('localWarm',message.root,message.baseId,message.editId,Math.ceil(performance.now()-inputAt),canvas.dataset.localLayout).catch(()=>{});localStatus=`Continuous block updated in ${latency} ms from edit. Paginated PDF verification pending.`;refreshPreviewStatus();};
@@ -914,7 +926,7 @@ api.on(async message=>{
             livePages=message.pageLocations?{root:message.root,file:message.sourceFile??message.root,baseId:message.baseId,editId:message.editId,sourceHash:message.sourceHash,text:input.text,from:0,to:input.text.length,pages:message.pageLocations.map((p:any)=>({...p,canvas:canvases[p.page-proof.span.first]})).filter((p:any)=>!!p.canvas)}:undefined;
             const baselineText=continuousBasis?.texts?.[input.file]??(input.file===model.root?continuousBasis?.text:undefined);
             if(livePages&&continuousBasis&&baselineText!==undefined)livePages.pages.push(...unchangedPageLocations(continuousBasis.navigation,input.file,baselineText,input.text,{first:span.first,last:proof.span.last}).map(p=>({...p,canvas:p.page>=proof.span.first&&p.page<span.first?canvases[p.page-proof.span.first]:undefined})));
-            for(const c of canvases)c.dataset.localRecovered=String(!!message.recovery);if(message.recovery)livePages=undefined;
+            for(const c of canvases)c.dataset.localRecovered=String(!!message.recovery);
             for(const c of canvases){c.dataset.renderScope='local';c.dataset.localLayout='continuous-pages';c.dataset.localSourceHash=message.sourceHash;c.dataset.localEditId=message.editId;c.dataset.localFirstPage=String(proof.span.first);c.dataset.localLastPage=String(span.last);c.dataset.localPipeline=JSON.stringify({compiler:message.timing,receiveMs:receivedAt-inputAt,loadRenderMs:performance.now()-receivedAt});}
             if(model.followPreview){
               const page=Math.max(span.first,Math.min(span.last,message.cursorPage??span.first)),target=message.cursorPosition;
@@ -1011,7 +1023,7 @@ api.on(async message=>{
       else previewUpdating=false;
     }
   }
-  if(message.type==='problems'){if(message.root!==model.root||message.editId!==latestEdit?.id)return;projectProblems=message.issues;renderProblems();}
+  if(message.type==='problems'){if(message.root!==model.root||message.editId!==latestEdit?.id)return;projectProblems=message.issues;if(!message.issues.some((i:any)=>i.severity!=='warning'))compileIssue=undefined;renderProblems();renderRecoveryNotice();}
   if(message.type==='diagnostic'){
     if(message.issue.root!==model.root||message.issue.editId!==latestEdit?.id)return;
     compileIssue=message.issue;projectProblems=[message.issue];previewKnownCurrent=false;previewUpdating=false;renderIssue();
@@ -1076,13 +1088,13 @@ api.on(async message=>{
     }catch(e){void task?.destroy();await api.call('ack',message.bundle.id,String(e));}
   }
   if(message.type==='commit'&&prepared?.id===message.id){
-    const fullSequence=localInputs.get(message.timing?.editId)?.sequence??0,recoveryVerified=current?.timing?.recovered&&message.timing&&!message.timing.recovered&&fullSequence>=displayedSequence,retainLocal=!!message.timing&&!recoveryVerified&&!!localCanvas&&(fullSequence<displayedSequence||!canonicalRequested&&model.continuousPreview&&localCanvas.dataset.localLayout==='flow'&&localCanvas.dataset.localStateChanged!=='true'&&fullSequence===displayedSequence);
+    const fullSequence=localInputs.get(message.timing?.editId)?.sequence??0,recoveryVerified=current?.timing?.recovered&&message.timing&&!message.timing.recovered&&fullSequence>=displayedSequence,retainLocal=!!message.timing&&!message.timing.recovered&&localCanvas?.dataset.localRecovered!=='true'&&!recoveryVerified&&!!localCanvas&&(fullSequence<displayedSequence||!canonicalRequested&&model.continuousPreview&&localCanvas.dataset.localLayout==='flow'&&localCanvas.dataset.localStateChanged!=='true'&&fullSequence===displayedSequence);
     renderToken++;const old=current;current=prepared;prepared=undefined;if(!retainLocal){show(current,!!localCanvas&&localCanvas.dataset.localSourceHash===current.canvas.dataset.sourceHash);canonicalRequested=false;}
     if(retainLocal&&localCanvas?.dataset.localLayout==='paragraph'&&localPatch&&current.page===localPatch.page&&current.canvas.width===localCanvas.width&&current.canvas.height===localCanvas.height){
       const p=localPatch,saved=document.createElement('canvas');saved.width=p.width;saved.height=p.height;saved.getContext('2d')!.drawImage(localCanvas,p.x,p.y,p.width,p.height,0,0,p.width,p.height);const ctx=localCanvas.getContext('2d')!;ctx.drawImage(current.canvas,0,0);ctx.drawImage(saved,p.x,p.y);saved.width=saved.height=0;
     }
     if(!retainLocal)displayedSequence=fullSequence;scheduleFit(true);
-    navigationToken++;el('navState').textContent=retainLocal?'Source navigation will be available after full verification.':current.navigation?'Click PDF text to show its source':'Source navigation unavailable for this preview';
+    navigationToken++;el('navState').textContent=retainLocal?'Source navigation will be available after full verification.':current.navigation?current.navigation.recovery?'Temporary preview: unchanged mapped text is navigable':'Click PDF text to show its source':'Source navigation unavailable for this preview';
     if(!retainLocal&&current.displayFocus&&current.navigation){const frame=current;void continuousSetup.then(async()=>{if(await matchesSource(frame.navigation,active))return;const row=await displayFocusLocation(frame.displayFocus,frame.navigation);if(current===frame&&model.continuousPreview&&model.followPreview&&row&&row[2]<=frame.pdf.numPages)continuousView.revealPosition(row[2],row[4]);}).catch(()=>{});}
     if(!retainLocal&&model.followPreview&&current.navigation)void locateSource(false).catch(e=>{el('navState').textContent=String(e);});
     current.timing=message.timing;

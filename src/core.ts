@@ -16,6 +16,7 @@ import {capturePreviewFocus,PreviewFocus} from './navigation-query';
 import {textHash} from './navigation';
 import {emptyDocumentPreview} from './empty-document';
 import {previewRepair,recoverableTexError} from './preview-recovery';
+import {recoveryNavigation} from './recovery-navigation';
 
 export const hash = (bytes: Uint8Array | string) => createHash('sha256').update(bytes).digest('hex');
 const legacyTkzLoader=/^[\t ]*\\usetkzobj\{all\}[\t ]*(?:%[^\r\n]*)?\r?$/m;
@@ -373,7 +374,7 @@ export class BuildController {
         }finally{if(this.residentTask===task)this.residentTask=undefined;}
         if(pdf){
           warningLog=this.resident.diagnosticLog;
-          if(!recoveryIssues.length)try{navigation=makeNavigation(this.resident.navigation,options.root,source,project.resources??[],captured.origins);}catch(e){this.log('Source navigation unavailable: '+String(e)+'\n');}
+          try{navigation=makeNavigation(this.resident.navigation,options.root,recoveryIssues.length?compilerSource:source,project.resources??[],captured.origins);if(navigation&&recoveryIssues.length)navigation=recoveryNavigation(navigation,options.root,source,compilerSource,textHash(source));}catch(e){this.log('Source navigation unavailable: '+String(e)+'\n');}
           backend=recoveryIssues.length?'Recovered preview — temporary repairs; fix the reported LaTeX errors.':this.resident.lastTiming?.preambleRebuilt?'Preamble initialized.':'Preamble cached.';this.warm.stop();this.log('Completed the document from a resident TeX checkpoint.\n');
         }
       }

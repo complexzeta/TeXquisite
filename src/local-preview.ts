@@ -9,6 +9,7 @@ import {ResidentCompiler,ResidentSourceError,ResidentSupersededError,RegionRange
 import type {LocalBasis} from './core';
 import {RegionCompositor,ParagraphAnchor,paragraphPages,cursorPosition,flowCaretY,flowLocations} from './region-compositor';
 import {previewRepair,previewRegionRepair} from './preview-recovery';
+import {recoveryLocations} from './recovery-navigation';
 type CalibrationGlyph={x:number;y:number;width:number;height:number};
 export type LocalVerification=boolean|{dx:number;dy:number;calibratedGlyphs?:CalibrationGlyph[]};
 export interface LocalCalibration {x:number;y:number;anchors:ParagraphAnchor[];calibratedGlyphs?:CalibrationGlyph[];}
@@ -54,10 +55,10 @@ export function flowWindowAt(source:string,at:number):RegionRange|undefined{
 const lineOffset=(source:string,line:number)=>{let at=0;while(line-->0){at=source.indexOf('\n',at);if(at<0)return -1;at++;}return at;};
 type Request={source:string;fullSource?:string;editId:string;at:number;recovery?:{message:string;line:number};};
 export interface LocalCandidate {recovery?:{message:string;line:number};recoveredBasis?:boolean;}
-export interface LocalCandidate {pageLocations?:{page:number;locations:ReturnType<typeof flowLocations>}[];retainedFlow?:boolean;retainedSource?:string;}
+export interface LocalCandidate {pageLocations?:{page:number;locations:ReturnType<typeof flowLocations>;blocked?:{x:number;y:number;width:number;height:number}[]}[];retainedFlow?:boolean;retainedSource?:string;}
 type DiskInput={file:string;mtime:number;ctime:number;ino:number;size:number;};
 type Slot={pageProbe?:{source:string;range:RegionRange;output:Awaited<ReturnType<ResidentCompiler['previewRegionPage']>>};neutralLast?:boolean;cancelWork?:()=>void;epoch?:number;cancelled?:boolean;regionKey?:string;edited?:boolean;latestSource?:string;file?:string;input?:IncludedInput;sourceText?:string;otherResources?:string;basis:LocalBasis;range:RegionRange;liveEnd:number;compiledRange:RegionRange;compiler:ResidentCompiler;compositor?:RegionCompositor;ready:boolean;abort:AbortController;diskInputs:DiskInput[];pageMode?:boolean;pageReady?:boolean;pageCostMs?:number;proofPage?:number;sourcePages?:PageSpan;baselineSpan?:PageSpan;continuation?:string;verifyPageRange?:()=>Promise<void>;};
-export interface LocalCandidate {neutralBlock?:{id:string;prior:string[];ranges:{id:string;from:number;to:number;baseFrom:number;baseTo:number}[];locations:ReturnType<typeof flowLocations>;caretY?:number};sourceFile?:string;root:string;baseId:string;editId:string;sourceHash:string;pdf:Uint8Array;page:number;timing:unknown;fragmentPdf?:Uint8Array;fragment?:RegionFragment;inkTopSp?:number;flowOutput?:{stateChanged?:boolean;locations?:ReturnType<typeof flowLocations>;baseRangeTo?:number;caretY?:number;rect:{x:number;y:number;width:number;height:number};leading:number;baselineLeading:number;fragmentRect:{x:number;y:number;width:number;height:number}};rangeFrom:number;rangeTo:number;footprint?:{x:number;y:number;width:number;height:number};pageOutput?:boolean;pageSpan?:PageSpan;sourcePages?:PageSpan;proofPage?:number;cursorPage?:number;cursorPosition?:ReturnType<typeof cursorPosition>;baselineSpan?:PageSpan;continuation?:string;}
+export interface LocalCandidate {neutralBlock?:{id:string;prior:string[];ranges:{id:string;from:number;to:number;baseFrom:number;baseTo:number}[];locations:ReturnType<typeof flowLocations>;caretY?:number};sourceFile?:string;root:string;baseId:string;editId:string;sourceHash:string;pdf:Uint8Array;page:number;timing:unknown;fragmentPdf?:Uint8Array;fragment?:RegionFragment;inkTopSp?:number;flowOutput?:{blocked?:{x:number;y:number;width:number;height:number}[];stateChanged?:boolean;locations?:ReturnType<typeof flowLocations>;baseRangeTo?:number;caretY?:number;rect:{x:number;y:number;width:number;height:number};leading:number;baselineLeading:number;fragmentRect:{x:number;y:number;width:number;height:number}};rangeFrom:number;rangeTo:number;footprint?:{x:number;y:number;width:number;height:number};pageOutput?:boolean;pageSpan?:PageSpan;sourcePages?:PageSpan;proofPage?:number;cursorPage?:number;cursorPosition?:ReturnType<typeof cursorPosition>;baselineSpan?:PageSpan;continuation?:string;}
 async function selectPages(pdf:Uint8Array,span:PageSpan){
   const partial=await PDFDocument.load(pdf,{throwOnInvalidObject:true}),selected=await PDFDocument.create();
   // Stable container metadata allows exact-byte reuse of a previously checked
@@ -562,7 +563,7 @@ export class LocalPreview{
   private async recoverOutput(slot:Slot,request:Request){
     const deadline=performance.now()+1200;let next=request;
     for(let attempt=0;;attempt++){
-      try{return {...await this.output(slot,next),recovery:next.recovery};}
+      try{return {...await this.output(slot,next),recovery:next.recovery,repairedSource:next.recovery?next.source:undefined};}
       catch(error){
         if(error instanceof ResidentSourceError&&this.pending&&this.pending.editId!==request.editId)throw new ResidentSupersededError('A newer draft superseded local recovery.');
         const dirty=this.neutral?.dirty,activeOnly=this.retainedFlowEnabled&&this.neutral?.ids?.length===1&&dirty?.every(b=>b.id===neutralId(slot.range));
@@ -614,7 +615,13 @@ export class LocalPreview{
           candidate={...identity,pageLocations:result.pageLocations,pdf:await selectPages(output.pdf,span),page:span.first,pageSpan:span,sourcePages:slot.sourcePages,proofPage:slot.proofPage,cursorPage:result.cursorPage,cursorPosition:result.cursorPosition,timing:output.timing,pageOutput:true,baselineSpan:slot.baselineSpan,continuation:slot.continuation};
         }
         if(epoch!==this.epoch)continue;
-        if(result.recovery){candidate.recovery=result.recovery;candidate.pageLocations=undefined;delete candidate.neutralBlock;}
+        if(result.recovery){
+          candidate.recovery=result.recovery;delete candidate.neutralBlock;
+          if(result.repairedSource!==undefined){
+            if(candidate.flowOutput){const projected=recoveryLocations(candidate.flowOutput.locations??[],request.source,result.repairedSource);candidate.flowOutput={...candidate.flowOutput,...projected};}
+            if(candidate.pageLocations)candidate.pageLocations=candidate.pageLocations.map(p=>({...p,...recoveryLocations(p.locations,request.source,result.repairedSource!)}));
+          }else candidate.pageLocations=undefined;
+        }
         const accepted=await this.publish(candidate);
         if(!accepted)throw new Error('The local page could not be displayed.');
         if(this.neutralEnabled&&epoch!==this.epoch)continue;

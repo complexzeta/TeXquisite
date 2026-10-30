@@ -1,4 +1,5 @@
 import type {Navigation,Region} from './navigation';
+import {recoveryLineBlocked,recoveryPointBlocked} from './recovery-navigation';
 export interface LiveFlowFrame {root:string;file:string;baseId:string;sourceHash:string;editId:string;text:string;from:number;to:number;}
 // Unchanged pages keep their original pixels. Their source offsets may move
 // after a local replacement, but only exactly matching source is navigable.
@@ -19,7 +20,8 @@ export function unchangedPageLocations(nav:Navigation,file:string,before:string,
  }
  return [...pages].map(([page,locations])=>({page,locations}));
 }
-export function liveFlowPosition(frame:LiveFlowFrame,current:{root:string;file:string;baseId:string;sourceHash?:string;editId?:string;text:string},locations:readonly {at:number;end:number;x:number;y:number;width:number;height:number}[],x:number,y:number){
+export function liveFlowPosition(frame:LiveFlowFrame,current:{root:string;file:string;baseId:string;sourceHash?:string;editId?:string;text:string},locations:readonly {at:number;end:number;x:number;y:number;width:number;height:number}[],x:number,y:number,blocked:readonly {x:number;y:number;width:number;height:number}[]=[]){
+ if(blocked.some(r=>x>=r.x-2&&x<=r.x+r.width+2&&y>=r.y-2&&y<=r.y+r.height+2))return;
  if(!frame.root||!frame.file||!frame.baseId||!frame.sourceHash||!frame.editId||(['root','file','baseId','sourceHash','editId','text'] as const).some(key=>frame[key]!==current[key]))return;
  if(!Number.isInteger(frame.from)||!Number.isInteger(frame.to)||frame.from<0||frame.to<=frame.from||frame.to>frame.text.length||!Number.isFinite(x)||!Number.isFinite(y))return;
  let closest:typeof locations[number]|undefined,distance=24*24;
@@ -35,6 +37,7 @@ export function sourceLineHasOutput(source:string){
  return !!source.trim()&&!/^\s*%/.test(source)&&!/^\s*\\(?:end\s*\{\s*document\s*\}|begin\s*\{\s*document\s*\}|(?:newpage|clearpage|cleardoublepage)\b)\s*(?:%.*)?$/.test(source);
 }
 export function forward(nav:Navigation,file:string,line:number,currentPage=1):Region|undefined{
+ if(recoveryLineBlocked(nav,file,line))return;
  let best:Region|undefined,bestScore=Infinity;
  for(const row of nav.regions){if(!sameFile(row[0],file))continue;const delta=Math.abs(row[1]-line);if(delta>10)continue;const score=delta*100000+Math.abs(row[2]-currentPage)*100+row[4]/10000;if(score<bestScore){bestScore=score;best=row;}}
  return best;
@@ -61,6 +64,7 @@ export function forwardPosition(nav:Navigation,file:string,text:string,at:number
  return best?[best[0],best[1],best[3],best[4],best[5],best[6],best[7]]:forward({...nav,regions:nav.regions.filter(row=>!sameFile(row[0],file)||hasSourceOutput(row[1]))},file,line,currentPage);
 }
 export function backward(nav:Navigation,page:number,x:number,y:number):Region|undefined{
+ if(recoveryPointBlocked(nav,page,x,y))return;
  let best:Region|undefined,distance=24*24;
  for(const row of nav.regions){if(row[2]!==page)continue;const dx=Math.max(row[3]-x,0,x-row[3]-row[5]),dy=Math.max(row[4]-y,0,y-row[4]-row[6]);const score=dx*dx+dy*dy;if(score<distance){distance=score;best=row;}}
  return best;
