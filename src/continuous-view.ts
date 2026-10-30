@@ -1,6 +1,6 @@
 import {RetainedPage} from './retained-page';
 import {RetainedLayout} from './retained-layout';
-import {LOCAL_INK_BLEED_BP} from './local-raster';
+import {LOCAL_INK_BLEED_BP,matchingPageGeometry} from './local-raster';
 // The accepted PDF supplies immutable surrounding content. A live TeX block
 // replaces only its old vertical slice; browser flow moves everything below it.
 // PDF pages are lazy images here, not units of live pagination.
@@ -92,7 +92,7 @@ export class ContinuousView{
     }catch{/* The next accepted document can retry an unavailable image. */}finally{e.busy=false;}
   }
   patchPages(first:number,canvases:HTMLCanvasElement[]){
-    const entries=canvases.map((canvas,i)=>{const e=this.entries.get(first+i);if(!e||Math.abs(parseFloat(canvas.style.width)-e.size.originalWidth*this.scale)>.01||Math.abs(parseFloat(canvas.style.height)-e.size.originalHeight*this.scale)>.01)throw new Error('Affected page geometry changed.');return e;});
+    const entries=canvases.map((canvas,i)=>{const e=this.entries.get(first+i);if(!e||!matchingPageGeometry(canvas,e.size,this.scale))throw new Error('Affected page geometry changed.');return e;});
     const position=this.position();
     for(const [i,e]of entries.entries()){
       e.retained?.dispose();e.retained=undefined;
@@ -110,7 +110,7 @@ export class ContinuousView{
     // Keep ordinary one-canvas-per-page wrappers when pagination is unchanged.
     // This also restores wrappers covered by an earlier expanded live band.
     if(canvases.length===entries.length){this.patchPages(span.first,canvases);return;}
-    const valid=(c:HTMLCanvasElement)=>Number.isFinite(parseFloat(c.style.width))&&Number.isFinite(parseFloat(c.style.height))&&Math.abs(parseFloat(c.style.width)-first.size.originalWidth*this.scale)<.01&&Math.abs(parseFloat(c.style.height)-first.size.originalHeight*this.scale)<.01;
+    const valid=(c:HTMLCanvasElement)=>matchingPageGeometry(c,first.size,this.scale);
     if(entries.some(e=>!e||Math.abs(e.size.originalWidth-first.size.originalWidth)>.01||Math.abs(e.size.originalHeight-first.size.originalHeight)>.01)||canvases.some(c=>!valid(c)))throw new Error('Page band geometry changed.');
     const position=this.position();
     if(position.page!==undefined&&position.page>=span.first&&position.page<=span.last){position.page=span.first;position.offset=first.element.getBoundingClientRect().top-this.viewport.getBoundingClientRect().top;}

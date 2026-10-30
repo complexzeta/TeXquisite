@@ -30,14 +30,15 @@ worker.onmessage=event=>{
         try{
           const started=performance.now();
           const bitmap=await page.render({scale:args.scale,colorSpace:'RGBA',transparent:false});
+          const geometry=page.getOriginalSize(),pageWidth=geometry.originalWidth,pageHeight=geometry.originalHeight;
           const rasterMs=performance.now()-started;
           if(args.imageBitmap&&typeof OffscreenCanvas!=='undefined'){
             const canvas=new OffscreenCanvas(bitmap.width,bitmap.height);
             const pixels=new Uint8ClampedArray(bitmap.data.buffer as ArrayBuffer,bitmap.data.byteOffset,bitmap.data.byteLength);
             canvas.getContext('2d')!.putImageData(new ImageData(pixels,bitmap.width,bitmap.height),0,0);
             const image=canvas.transferToImageBitmap();
-            worker.postMessage({id,result:{width:bitmap.width,height:bitmap.height,originalWidth:bitmap.originalWidth,originalHeight:bitmap.originalHeight,image,...(args.includePixels?{data:bitmap.data}:{}),rasterMs,workerMs:performance.now()-started}},args.includePixels?[image,bitmap.data.buffer as ArrayBuffer]:[image]);
-          }else worker.postMessage({id,result:{...bitmap,rasterMs,workerMs:performance.now()-started}},[bitmap.data.buffer as ArrayBuffer]);
+            worker.postMessage({id,result:{width:bitmap.width,height:bitmap.height,originalWidth:bitmap.originalWidth,originalHeight:bitmap.originalHeight,pageWidth,pageHeight,image,...(args.includePixels?{data:bitmap.data}:{}),rasterMs,workerMs:performance.now()-started}},args.includePixels?[image,bitmap.data.buffer as ArrayBuffer]:[image]);
+          }else worker.postMessage({id,result:{...bitmap,pageWidth,pageHeight,rasterMs,workerMs:performance.now()-started}},[bitmap.data.buffer as ArrayBuffer]);
         }finally{page.close();}
       }else if(method==='verifyPageBand'){
         const document=documents.get(args.documentId),frames=args.frames;if(!document)throw Error('PDF was closed.');

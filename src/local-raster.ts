@@ -1,4 +1,11 @@
 export const LOCAL_INK_BLEED_BP=1;
+// Raster libraries can floor their CSS size while PDF page sizes remain
+// fractional. Compare native PDF geometry, not the mutable raster styling.
+export function matchingPageGeometry(canvas:{dataset:Record<string,string|undefined>;style:{width:string;height:string}},size:{originalWidth:number;originalHeight:number},scale:number){
+ const {pdfPageWidth:w,pdfPageHeight:h}=canvas.dataset,native=w!==undefined||h!==undefined;
+ const width=native?Number(w):parseFloat(canvas.style.width)/scale,height=native?Number(h):parseFloat(canvas.style.height)/scale;
+ return [width,height,size.originalWidth,size.originalHeight,scale].every(value=>Number.isFinite(value)&&value>0)&&Math.abs(width-size.originalWidth)*scale<.01&&Math.abs(height-size.originalHeight)*scale<.01;
+}
 // RGBA rasters are normally aligned. Compare all four channels at once without
 // copying or changing the exact-byte criterion; odd-offset views use bytes.
 export function rasterBytesEqual(a:Uint8Array|Uint8ClampedArray,b:Uint8Array|Uint8ClampedArray){

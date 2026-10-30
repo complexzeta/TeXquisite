@@ -683,7 +683,7 @@ el('pages').addEventListener('click',event=>void command(async()=>{
     }
   }catch(e){explainNavigation(String(e).replace(/^.*Error: /,'')+' Source changes are checked automatically while Live is on.');}
 }));
-function copyCanvasMetadata(canvas:HTMLCanvasElement,source:HTMLCanvasElement){for(const [key,value] of Object.entries(source.dataset))if(value!==undefined&&!['renderScale','renderRatio','pageWidth','pageHeight','rasterMs','workerMs','renderMs'].includes(key))canvas.dataset[key]=value;}
+function copyCanvasMetadata(canvas:HTMLCanvasElement,source:HTMLCanvasElement){for(const [key,value] of Object.entries(source.dataset))if(value!==undefined&&!['renderScale','renderRatio','pageWidth','pageHeight','pdfPageWidth','pdfPageHeight','rasterMs','workerMs','renderMs'].includes(key))canvas.dataset[key]=value;}
 async function render(pdf:any,page:number,includePixels=false,urgent=false){
   const zoom=scale,ratio=window.devicePixelRatio||1,canvas=await pdf.render(page,zoom,ratio,includePixels,urgent);canvas.dataset.renderScale=String(zoom);canvas.dataset.renderRatio=String(ratio);canvas.dataset.pageWidth=String(parseFloat(canvas.style.width)/zoom);canvas.dataset.pageHeight=String(parseFloat(canvas.style.height)/zoom);return canvas;
 }

@@ -43,6 +43,7 @@ export function loadPdf(bytes:Uint8Array,interactive=false,live=false){
         const started=performance.now(),bitmap=await call('render',{documentId,page,scale:scale*ratio,imageBitmap:!retainPixels,interactive:retainPixels||includePixels,includePixels,live:urgent});
         const canvas=document.createElement('canvas');canvas.width=bitmap.width;canvas.height=bitmap.height;
         canvas.style.width=bitmap.originalWidth*scale+'px';canvas.style.height=bitmap.originalHeight*scale+'px';
+        canvas.dataset.pdfPageWidth=String(bitmap.pageWidth);canvas.dataset.pdfPageHeight=String(bitmap.pageHeight);
         if(bitmap.image){const target=canvas.getContext('bitmaprenderer');if(target)target.transferFromImageBitmap(bitmap.image);else{canvas.getContext('2d')!.drawImage(bitmap.image,0,0);bitmap.image.close();}}
         const pixels=bitmap.data?new Uint8ClampedArray(bitmap.data.buffer,bitmap.data.byteOffset,bitmap.data.byteLength):undefined;
         if(pixels&&!bitmap.image){canvas.getContext('2d')!.putImageData(new ImageData(pixels,bitmap.width,bitmap.height),0,0);}

@@ -1,6 +1,17 @@
 const {test}=require('node:test'),assert=require('node:assert/strict');
 const {paragraphAt}=require('../dist/local-preview'),{matchLocalRaster}=require('../dist/local-raster');
 const {matchLocalPatchRaster}=require('../dist/local-raster');
+
+test('Fractional native page geometry survives raster rounding but true changes still refuse',()=>{
+ const {matchingPageGeometry}=require('../dist/local-raster'),size={originalWidth:595.2756,originalHeight:841.8898};
+ for(const scale of [1,1.5,2.5]){
+  const canvas={dataset:{pdfPageWidth:String(size.originalWidth),pdfPageHeight:String(size.originalHeight)},style:{width:Math.floor(size.originalWidth)*scale+'px',height:Math.floor(size.originalHeight)*scale+'px'}};
+  assert.equal(matchingPageGeometry(canvas,size,scale),true);
+  canvas.dataset.pdfPageWidth=String(size.originalWidth+.4);assert.equal(matchingPageGeometry(canvas,size,scale),false,'A real change must fail even with identical floored CSS');
+  canvas.dataset.pdfPageWidth='NaN';assert.equal(matchingPageGeometry(canvas,size,scale),false);delete canvas.dataset.pdfPageWidth;assert.equal(matchingPageGeometry(canvas,size,scale),false,'Partial native metadata must not fall back');
+ }
+ assert.equal(matchingPageGeometry({dataset:{},style:{width:'612px',height:'792px'}},{originalWidth:612,originalHeight:792},1),true);
+});
 test('TikZ blocks are not repeatedly expanded into adjacent paragraph preparation',()=>{
  const {flowWindowAt}=require('../dist/local-preview'),first='Ordinary text.\n\n',picture='\\begin{tikzpicture}\\node {Label};\\end{tikzpicture}\n\n',last='Following text.\n\n',source=first+picture+last;
  assert.deepEqual(flowWindowAt(source,2),{from:0,to:first.length});assert.deepEqual(flowWindowAt(source,first.length+10),{from:first.length,to:first.length+picture.length});
