@@ -118,3 +118,19 @@ test('Matched thin serifs require a real glyph core and retain missing-ink and g
  for(const missing of [true,false]){const changed=new Uint8ClampedArray(b);if(missing)set(changed,18,10,255);else set(changed,18,12,150);assert.equal(matchLocalPatchRaster(a,changed,width,height,rect,glyphs).ok,false);}
  const noCoreA=new Uint8ClampedArray(a),noCoreB=new Uint8ClampedArray(b);for(let y=12;y<21;y++){set(noCoreA,12,y,255);set(noCoreB,12,y,255);}assert.equal(matchLocalPatchRaster(noCoreA,noCoreB,width,height,rect,glyphs).ok,false);
 });
+
+test('Exact glyph outlines require complete matching style and path data',()=>{
+ const {glyphOutlineKey}=require('../dist/local-raster'),style={size:12,matrix:[1,0,0,1],fill:[0,0,0,255]},path=[[2,0,0,0],[0,1,10,20]],key=glyphOutlineKey(style,path);assert.ok(key);
+ assert.equal(glyphOutlineKey({...style,matrix:[...style.matrix],fill:[...style.fill]},path.map(p=>[...p])),key);
+ for(const changed of [{...style,size:13},{...style,fill:[32,32,32,255]},{...style,matrix:[-1,0,0,1]}])assert.notEqual(glyphOutlineKey(changed,path),key);
+ assert.notEqual(glyphOutlineKey(style,[[2,0,0,0],[0,1,11,20]]),key);
+ for(const bad of [{...style,size:NaN},{...style,fill:[0,0,0,128]},{...style,fill:[0,1,0,255]},{...style,matrix:[0,0,0,0]}])assert.equal(glyphOutlineKey(bad,path),undefined);
+ for(const bad of [[],[[9,0,0,0]],[[2,0,NaN,0]],Array.from({length:4097},()=>[0,0,0,0])])assert.equal(glyphOutlineKey(style,bad),undefined);
+});
+
+test('Outline-verified glyphs can use the bounded patch pool while geometry alone keeps its smaller allowance',()=>{
+ const width=60,height=40,rect={x:1,y:1,width:58,height:38},a=new Uint8ClampedArray(width*height*4).fill(255),set=(im,x,y,v)=>{for(let c=0;c<3;c++)im[(y*width+x)*4+c]=v;};for(let x=10;x<30;x++){set(a,x,9,0);set(a,x,10,186);}const b=new Uint8ClampedArray(a);for(let x=10;x<30;x++)set(b,x,10,126);const glyph={x:9,y:8,width:23,height:5};
+ assert.equal(matchLocalPatchRaster(a,b,width,height,rect,[glyph]).ok,false);
+ assert.equal(matchLocalPatchRaster(a,b,width,height,rect,[{...glyph,outline:true}]).ok,true);
+ const missing=new Uint8ClampedArray(b);set(missing,15,10,255);assert.equal(matchLocalPatchRaster(a,missing,width,height,rect,[{...glyph,outline:true}]).ok,false);
+});

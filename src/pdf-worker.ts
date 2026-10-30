@@ -1,5 +1,5 @@
 import {PDFiumLibrary,PDFiumDocument} from '@hyzyla/pdfium';
-import {inkFitsRaster,flowInkBounds,rasterBytesEqual} from './local-raster';
+import {inkFitsRaster,flowInkBounds,rasterBytesEqual,glyphOutlineKey} from './local-raster';
 import {PdfWorkQueue,pdfWorkPriority} from './pdf-work-queue';
 
 const library=PDFiumLibrary.init({wasmUrl:new URL('./vendor/pdfium.wasm',import.meta.url).href});
@@ -121,22 +121,42 @@ worker.onmessage=event=>{
             worker.postMessage({id,result:{...metadata,image,workerMs:performance.now()-started}},[image]);
           }else worker.postMessage({id,result:{...metadata,data,workerMs:performance.now()-started}},[data.buffer]);
         }finally{if(handle)m._FPDFBitmap_Destroy(handle);if(ptr)m.wasmExports.free(ptr);page.close();}
-      }else if(method==='glyphs'){
+      }else if(method==='glyphs'||method==='glyphProofs'){
         const document=documents.get(args.documentId);if(!document)throw new Error('PDF was closed.');
         const page=document.getPage(args.page-1),raw=page as any,m=raw.module;
         let text=0,buffer=0;
         try{
           if(m._FPDFPage_GetRotation(raw.pageIdx)!==0)throw new Error('Rotated pages are editable in the source pane.');
           text=m._FPDFText_LoadPage(raw.pageIdx);if(!text)throw new Error('PDF text is unavailable.');
-          buffer=m.wasmExports.malloc(32);const count=m._FPDFText_CountChars(text),height=page.getOriginalSize().originalHeight,characters:number[][]=[];
+          buffer=m.wasmExports.malloc(128);const count=m._FPDFText_CountChars(text),height=page.getOriginalSize().originalHeight,characters:number[][]=[],proofs:{glyph:number[];outline?:string}[]=[],outlines=new Map<string,Promise<string|undefined>>();
+          const outline=async(index:number,code:number)=>{
+            try{
+              if(code===0xfffd||m._FPDFText_HasUnicodeMapError(text,index)!==0)return;
+              const object=m._FPDFText_GetTextObject(text,index),font=object&&m._FPDFTextObj_GetFont(object),size=m._FPDFText_GetFontSize(text,index);
+              if(!font||m._FPDFFont_GetIsEmbedded(font)!==1||m._FPDFTextObj_GetTextRenderMode(object)!==0||!m._FPDFPageObj_GetFillColor(object,buffer+64,buffer+68,buffer+72,buffer+76)||!m._FPDFPageObj_GetMatrix(object,buffer+80))return;
+              const fill=Array.from(new Uint32Array(m.HEAPU8.buffer,buffer+64,4)),matrix=Array.from(new Float32Array(m.HEAPU8.buffer,buffer+80,4)),key=JSON.stringify([font,code,size,fill,matrix]);
+              if(outlines.has(key))return outlines.get(key);
+              if(outlines.size>=2048)return;
+              const promise=(async()=>{
+                const path=m._FPDFFont_GetGlyphPath(font,code,size),length=path&&m._FPDFGlyphPath_CountGlyphSegments(path),segments:number[][]=[];
+                if(!Number.isSafeInteger(length)||length<1||length>4096)return;
+                for(let i=0;i<length;i++){
+                  const segment=m._FPDFGlyphPath_GetGlyphPathSegment(path,i);if(!segment||!m._FPDFPathSegment_GetPoint(segment,buffer+112,buffer+116))return;
+                  const point=Array.from(new Float32Array(m.HEAPU8.buffer,buffer+112,2));segments.push([m._FPDFPathSegment_GetType(segment),m._FPDFPathSegment_GetClose(segment)?1:0,...point]);
+                }
+                const identity=glyphOutlineKey({size,fill,matrix},segments);if(!identity)return;
+                const digest=await crypto.subtle.digest('SHA-256',new TextEncoder().encode(identity));return Array.from(new Uint8Array(digest),n=>n.toString(16).padStart(2,'0')).join('');
+              })();outlines.set(key,promise);return promise;
+            }catch{return;}
+          };
           if(count>100000)throw new Error('This page has too many characters for preview editing.');
           for(let i=0;i<count;i++){
             const code=m._FPDFText_GetUnicode(text,i),angle=m._FPDFText_GetCharAngle(text,i);
             if(code<33||code>0x10ffff||!Number.isFinite(angle)||Math.abs(angle)>.01||!m._FPDFText_GetCharBox(text,i,buffer,buffer+8,buffer+16,buffer+24))continue;
             const [left,right,bottom,top]=new Float64Array(m.HEAPU8.buffer,buffer,4);
-            if([left,right,bottom,top].every(Number.isFinite)&&right>left&&top>bottom)characters.push([code,left,height-top,right-left,top-bottom]);
+            if([left,right,bottom,top].every(Number.isFinite)&&right>left&&top>bottom){const glyph=[code,left,height-top,right-left,top-bottom];characters.push(glyph);if(method==='glyphProofs')proofs.push({glyph,outline:await outline(i,code)});}
           }
-          worker.postMessage({id,result:characters});
+          worker.postMessage({id,result:method==='glyphProofs'?proofs:characters});
         }finally{if(buffer)m.wasmExports.free(buffer);if(text)m._FPDFText_ClosePage(text);page.close();}
       }else if(method==='close'){
         documents.get(args.documentId)?.destroy();documents.delete(args.documentId);

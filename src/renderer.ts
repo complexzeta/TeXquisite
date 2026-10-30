@@ -752,7 +752,9 @@ async function localInkFits(message:any,providedPdf?:any){
   finally{await task?.destroy();}
 }
 async function localCorrection(message:any,base:any,fragment:any){
-  const [fullGlyphs,fragmentGlyphs]=await Promise.all([base.glyphs(message.page),fragment.glyphs(message.fragment.page)]);
+  const [fullProofs,fragmentProofs]=await Promise.all([base.glyphProofs(message.page),fragment.glyphProofs(message.fragment.page)]);
+  const fullGlyphs=fullProofs.map((p:any)=>p.glyph) as PdfCharacter[],fragmentGlyphs=fragmentProofs.map((p:any)=>p.glyph) as PdfCharacter[];
+  const fullOutlines=new Map<PdfCharacter,string|undefined>(fullProofs.map((p:any)=>[p.glyph,p.outline] as const)),fragmentOutlines=new Map<PdfCharacter,string|undefined>(fragmentProofs.map((p:any)=>[p.glyph,p.outline] as const));
   const fullLookup=new GlyphLookup<PdfCharacter>(fullGlyphs),fragmentLookup=new GlyphLookup<PdfCharacter>(fragmentGlyphs);
   const offsets:{x:number;y:number;full:PdfCharacter;fragment:PdfCharacter}[]=[];
   for(const a of message.calibration?.anchors??[]){const full=fullLookup.nearest(a.code,a.full),local=fragmentLookup.nearest(a.code,a.fragment);if(full&&local)offsets.push({x:full[1]-local[1],y:full[2]-local[2],full,fragment:local});}
@@ -761,11 +763,12 @@ async function localCorrection(message:any,base:any,fragment:any){
   // for bounded antialiasing coverage. Do not repeat an identical proposal
   // after those boxes have already failed their raster check.
   if(correction.dx===0&&correction.dy===0&&message.calibration?.calibratedGlyphs?.length)return false;
-  const x=message.calibration.x+correction.dx,y=message.calibration.y+correction.dy,calibratedGlyphs:{x:number;y:number;width:number;height:number}[]=[];
+  const x=message.calibration.x+correction.dx,y=message.calibration.y+correction.dy,calibratedGlyphs:{x:number;y:number;width:number;height:number;outline?:boolean}[]=[];
   for(const g of fragmentGlyphs){
     const full=fullLookup.nearest(g[0],[g[1]+x,g[2]+y,g[3],g[4]]);if(!full)continue;
-    if(Math.abs(full[1]-g[1]-x)<=.02&&Math.abs(full[2]-g[2]-y)<=.02&&Math.abs(full[3]-g[3])<=.02&&Math.abs(full[4]-g[4])<=.02)calibratedGlyphs.push({x:full[1],y:full[2],width:full[3],height:full[4]});
+    if(Math.abs(full[1]-g[1]-x)<=.02&&Math.abs(full[2]-g[2]-y)<=.02&&Math.abs(full[3]-g[3])<=.02&&Math.abs(full[4]-g[4])<=.02){const outline=fullOutlines.get(full);calibratedGlyphs.push({x:full[1],y:full[2],width:full[3],height:full[4],outline:typeof outline==='string'&&outline.length===64&&outline===fragmentOutlines.get(g)});}
   }
+  console.debug('Local glyph calibration',JSON.stringify({glyphs:calibratedGlyphs.length,outlines:calibratedGlyphs.filter(g=>g.outline).length,dx:correction.dx,dy:correction.dy}));
   return {...correction,calibratedGlyphs};
 }
 api.on(async message=>{
@@ -820,7 +823,7 @@ api.on(async message=>{
       const [frame,composedRaster,ink,tile]=await Promise.all(reads).catch(async error=>{await Promise.allSettled(reads);throw error;});
       readAt=performance.now();
       const a=frame.value.canvas,pa=frame.value.pixels,pb=composedRaster.pixels;
-      const factor=scale*(window.devicePixelRatio||1),box=message.footprint,result=matchLocalPatchRaster(pa,pb,a.width,a.height,{x:box.x*factor,y:box.y*factor,width:box.width*factor,height:box.height*factor},(message.calibration?.calibratedGlyphs??[]).map((g:any)=>({x:g.x*factor,y:g.y*factor,width:g.width*factor,height:g.height*factor})),factor);
+      const factor=scale*(window.devicePixelRatio||1),box=message.footprint,result=matchLocalPatchRaster(pa,pb,a.width,a.height,{x:box.x*factor,y:box.y*factor,width:box.width*factor,height:box.height*factor},(message.calibration?.calibratedGlyphs??[]).map((g:any)=>({x:g.x*factor,y:g.y*factor,width:g.width*factor,height:g.height*factor,outline:g.outline===true})),factor);
       ok=ink&&a.width===composedRaster.width&&a.height===composedRaster.height&&result.ok;
       comparedAt=performance.now();
       if(ok)ok=await tileMatchesFull(composed,message.footprint,composedRaster,pb,tile);

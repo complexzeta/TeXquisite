@@ -46,7 +46,14 @@ export function flowInkBounds(data:Uint8Array|Uint8ClampedArray,width:number,hei
  }
  return {...bounds,right:Math.min(limit,right+1)};
 }
-type RasterRect={x:number;y:number;width:number;height:number};
+// Canonical vector identity, used only after PDFium supplies an embedded
+// glyph's complete path and effective text style. Missing data grants nothing.
+export function glyphOutlineKey(style:{size:number;matrix:number[];fill:number[]},segments:number[][]){
+ if(!style||!Number.isFinite(style.size)||style.size<.1||style.size>512||style.matrix?.length!==4||!style.matrix.every(n=>Number.isFinite(n)&&Math.abs(n)<=16)||Math.abs(style.matrix[0]*style.matrix[3]-style.matrix[1]*style.matrix[2])<1e-8||style.fill?.length!==4||!style.fill.every(n=>Number.isInteger(n)&&n>=0&&n<=255)||style.fill[3]!==255||style.fill[0]!==style.fill[1]||style.fill[1]!==style.fill[2]||!Array.isArray(segments)||!segments.length||segments.length>4096)return;
+ if(segments.some(s=>!Array.isArray(s)||s.length!==4||![0,1,2].includes(s[0])||![0,1].includes(s[1])||!s.slice(2).every(n=>Number.isFinite(n)&&Math.abs(n)<=1e6)))return;
+ const key=JSON.stringify([style.size,style.matrix,style.fill,segments]);return key.length<=262144?key:undefined;
+}
+type RasterRect={x:number;y:number;width:number;height:number;outline?:boolean};
 export function matchLocalRaster(a:Uint8ClampedArray,b:Uint8ClampedArray,width:number,height:number,rect:RasterRect){return matchRaster(a,b,width,height,rect,false);}
 export function matchLocalPatchRaster(a:Uint8ClampedArray,b:Uint8ClampedArray,width:number,height:number,rect:RasterRect,calibratedGlyphs:RasterRect[]=[],pixelScale=1){return matchRaster(a,b,width,height,rect,true,calibratedGlyphs,pixelScale);}
 function matchRaster(a:Uint8ClampedArray,b:Uint8ClampedArray,width:number,height:number,rect:RasterRect,patchOnly:boolean,calibratedGlyphs:RasterRect[]=[],pixelScale=1){
@@ -54,10 +61,11 @@ function matchRaster(a:Uint8ClampedArray,b:Uint8ClampedArray,width:number,height
   if(!Number.isSafeInteger(width)||!Number.isSafeInteger(height)||width<1||height<1||!Object.values(rect).every(Number.isFinite)||rect.width<=0||rect.height<=0)return {ok:false,differingPixels:0,maxDifference};
   if(a.length!==b.length||a.length!==width*height*4)return {ok:false,differingPixels:0,maxDifference};
   const left=patchOnly?Math.max(0,Math.floor(rect.x)):0,right=patchOnly?Math.min(width,Math.ceil(rect.x+rect.width)):width,top=patchOnly?Math.max(0,Math.floor(rect.y)):0,bottom=patchOnly?Math.min(height,Math.ceil(rect.y+rect.height)):height;
-  const masks=patchOnly&&calibratedGlyphs.length<=4096?calibratedGlyphs.filter(g=>Object.values(g).every(Number.isFinite)&&g.width>0&&g.height>0&&g.width<=256&&g.height<=256):[];
-  const glyphPixels=new Uint8Array(masks.length);
+  const masks=patchOnly&&calibratedGlyphs.length<=4096?calibratedGlyphs.filter(g=>[g.x,g.y,g.width,g.height].every(Number.isFinite)&&g.width>0&&g.height>0&&g.width<=256&&g.height<=256):[];
+  const glyphPixels=new Uint16Array(masks.length);
   const metricPositions=new Set<number>();
   const density=Math.min(4,Math.max(1,Number.isFinite(pixelScale)?pixelScale:1)),glyphLimit=Math.min(64,Math.ceil(8*density*density)),coverageLimit=Math.ceil(64*density*density);
+  const quota=(glyph:number)=>masks[glyph].outline===true?coverageLimit:glyphLimit;
   const grayInk=(pixels:Uint8ClampedArray,p:number)=>{const i=p*4;return pixels[i+3]===255&&pixels[i]<250&&pixels[i]===pixels[i+1]&&pixels[i]===pixels[i+2];};
   const faintGray=(pixels:Uint8ClampedArray,p:number)=>{const i=p*4;return pixels[i+3]===255&&pixels[i]>=192&&pixels[i]===pixels[i+1]&&pixels[i]===pixels[i+2];};
   for(let y=top;y<bottom;y++)for(let x=left;x<right;x++){
@@ -77,7 +85,7 @@ function matchRaster(a:Uint8ClampedArray,b:Uint8ClampedArray,width:number,height
     if(difference>32&&difference<=80&&(grayInk(a,p)&&grayInk(b,p)||faintGray(a,p)&&faintGray(b,p))&&metricPixels<coverageLimit){
       const glyph=masks.findIndex(g=>x>=Math.floor(g.x)-1&&x<=Math.ceil(g.x+g.width)+1&&y>=Math.floor(g.y)-1&&y<=Math.ceil(g.y+g.height)+1);
       metricGlyph=glyph;
-      if(glyph>=0&&glyphPixels[glyph]<glyphLimit){glyphPixels[glyph]++;metricPixels++;metricPositions.add(p);metric=true;}
+      if(glyph>=0&&glyphPixels[glyph]<quota(glyph)){glyphPixels[glyph]++;metricPixels++;metricPositions.add(p);metric=true;}
     }
     if(difference>32&&!metric||changed.length>limit||x<Math.floor(rect.x)-1||x>Math.ceil(rect.x+rect.width)+1||y<Math.floor(rect.y)-1||y>Math.ceil(rect.y+rect.height)+1)return {ok:false,differingPixels:changed.length,maxDifference,...(masks.length?{metricPixels,metricGlyph,metricGlyphPixels:metricGlyph>=0?glyphPixels[metricGlyph]:0}:{}),sample:[{x,y,a:[...a.slice(p*4,p*4+4)],b:[...b.slice(p*4,p*4+4)]}]};
   }
@@ -104,7 +112,7 @@ function matchRaster(a:Uint8ClampedArray,b:Uint8ClampedArray,width:number,height
     if(!core.get(glyph))return false;
     const fringe=(pixels:Uint8ClampedArray)=>{let ink=false,light=false;for(let dy=-2;dy<=2;dy++)for(let dx=-2;dx<=2;dx++){const xx=x+dx,yy=y+dy;if(xx<0||xx>=width||yy<0||yy>=height)continue;const at=(yy*width+xx)*4,value=Math.min(pixels[at],pixels[at+1],pixels[at+2]);ink ||=value<224;light ||=value>224;}return ink&&light;};
     if(!fringe(a)||!fringe(b))return false;
-    if(!metricPositions.has(p)){if(coveragePixels>=coverageLimit||glyphPixels[glyph]>=glyphLimit)return false;coveragePixels++;glyphPixels[glyph]++;}
+    if(!metricPositions.has(p)){if(coveragePixels>=coverageLimit||glyphPixels[glyph]>=quota(glyph))return false;coveragePixels++;glyphPixels[glyph]++;}
     return true;
   };
   // Use the same ink threshold as inkFitsRaster. Near-white coverage in both

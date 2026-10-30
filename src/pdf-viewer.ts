@@ -1,4 +1,5 @@
 import type {PdfCharacter} from './preview-edit';
+export interface PdfGlyphProof {glyph:PdfCharacter;outline?:string;}
 const worker=new Worker(new URL('./pdf-worker.js',location.href),{type:'module'});
 let sequence=0,failure:Error|undefined;
 const pending=new Map<number,{resolve:(value:any)=>void;reject:(error:Error)=>void;timer:ReturnType<typeof setTimeout>}>();
@@ -34,6 +35,7 @@ export function loadPdf(bytes:Uint8Array,interactive=false,live=false){
   const promise=call('load',{bytes},[bytes.buffer as ArrayBuffer]).then(result=>{
     documentId=result.documentId;
     const glyphCache=new Map<number,Promise<PdfCharacter[]>>();
+    const glyphProofCache=new Map<number,Promise<PdfGlyphProof[]>>();
     let pageSizes:Promise<any>|undefined;
     // Proofs consume the worker raster directly, avoiding a GPU canvas readback.
     const rasterize=async(page:number,scale:number,ratio:number,retainPixels=false,includePixels=false,urgent=false)=>{
@@ -54,6 +56,7 @@ export function loadPdf(bytes:Uint8Array,interactive=false,live=false){
         return call('verifyPageBand',{documentId,frames,scale},frames.map(frame=>frame.pixels.buffer as ArrayBuffer));
       },
       glyphs(page:number):Promise<PdfCharacter[]>{if(closed)return Promise.reject(new Error('PDF was closed.'));let result=glyphCache.get(page);if(!result){result=call('glyphs',{documentId,page});glyphCache.set(page,result);}return result;},
+      glyphProofs(page:number):Promise<PdfGlyphProof[]>{if(closed)return Promise.reject(new Error('PDF was closed.'));let result=glyphProofCache.get(page);if(!result){result=call('glyphProofs',{documentId,page});glyphProofCache.set(page,result);}return result;},
       numPages:result.numPages,
       sizes(interactive=false){if(closed)return Promise.reject(new Error('PDF was closed.'));return pageSizes??(pageSizes=call('sizes',{documentId,interactive}));},
       async inkFits(page:number,bounds:{left:number;top:number;right:number;bottom:number},scale:number,ratio:number){

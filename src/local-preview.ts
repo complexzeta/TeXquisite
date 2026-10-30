@@ -11,7 +11,7 @@ import {RegionCompositor,ParagraphAnchor,paragraphPages,cursorPosition,flowCaret
 import {previewRepair,previewRegionRepair} from './preview-recovery';
 import {recoveryLocations,carryRecoveryDiagnostics} from './recovery-navigation';
 import type {BuildDiagnostic} from './diagnostics';
-type CalibrationGlyph={x:number;y:number;width:number;height:number};
+type CalibrationGlyph={x:number;y:number;width:number;height:number;outline?:boolean};
 export type LocalVerification=boolean|{dx:number;dy:number;calibratedGlyphs?:CalibrationGlyph[]};
 export interface LocalCalibration {x:number;y:number;anchors:ParagraphAnchor[];calibratedGlyphs?:CalibrationGlyph[];inkBleedBp?:number;}
 const hash=(s:string)=>createHash('sha256').update(s).digest('hex');
