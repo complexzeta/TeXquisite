@@ -13,12 +13,35 @@ if(-not $env:CI){
 foreach($name in @('downloads','temporary','installer')){New-Item -ItemType Directory -Path (Join-Path $root $name) -Force | Out-Null}
 $env:TEMP=Join-Path $root 'temporary';$env:TMP=$env:TEMP
 $env:LC_ALL='C';$env:LANG='C'
-$repository=if($Year -eq '2026'){'https://ctan.math.illinois.edu/systems/texlive/tlnet'}else{"https://ftp.math.utah.edu/pub/tex/historic/systems/texlive/$Year/tlnet-final"}
+$repositories=if($Year -eq '2026'){@('https://mirror.math.princeton.edu/pub/CTAN/systems/texlive/tlnet','https://mirrors.mit.edu/CTAN/systems/texlive/tlnet','https://mirror.ctan.org/systems/texlive/tlnet')}else{@("https://ftp.math.utah.edu/pub/tex/historic/systems/texlive/$Year/tlnet-final")}
+$repository=$repositories[0]
 $texdir=Join-Path $root 'texlive';$bin=Join-Path $texdir 'bin\windows'
 if(Test-Path -LiteralPath (Join-Path $root 'installation.json')){throw 'Completed test installation already exists; use its recorded bin folder instead of overwriting it.'}
 $zip=Join-Path $root 'downloads\install-tl.zip'
 Write-Output "Downloading TeX Live $Year installer from $repository"
-if(-not (Test-Path -LiteralPath $zip)){Invoke-WebRequest -Uri "$repository/install-tl.zip" -OutFile $zip -TimeoutSec 180}
+Add-Type -AssemblyName System.IO.Compression.FileSystem
+function Test-InstallerZip([string]$Path) {
+  if(-not (Test-Path -LiteralPath $Path)){return $false}
+  $archive=$null
+  try{$archive=[IO.Compression.ZipFile]::OpenRead($Path);return @($archive.Entries | Where-Object FullName -like '*/install-tl-windows.bat').Count -eq 1}catch{return $false}finally{if($archive){$archive.Dispose()}}
+}
+if(-not (Test-InstallerZip $zip)){
+  if(Test-Path -LiteralPath $zip){Remove-Item -LiteralPath $zip -Force}
+  $partial=$zip+'.partial'
+  foreach($candidate in $repositories){
+    try{
+      Write-Output "Trying installer mirror $candidate"
+      Invoke-WebRequest -Uri "$candidate/install-tl.zip" -OutFile $partial -TimeoutSec 60
+      if(-not (Test-InstallerZip $partial)){throw 'Installer download is not a valid TeX Live ZIP archive.'}
+      Move-Item -LiteralPath $partial -Destination $zip
+      $repository=$candidate;break
+    }catch{
+      Write-Warning "Installer mirror unavailable: $candidate"
+      if(Test-Path -LiteralPath $partial){Remove-Item -LiteralPath $partial -Force}
+    }
+  }
+  if(-not (Test-InstallerZip $zip)){throw 'No TeX Live installer mirror completed a valid download.'}
+}
 $installerHash=(Get-FileHash -LiteralPath $zip -Algorithm SHA256).Hash.ToLowerInvariant()
 $existing=@(Get-ChildItem -LiteralPath (Join-Path $root 'installer') -Recurse -File -Filter 'install-tl-windows.bat')
 if(-not $existing.Count){Add-Type -AssemblyName System.IO.Compression.FileSystem;[IO.Compression.ZipFile]::ExtractToDirectory($zip,(Join-Path $root 'installer'))}

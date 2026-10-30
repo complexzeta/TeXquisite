@@ -114,6 +114,7 @@ jobs:
           node scripts/retained-layout-test.cjs
           exit $LASTEXITCODE
       - name: Install isolated TeX Live 2026
+        id: install_retained
         shell: pwsh
         run: |
           & scripts/install-test-texlive.ps1 -Year 2026 -WorkRoot "$env:COMPATIBILITY_ROOT/installation"
@@ -126,6 +127,8 @@ jobs:
           PERSISTENT_TEX_RETAINED_FLOW: '1'
         run: node scripts/retained-navigation-test.cjs
       - name: Build exact 0.111 control in a disposable checkout
+        id: baseline_build
+        if: ${{ !cancelled() && steps.install_retained.outcome == 'success' }}
         shell: pwsh
         run: |
           git fetch --depth=1 origin 73136916c1cbd5d59175dcbf0b05148652f6c01b
@@ -140,6 +143,7 @@ jobs:
             if($LASTEXITCODE -ne 0){exit $LASTEXITCODE}
           } finally { Pop-Location }
       - name: Serialized matching baseline and candidate sessions
+        if: ${{ !cancelled() && steps.baseline_build.outcome == 'success' }}
         shell: pwsh
         run: |
           $harness=Join-Path $env:GITHUB_WORKSPACE 'scripts/lecture-session-test.cjs'

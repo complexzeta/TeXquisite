@@ -36,3 +36,9 @@ isolated from user documents.
 
 End-to-end comparison, the full handoff sequence and packaging remain pending.
 The earlier 33–41 ms component timings must not be reported as editor latency.
+
+The first cloud run, 40999401341, passed the build, 33 focused guards and isolated
+canvas integration check. Its installer mirror timed out before any native or
+live-editor test ran. The installer now tries alternate HTTPS CTAN mirrors and
+validates the ZIP before promoting a partial download. Using another specific
+mirror follows the [TeX Live installation guidance](https://www.tug.org/texlive/acquire-netinstall.html).
