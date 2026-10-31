@@ -3,6 +3,8 @@ import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import {pathToFileURL} from 'node:url';
 import {randomUUID} from 'node:crypto';
+import {freemem,totalmem} from 'node:os';
+import {performanceReport} from './performance-report';
 import {themeIconPath,followIconTheme} from './theme-icon';
 import {ArtifactStore,BuildController,Bundle,hash} from './core';
 import {saveDocument,sourceBytes,SourceConflictError} from './saving';
@@ -18,6 +20,7 @@ import {BackupStore} from './backups';
 import {graphicxInsertion,documentBodyStart} from './image-paste';
 import {panelPreferences,PanelPreferences} from './panel-layout';
 import {LocalPreview,LocalVerification} from './local-preview';
+import {retainRecoveryProblems} from './recovery-navigation';
 import {nativeForward,nativeBackward,cancelNativeNavigation} from './native-navigation';
 import {inspectToolchain,toolEnvironment,ToolchainReport} from './toolchain';
 import {generateInstalledFormat,fingerprintFiles} from './format-cache';
@@ -110,15 +113,52 @@ const localWaiting=new Map<string,{resolve:(ok:LocalVerification)=>void;timer:No
 function localMessage(message:Record<string,unknown>){return new Promise<LocalVerification>(resolve=>{const token=randomUUID(),timer=setTimeout(()=>{localWaiting.delete(token);resolve(false);},15000);localWaiting.set(token,{resolve,timer});send({...message,token});});}
 const localPreview=new LocalPreview(
   (basis,pdf,page,fragmentPdf,fragment,footprint,calibration)=>localMessage({type:'localVerify',root:basis.options.root,baseId:basis.bundle.id,basePdf:new Uint8Array(basis.pdf),pdf:new Uint8Array(pdf),page,fragmentPdf:new Uint8Array(fragmentPdf),fragment,footprint,calibration}),
-  candidate=>localMessage({type:'localPage',...candidate,visible:window.isVisible()&&!window.isMinimized(),pdf:new Uint8Array(candidate.pdf),fragmentPdf:candidate.fragmentPdf?new Uint8Array(candidate.fragmentPdf):undefined}).then(result=>{
+  candidate=>{
+    const timing=candidate.timing as {roundTripMs?:number;typesetMs?:number;reprocessedSourceBytes?:number}|undefined;
+    tracePreview({event:'local-output',editId:candidate.editId,layout:candidate.pageOutput?'pages':candidate.flowOutput?'flow':'paragraph',stateChanged:!!candidate.flowOutput?.stateChanged,reusedRecovery:!!candidate.reusedRecovery,sourceMatchesDraft:!!candidate.sourceMatchesDraft,compilerMs:timing?.roundTripMs,typesetMs:timing?.typesetMs,reprocessedSourceBytes:timing?.reprocessedSourceBytes});
+    return localMessage({type:'localPage',...candidate,visible:window.isVisible()&&!window.isMinimized(),pdf:new Uint8Array(candidate.pdf),fragmentPdf:candidate.fragmentPdf?new Uint8Array(candidate.fragmentPdf):undefined}).then(result=>{
     const accepted=result===true;
     // Expensive local calculations can outlast the original idle deadline.
     // Start a fresh idle interval after display instead of immediately launching
     // a cold full worker while the user types or moves to the next block.
-    if(accepted&&state.onSave&&candidate.root===state.root&&candidate.editId===latestEditId)scheduleFullVerification(candidate.editId);
+    if(accepted&&state.onSave&&candidate.root===state.root&&candidate.editId===latestEditId){
+      if(candidate.recovery){
+        const issue:BuildDiagnostic={id:'local-recovery-'+candidate.editId,root:candidate.root,editId:candidate.editId,file:candidate.sourceFile??candidate.root,line:candidate.recovery.line,kind:'tex',severity:'error',sourceHash:candidate.sourceHash,message:candidate.recovery.message+' Saved source is unchanged.'};
+        currentDiagnostic=issue;currentProblems=[...(candidate.unchangedRecovery??[]),issue];send({type:'diagnostic',issue});send({type:'problems',root:candidate.root,editId:candidate.editId,issues:currentProblems});
+        // Lecture flow already permits provisional state changes for healthy
+        // text. A confirmed skip keeps those same rules, without a full check
+        // between every word. It remains approximate and cannot be exported.
+        if(state.previewMode==='lecture'&&candidate.reusedRecovery){clearTimeout(fullVerification);fullVerification=undefined;tracePreview({event:'recovery-local-retained',editId:candidate.editId});}
+        else scheduleFullVerification(candidate.editId,650,true);
+      }else{
+        const errors=[...currentProblems,...(currentDiagnostic?[currentDiagnostic]:[])].filter(issue=>issue.severity!=='warning');
+        const resolved=candidate.sourceMatchesDraft&&errors.length>0&&errors.every(issue=>issue.kind==='tex'&&issue.file===candidate.root);
+        if(resolved){
+          currentDiagnostic=undefined;currentProblems=currentProblems.filter(issue=>issue.severity==='warning');
+          send({type:'localRecovered',root:candidate.root,editId:candidate.editId});send({type:'problems',root:candidate.root,editId:candidate.editId,issues:currentProblems});
+          tracePreview({event:'recovery-cleared-locally',editId:candidate.editId});
+        }
+        // A healthy local paragraph cannot clear an error elsewhere.
+        // Recheck once after typing pauses; only a full publication clears it.
+        const retained=state.previewMode==='lecture'&&candidate.unchangedRecovery?retainRecoveryProblems(candidate.unchangedRecovery,currentProblems,currentDiagnostic):undefined;
+        if(state.previewMode==='lecture'&&candidate.sourceHealthy&&!currentDiagnostic&&!currentProblems.some(issue=>issue.severity!=='warning')){
+          // The proved compiler input is already the actual draft. A history
+          // of repairs must not reclaim its healthy local worker after a word.
+          clearTimeout(fullVerification);fullVerification=undefined;
+          if(candidate.recoveryCleared||resolved)tracePreview({event:'recovery-healthy-retained',editId:candidate.editId});
+        }else if(retained){
+          clearTimeout(fullVerification);fullVerification=undefined;
+          currentProblems=retained.problems;currentDiagnostic=retained.diagnostic;
+          send({type:'diagnostic',issue:currentDiagnostic});send({type:'problems',root:candidate.root,editId:candidate.editId,issues:currentProblems});
+          tracePreview({event:'recovery-retained',editId:candidate.editId,count:candidate.unchangedRecovery!.length});
+        }else if(currentDiagnostic||candidate.recoveredBasis||candidate.recoveryCleared||resolved)scheduleFullVerification(candidate.editId,0,true);
+        else if(candidate.reprepareParagraph){tracePreview({event:'paragraph-split-refresh',editId:candidate.editId});scheduleFullVerification(candidate.editId,300,true);}
+        else scheduleFullVerification(candidate.editId);
+      }
+    }
     return accepted;
-  }),
-  editId=>{if(state.onSave&&editId===latestEditId)scheduleFullVerification(editId,0);},
+  });},
+  editId=>{if(state.onSave&&editId===latestEditId)scheduleFullVerification(editId,0,true);},
   value=>{tracePreview({event:'local-state',state:value});send({type:'localState',state:value});},message=>{tracePreview({event:'local-log',message:message.split('\n')[0].slice(0,500)});appendLog(message);},
   (basis,pdf,pageSpan,continuation)=>localMessage({type:'localVerifyPages',continuation,root:basis.options.root,baseId:basis.bundle.id,basePdf:new Uint8Array(basis.pdf),pdf:new Uint8Array(pdf),pageSpan}).then(result=>result===true),
   (basis,page,fragmentPdf,fragment,calibration)=>localMessage({type:'localPlacement',root:basis.options.root,baseId:basis.bundle.id,basePdf:new Uint8Array(basis.pdf),page,fragmentPdf:new Uint8Array(fragmentPdf),fragment,calibration}));
@@ -211,12 +251,12 @@ async function selectRoot(root:string,automaticBuild=true) {
   if(current) {
     const history=await store.history();
     for(const bundle of history) {
-      try{await prepare(bundle,store);if(generation!==rootGeneration){send({type:'discard',id:bundle.id});return;}displayed=bundle;send({type:'commit',id:bundle.id});setStatus('Restored last successful preview. Source may have changed.');break;}
+      try{await prepare(bundle,store);if(generation!==rootGeneration){send({type:'discard',id:bundle.id});return;}displayed=bundle;send({type:'commit',id:bundle.id,...(bundle.recovered?{timing:{recovered:true,backend:'Recovered preview — LaTeX errors need attention.',requestToCommitMs:0}}:{})});setStatus(bundle.recovered?'Restored a recovered preview with temporary LaTeX repairs. Fix the reported errors; source may have changed.':'Restored last successful preview. Source may have changed.');break;}
       catch(e){appendLog(String(e)+'\n');}
     }
   } else setStatus('No successful preview yet. Save your source, then build.');
   await persist();
-  if(state.onSave&&automaticBuild){void build().catch(e=>setStatus(String(e)));void saveAllAndBuild(true,true).catch(e=>setStatus(String(e)));}
+  if(state.onSave&&automaticBuild){void build(undefined,true).catch(e=>setStatus(String(e)));void saveAllAndBuild(true,true).catch(e=>setStatus(String(e)));}
 }
 async function openFile(file:string,keepRoot=false,expectedGeneration?:number) {
   file=path.resolve(file);
@@ -286,7 +326,20 @@ async function build(sourceText?:string,automatic=sourceText!==undefined) {
 function updateAppMenu(){Menu.setApplicationMenu(appMenu(state,(action,value)=>send({type:'menuAction',action,value})));if(window&&!window.isDestroyed()){window.setAutoHideMenuBar(false);window.setMenuBarVisibility(true);}}
 async function handle(method:string,args:unknown[]) {
   switch(method){
-    case 'previewPerformance': return {standby:controller?.standbyReport,localReady:localPreview.ready,localBusy:localPreview.busy};
+    case 'performanceReport':
+    case 'copyPerformanceReport': {
+      const report=performanceReport({version:app.getVersion(),mode:state.previewMode??'document',continuous:!!state.continuousPreview,automatic:state.onSave,visible:!!window?.isVisible()&&!window.isMinimized(),localReady:localPreview.ready,localBusy:localPreview.busy,fastAvailable:!!toolchain?.fast.available,fastPreparable:!!toolchain?.fast.preparable,freeMiB:freemem()/1048576,totalMiB:totalmem()/1048576,latestEditId,standby:controller?.standbyReport.state,retained:process.env.PERSISTENT_TEX_MULTI_BLOCK==='1'&&process.env.PERSISTENT_TEX_RETAINED_FLOW==='1'},previewTrace);
+      if(method==='copyPerformanceReport'){clipboard.writeText(JSON.stringify(report,null,2));setStatus('Performance report copied. Source text and file paths are excluded.');}return report;
+    }
+    case 'retryPreview': {localPreview.prepareFullVerification();await build(undefined,true);return true;}
+    case 'previewPerformance': return {standby:controller?.standbyReport,localReady:localPreview.ready,localBusy:localPreview.busy,localRange:localPreview.preparedRange,preparation:localPreview.preparationStatus,...(args[0]===true?{trace:previewTrace.slice()}: {})};
+    case 'localRefresh': {
+      if(process.env.PERSISTENT_TEX_MULTI_BLOCK==='1'){
+        if(localPreview.hasLocalChanges){localPreview.stop();if(controller)void build(undefined,true).catch(e=>setStatus(String(e)));}
+        else localPreview.refresh();
+      }
+      return true;
+    }
     case 'localAck': {const entry=localWaiting.get(String(args[0]));if(entry){clearTimeout(entry.timer);localWaiting.delete(String(args[0]));const reply=args[1] as LocalVerification;entry.resolve(reply===true?true:reply&&typeof reply==='object'&&Number.isFinite(reply.dx)&&Number.isFinite(reply.dy)&&Math.abs(reply.dx)<=.01&&Math.abs(reply.dy)<=.01?reply:false);}return true;}
     case 'localCursor': {if(typeof args[0]==='string'&&typeof args[1]==='number'&&Number.isSafeInteger(args[1])&&args[1]>=0&&state.docs.some(doc=>doc.path===args[0])){controller?.noteActivity('cursor');state.lastCursor={file:args[0],at:args[1]};localPreview.move(args[0],args[1]);}return true;}
     case 'localWarm': {if(typeof args[0]==='string'&&typeof args[1]==='string'&&args[0]===state.root&&args[2]===latestEditId){localPreview.prepareNextEdit(args[0],args[1]);if(typeof args[3]==='number'&&Number.isFinite(args[3]))tracePreview({event:'local-displayed',editId:args[2],elapsedMs:args[3],layout:args[4]});}return true;}
@@ -556,7 +609,7 @@ async function handle(method:string,args:unknown[]) {
       if(!controller)return false;clearTimeout(fullVerification);localPreview.stop();controller.cancel();
       const store=controller.store,history=await store.history(),previous=history.find(x=>x.id!==displayed?.id);
       if(!previous)throw new Error('No preceding successful preview is available.');
-      await prepare(previous,store);displayed=previous;send({type:'commit',id:previous.id});setStatus('Showing the preceding successful preview.');return true;
+      await prepare(previous,store);displayed=previous;send({type:'commit',id:previous.id,...(previous.recovered?{timing:{recovered:true,backend:'Recovered preview — LaTeX errors need attention.',requestToCommitMs:0}}:{})});setStatus(previous.recovered?'Showing a preceding recovered preview with temporary LaTeX repairs.':'Showing the preceding successful preview.');return true;
     }
     case 'close': return closeWindow();
     default: throw new Error('Unknown command.');

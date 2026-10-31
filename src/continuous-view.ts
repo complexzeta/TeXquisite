@@ -1,9 +1,12 @@
+import {RetainedPage} from './retained-page';
+import {RetainedLayout} from './retained-layout';
+import {LOCAL_INK_BLEED_BP,matchingPageGeometry} from './local-raster';
 // The accepted PDF supplies immutable surrounding content. A live TeX block
 // replaces only its old vertical slice; browser flow moves everything below it.
 // PDF pages are lazy images here, not units of live pagination.
 export class ContinuousView{
   id='';private epoch=0;private observer?:IntersectionObserver;
-  private entries=new Map<number,{element:HTMLDivElement;canvas?:HTMLCanvasElement;pieces?:HTMLCanvasElement[];prefixInkBottom?:number;block?:HTMLCanvasElement;top?:number;bottom?:number;size:any;busy?:boolean;patched?:boolean;band?:HTMLCanvasElement[];coveredBy?:number}>();
+  private entries=new Map<number,{retained?:RetainedPage;element:HTMLDivElement;canvas?:HTMLCanvasElement;neutral?:Map<string,{x:number;y:number;width:number;height:number}>;pieces?:HTMLCanvasElement[];prefixInkBottom?:number;block?:HTMLCanvasElement;top?:number;bottom?:number;size:any;busy?:boolean;patched?:boolean;band?:HTMLCanvasElement[];coveredBy?:number}>();
   private pdf:any;private scale=1;private ratio=1;
   constructor(private host:HTMLElement,private viewport:HTMLElement){}
   // Capture immediately before a layout swap, so scrolling while a PDF is
@@ -19,8 +22,11 @@ export class ContinuousView{
     this.viewport.scrollLeft=position.left;
   }
   get visiblePage(){return this.position().page;}
-  private dispose(entries:typeof this.entries,keep?:HTMLCanvasElement){for(const e of entries.values())for(const c of [...(e.band??[]),...(e.pieces??[]),...(e.canvas?[e.canvas]:[]),...(e.block?[e.block]:[])])if(c!==keep)c.width=c.height=0;}
-  clear(){this.epoch++;this.id='';this.observer?.disconnect();for(const e of this.entries.values())for(const c of [...(e.band??[]),...(e.pieces??[]),...(e.canvas?[e.canvas]:[]),...(e.block?[e.block]:[])])c.width=c.height=0;this.entries.clear();}
+  ownsCanvas(page:number,canvas:HTMLCanvasElement){const e=this.entries.get(page);return !!e&&(e.canvas===canvas||!!e.retained?.owns(canvas));}
+  private dispose(entries:typeof this.entries,keep?:HTMLCanvasElement){for(const e of entries.values()){e.retained?.dispose();for(const c of [...(e.band??[]),...(e.pieces??[]),...(e.canvas?[e.canvas]:[]),...(e.block?[e.block]:[])])if(c!==keep)c.width=c.height=0;}}
+  clear(){this.epoch++;this.id='';this.observer?.disconnect();this.dispose(this.entries);this.entries.clear();}
+  retainedProjection=(page:number,y:number,id?:string)=>{const e=this.entries.get(page);if(!e)return;const factor=this.scale*this.ratio;return e.retained?((value)=>value===undefined?undefined:value/factor)(e.retained.layout.forward(y*factor,id)):id===undefined?y:undefined;};
+  canvasPoint(page:number,canvas:HTMLCanvasElement,x:number,y:number){const e=this.entries.get(page);if(!e||!this.ownsCanvas(page,canvas))return;const rect=e.element.getBoundingClientRect();return {x:(x-rect.left)/this.scale,y:(y-rect.top)/this.scale};}
   matchesScale(scale:number,ratio:number){return Math.abs(this.scale-scale)<1e-7&&Math.abs(this.ratio-ratio)<1e-7;}
   // Keep the latest live pixels attached while a new raster/proof is prepared.
   // The product scale*ratio still describes their original bitmap resolution.
@@ -30,8 +36,10 @@ export class ContinuousView{
     this.scale=scale;this.ratio=raster/scale;position.offset*=factor;
     this.host.querySelectorAll('.navigation-marker').forEach(node=>node.remove());
     for(const e of this.entries.values()){
+      e.element.dataset.scale=String(scale);
+      e.retained?.rescale(this.ratio);
       e.element.style.width=e.size.originalWidth*scale+'px';
-      if(!e.block&&!e.band)e.element.style.minHeight=e.size.originalHeight*scale+'px';
+      if(!e.block&&!e.band&&!e.retained)e.element.style.minHeight=e.size.originalHeight*scale+'px';
       for(const canvas of new Set([...(e.band??[]),...(e.pieces??[]),...(e.canvas?[e.canvas]:[]),...(e.block?[e.block]:[])])){
         canvas.style.width=e.size.originalWidth*scale+'px';canvas.style.height=canvas.height/this.ratio+'px';
       }
@@ -39,7 +47,7 @@ export class ContinuousView{
     this.restore(position);
   }
   async show(id:string,pdf:any,canvas:HTMLCanvasElement,page:number,scale:number,ratio:number,reconcileBands=false){
-    if(this.id===id&&this.scale===scale&&this.ratio===ratio)return;
+    if(this.id===id&&this.scale===scale&&this.ratio===ratio&&![...this.entries.values()].some(e=>e.patched))return;
     const epoch=++this.epoch;
     const sizes=await pdf.sizes();if(epoch!==this.epoch)return;
     const position=this.position(),previous=this.entries;
@@ -60,7 +68,7 @@ export class ContinuousView{
     this.observer?.disconnect();this.entries=new Map();this.id=id;this.pdf=pdf;this.scale=scale;this.ratio=ratio;
     const children:HTMLDivElement[]=[];
     for(const [index,size]of sizes.entries()){
-      const element=document.createElement('div');element.className='flow-page';element.dataset.page=String(index+1);element.style.width=size.originalWidth*scale+'px';element.style.minHeight=size.originalHeight*scale+'px';
+      const element=document.createElement('div');element.className='flow-page';element.dataset.page=String(index+1);element.dataset.scale=String(scale);element.style.width=size.originalWidth*scale+'px';element.style.minHeight=size.originalHeight*scale+'px';
       const entry={element,size,canvas:index+1===page?canvas:undefined};if(entry.canvas)element.append(entry.canvas);this.entries.set(index+1,entry);children.push(element);
     }
     this.host.replaceChildren(...children);this.restore(position);this.dispose(previous,canvas);
@@ -84,11 +92,12 @@ export class ContinuousView{
     }catch{/* The next accepted document can retry an unavailable image. */}finally{e.busy=false;}
   }
   patchPages(first:number,canvases:HTMLCanvasElement[]){
-    const entries=canvases.map((canvas,i)=>{const e=this.entries.get(first+i);if(!e||Math.abs(parseFloat(canvas.style.width)-e.size.originalWidth*this.scale)>.01||Math.abs(parseFloat(canvas.style.height)-e.size.originalHeight*this.scale)>.01)throw new Error('Affected page geometry changed.');return e;});
+    const entries=canvases.map((canvas,i)=>{const e=this.entries.get(first+i);if(!e||!matchingPageGeometry(canvas,e.size,this.scale))throw new Error('Affected page geometry changed.');return e;});
     const position=this.position();
     for(const [i,e]of entries.entries()){
+      e.retained?.dispose();e.retained=undefined;
       const old=[...(e.band??[]),...(e.pieces??[]),...(e.canvas?[e.canvas]:[]),...(e.block?[e.block]:[])];
-      e.canvas=canvases[i];e.patched=true;e.band=undefined;e.coveredBy=undefined;e.element.hidden=false;e.pieces=undefined;e.block=undefined;e.top=e.bottom=undefined;
+      e.canvas=canvases[i];e.neutral=undefined;e.patched=true;e.band=undefined;e.coveredBy=undefined;e.element.hidden=false;e.pieces=undefined;e.block=undefined;e.top=e.bottom=undefined;
       e.element.style.minHeight=e.size.originalHeight*this.scale+'px';e.element.replaceChildren(canvases[i]);this.observer?.unobserve(e.element);
       for(const canvas of old)if(canvas!==canvases[i])canvas.width=canvas.height=0;
     }
@@ -101,24 +110,52 @@ export class ContinuousView{
     // Keep ordinary one-canvas-per-page wrappers when pagination is unchanged.
     // This also restores wrappers covered by an earlier expanded live band.
     if(canvases.length===entries.length){this.patchPages(span.first,canvases);return;}
-    const valid=(c:HTMLCanvasElement)=>Number.isFinite(parseFloat(c.style.width))&&Number.isFinite(parseFloat(c.style.height))&&Math.abs(parseFloat(c.style.width)-first.size.originalWidth*this.scale)<.01&&Math.abs(parseFloat(c.style.height)-first.size.originalHeight*this.scale)<.01;
+    const valid=(c:HTMLCanvasElement)=>matchingPageGeometry(c,first.size,this.scale);
     if(entries.some(e=>!e||Math.abs(e.size.originalWidth-first.size.originalWidth)>.01||Math.abs(e.size.originalHeight-first.size.originalHeight)>.01)||canvases.some(c=>!valid(c)))throw new Error('Page band geometry changed.');
     const position=this.position();
     if(position.page!==undefined&&position.page>=span.first&&position.page<=span.last){position.page=span.first;position.offset=first.element.getBoundingClientRect().top-this.viewport.getBoundingClientRect().top;}
     for(const [i,item]of entries.entries()){
       const e=item!,old=[...(e.band??[]),...(e.pieces??[]),...(e.canvas?[e.canvas]:[]),...(e.block?[e.block]:[])];
-      e.canvas=undefined;e.band=undefined;e.pieces=undefined;e.block=undefined;e.top=e.bottom=undefined;e.patched=true;e.coveredBy=i?span.first:undefined;
+      e.retained?.dispose();e.retained=undefined;
+      e.canvas=undefined;e.neutral=undefined;e.band=undefined;e.pieces=undefined;e.block=undefined;e.top=e.bottom=undefined;e.patched=true;e.coveredBy=i?span.first:undefined;
       e.element.hidden=i>0;e.element.replaceChildren();this.observer?.unobserve(e.element);
       for(const c of old)if(!canvases.includes(c))c.width=c.height=0;
     }
     first.canvas=canvases[0];first.band=[...canvases];first.element.style.minHeight='0';first.element.replaceChildren(...canvases);this.restore(position);
   }
+  patchRetained(page:number,base:HTMLCanvasElement,tile:any,flow:any,id:string){
+    const e=this.entries.get(page),factor=this.scale*this.ratio;
+    if(!e||e.block||e.band||e.neutral||e.coveredBy!==undefined)throw Error('Retained flow baseline changed.');
+    const start=Math.max(0,Math.floor(flow.rect.y*factor)),end=Math.min(base.height,Math.ceil((flow.rect.y+flow.rect.height)*factor));
+    const x=Math.floor(flow.rect.x*factor),requested=Math.ceil(flow.leading*factor),prefixHeight=Math.min(end-start,Math.ceil((flow.rect.y+flow.baselineLeading)*factor)-start);
+    if(![flow.leading,flow.baselineLeading].every(v=>Number.isFinite(v)&&v>=0&&v<200)||![start,end,x,prefixHeight,tile.patchWidth,tile.patchHeight].every(Number.isSafeInteger)||end<=start||x<0||x+tile.patchWidth>base.width||tile.patchWidth<1||tile.patchHeight<1)throw Error('Invalid retained flow geometry.');
+    const prefix=document.createElement('canvas');prefix.width=base.width;prefix.height=prefixHeight;let inkBottom=0;
+    if(prefixHeight){const ctx=prefix.getContext('2d')!;ctx.drawImage(base,0,start,base.width,prefixHeight,0,0,base.width,prefixHeight);const pixels=ctx.getImageData(0,0,prefix.width,prefix.height).data;outer:for(let y=prefix.height-1;y>=0;y--)for(let x=0;x<prefix.width;x++){const p=(y*prefix.width+x)*4;if(pixels[p]<250||pixels[p+1]<250||pixels[p+2]<250){inkBottom=y+1;break outer;}}}
+    // The leading slice includes the previous line's descenders and the two
+    // crop bleeds. Leave those pixels with their original owner; otherwise a
+    // following retained paragraph could paste old ink over its edited neighbor.
+    const inset=Math.min(prefixHeight,Math.max(inkBottom,Math.ceil(2*LOCAL_INK_BLEED_BP*factor)+1)),leading=Math.max(0,requested-inset),height=Math.max(1,leading+tile.patchHeight);
+    let next:RetainedLayout;try{next=(e.retained?.layout??new RetainedLayout(base.height)).updated({id,from:start+inset,to:end,height});}catch(error){prefix.width=prefix.height=0;throw error;}
+    if(next.height*base.width>16000000){prefix.width=prefix.height=0;throw Error('Retained page exceeds its raster budget.');}
+    const block=document.createElement('canvas');block.width=base.width;block.height=height;
+    try{const ctx=block.getContext('2d')!;ctx.fillStyle='white';ctx.fillRect(0,0,block.width,block.height);const retained=Math.min(prefix.height-inset,leading);if(retained)ctx.drawImage(prefix,0,inset,prefix.width,retained,0,0,prefix.width,retained);
+      const draw=(image:CanvasImageSource)=>ctx.drawImage(image,tile.sourceX,tile.sourceY,tile.patchWidth,tile.patchHeight,x,leading,tile.patchWidth,tile.patchHeight);
+      if(tile.image)draw(tile.image);else{const image=document.createElement('canvas');image.width=tile.width;image.height=tile.height;image.getContext('2d')!.putImageData(new ImageData(new Uint8ClampedArray(tile.data.buffer,tile.data.byteOffset,tile.data.byteLength),tile.width,tile.height),0,0);draw(image);image.width=image.height=0;}
+      const previous=e.canvas;
+      if(!e.retained)e.retained=new RetainedPage(e.element,base,this.viewport,this.ratio);
+      const canvas=e.retained.patch({id,from:start+inset,to:end},block);canvas.dataset.flowLeadingCorrection=String((leading-requested)/factor);
+      e.canvas=undefined;e.patched=true;e.element.style.minHeight='0';this.observer?.unobserve(e.element);if(previous&&previous!==base)previous.width=previous.height=0;return canvas;
+    }finally{tile.image?.close();prefix.width=prefix.height=block.width=block.height=0;}
+  }
+  retainedCanvases(){return [...this.entries.values()].flatMap(e=>e.retained?.canvases??[]);}
   patch(page:number,base:HTMLCanvasElement,tile:any,flow:any){
     const e=this.entries.get(page);if(!e)throw new Error('Continuous baseline is unavailable.');
     const factor=this.scale*this.ratio,start=Math.max(0,Math.floor(flow.rect.y*factor)),end=Math.min(base.height,Math.ceil((flow.rect.y+flow.rect.height)*factor));
     if(end<=start||start>=base.height)throw new Error('Continuous block is outside its baseline.');
     if(!Number.isFinite(flow.baselineLeading)||flow.baselineLeading<0||flow.baselineLeading>=200||!Number.isFinite(flow.leading)||flow.leading<0||flow.leading>=200)throw new Error('Invalid continuous block leading.');
-    const leading=Math.ceil(flow.leading*factor),prefixHeight=Math.min(end-start,Math.ceil((flow.rect.y+flow.baselineLeading)*factor)-start);
+    const requestedLeading=Math.ceil(flow.leading*factor),prefixHeight=Math.min(end-start,Math.ceil((flow.rect.y+flow.baselineLeading)*factor)-start);
+    if(Math.floor(flow.rect.x*factor)<0||Math.floor(flow.rect.x*factor)+tile.patchWidth>base.width){tile.image?.close();throw Error('Continuous block ink exceeds the page width.');}
+    e.retained?.dispose();e.retained=undefined;
     const make=(height:number)=>{const c=document.createElement('canvas');c.width=base.width;c.height=height;c.style.width=e.size.originalWidth*this.scale+'px';c.style.height=height/this.ratio+'px';return c;};
     if(!e.pieces){
       const top=make(start),bottom=make(base.height-end);if(start)top.getContext('2d')!.drawImage(base,0,0,base.width,start,0,0,base.width,start);if(bottom.height)bottom.getContext('2d')!.drawImage(base,0,end,base.width,bottom.height,0,0,base.width,bottom.height);
@@ -130,7 +167,11 @@ export class ContinuousView{
       }
       e.pieces=[top,bottom,prefix];e.prefixInkBottom=inkBottom;e.top=start;e.bottom=end;
     }else if(e.top!==start||e.bottom!==end)throw new Error('Continuous block baseline changed.');
-    if(e.prefixInkBottom!>leading){tile.image?.close();throw new Error('Continuous block overlaps preceding ink; broader layout required.');}
+    // A taller first math line can reduce TeX's interline glue. In a pageless
+    // view we can retain enough of the original prefix to keep every preceding
+    // ink pixel, then place the entire checked tile below it. This adds space
+    // rather than clipping/overwriting the preceding line or rebuilding pages.
+    const leading=Math.max(requestedLeading,e.prefixInkBottom!);
     const height=Math.max(1,leading+tile.patchHeight),oldBlock=e.block;
     const block=oldBlock?.height===height&&oldBlock.width===base.width?oldBlock:make(height),ctx=block.getContext('2d')!;
     const position=this.position(),oldCanvas=e.canvas;
@@ -143,6 +184,7 @@ export class ContinuousView{
       image.getContext('2d')!.putImageData(new ImageData(new Uint8ClampedArray(tile.data.buffer,tile.data.byteOffset,tile.data.byteLength),tile.width,tile.height),0,0);
       draw(image);image.width=image.height=0;
     }
+    block.dataset.flowLeadingCorrection=String((leading-requestedLeading)/factor);
     e.block=block;e.canvas=undefined;e.element.style.minHeight='0';
     // Keep unchanged strips attached. Moving them through replaceChildren on
     // every character invalidates large visible canvas layers. Reuse the live
@@ -153,8 +195,18 @@ export class ContinuousView{
     if(oldBlock&&oldBlock!==block)oldBlock.width=oldBlock.height=0;if(oldCanvas)oldCanvas.width=oldCanvas.height=0;
     return block;
   }
+  patchNeutral(page:number,base:HTMLCanvasElement,region:HTMLCanvasElement,tile:any,id:string){
+    const e=this.entries.get(page);if(!e||e.retained||e.block||e.band||e.coveredBy!==undefined||tile.fullWidth!==base.width||tile.fullHeight!==base.height)throw Error('Neutral page baseline changed.');
+    const rect={x:tile.x,y:tile.y,width:tile.patchWidth,height:tile.patchHeight};
+    if(![...Object.values(rect),tile.sourceX,tile.sourceY].every(Number.isSafeInteger)||rect.x<0||rect.y<0||rect.width<=0||rect.height<=0||rect.x+rect.width>base.width||rect.y+rect.height>base.height||tile.sourceX<0||tile.sourceY<0||tile.sourceX+rect.width>region.width||tile.sourceY+rect.height>region.height)throw Error('Invalid neutral tile geometry.');
+    for(const [key,r]of e.neutral??[])if(key!==id&&rect.x<r.x+r.width&&r.x<rect.x+rect.width&&rect.y<r.y+r.height&&r.y<rect.y+rect.height)throw Error('Neutral paragraph footprints overlap.');
+    const old=e.neutral?.get(id);if(old&&JSON.stringify(old)!==JSON.stringify(rect))throw Error('Neutral paragraph footprint changed.');
+    const position=this.position();
+    if(!e.neutral){const previous=e.canvas,canvas=document.createElement('canvas');canvas.width=base.width;canvas.height=base.height;canvas.style.width=e.size.originalWidth*this.scale+'px';canvas.style.height=canvas.height/this.ratio+'px';canvas.getContext('2d')!.drawImage(base,0,0);e.canvas=canvas;e.neutral=new Map();e.element.replaceChildren(canvas);if(previous&&previous!==base)previous.width=previous.height=0;}
+    const canvas=e.canvas!;canvas.getContext('2d')!.drawImage(region,tile.sourceX,tile.sourceY,rect.width,rect.height,rect.x,rect.y,rect.width,rect.height);e.neutral.set(id,rect);e.patched=true;this.observer?.unobserve(e.element);this.restore(position);return canvas;
+  }
   revealPosition(page:number,y:number){const e=this.entries.get(page);if(e&&!e.block&&!e.band&&e.coveredBy===undefined)this.reveal(e.element,y);}
-  mark(page:number,box:{x:number;y:number;width:number;height:number},live=false){
+  mark(page:number,box:{x:number;y:number;width:number;height:number},live=false,highlight=true){
     const e=this.entries.get(page);if(!e)return false;
     let y=box.y;
     if(!live&&e.block){
@@ -163,12 +215,29 @@ export class ContinuousView{
       else if(y+box.height>top)return false;
     }
     this.host.querySelectorAll('.navigation-marker').forEach(e=>e.remove());
-    const marker=document.createElement('div');marker.className='navigation-marker';
-    marker.style.cssText=`left:${box.x*this.scale}px;top:${y*this.scale}px;width:${Math.max(4,box.width*this.scale)}px;height:${Math.max(5,box.height*this.scale)}px`;
     const target=live?e.block:e.element;if(!target)return false;
-    if(live){marker.style.top=(e.top!/(this.scale*this.ratio)+y)*this.scale+'px';}
-    e.element.append(marker);this.reveal(e.element,live?e.top!/(this.scale*this.ratio)+y:y);
-    const left=marker.getBoundingClientRect().left,view=this.viewport.getBoundingClientRect();
+    const top=live?e.top!/(this.scale*this.ratio)+y:y;
+    if(highlight){const marker=document.createElement('div');marker.className='navigation-marker';
+      marker.style.cssText=`left:${box.x*this.scale}px;top:${top*this.scale}px;width:${Math.max(4,box.width*this.scale)}px;height:${Math.max(5,box.height*this.scale)}px`;
+      e.element.append(marker);setTimeout(()=>marker.remove(),1200);
+    }
+    this.reveal(e.element,top);
+    const left=e.element.getBoundingClientRect().left+box.x*this.scale,view=this.viewport.getBoundingClientRect();
+    if(left<view.left+24)this.viewport.scrollLeft+=left-view.left-24;else if(left>view.right-24)this.viewport.scrollLeft+=left-view.right+24;
+    return true;
+  }
+  canvasForPage(page:number){return this.entries.get(page)?.canvas;}
+  markCanvas(canvas:HTMLCanvasElement,box:{x:number;y:number;width:number;height:number},highlight=true){
+    const entry=[...this.entries.values()].find(e=>e.canvas===canvas||e.band?.includes(canvas));
+    if(!entry||!canvas.isConnected)return false;
+    this.host.querySelectorAll('.navigation-marker').forEach(e=>e.remove());
+    const c=canvas.getBoundingClientRect(),p=entry.element.getBoundingClientRect();
+    if(highlight){const marker=document.createElement('div');marker.className='navigation-marker';
+      marker.style.cssText=`left:${c.left-p.left+box.x*this.scale}px;top:${c.top-p.top+box.y*this.scale}px;width:${Math.max(4,box.width*this.scale)}px;height:${Math.max(5,box.height*this.scale)}px`;
+      entry.element.append(marker);setTimeout(()=>marker.remove(),1200);
+    }
+    this.reveal(canvas,box.y);
+    const left=canvas.getBoundingClientRect().left+box.x*this.scale,view=this.viewport.getBoundingClientRect();
     if(left<view.left+24)this.viewport.scrollLeft+=left-view.left-24;else if(left>view.right-24)this.viewport.scrollLeft+=left-view.right+24;
     return true;
   }

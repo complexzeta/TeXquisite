@@ -1,6 +1,16 @@
 name: TeX Live compatibility
 on:
   workflow_dispatch:
+    inputs:
+      suite:
+        description: Test suite
+        type: choice
+        default: compatibility
+        options: [compatibility, retained-preview, editing-position]
+      package_retained:
+        description: Build and test a portable after the retained suite passes
+        type: boolean
+        default: false
 permissions:
   contents: read
 concurrency:
@@ -8,6 +18,7 @@ concurrency:
   cancel-in-progress: false
 jobs:
   windows:
+    if: ${{ inputs.suite == 'compatibility' }}
     name: ${{ matrix.os }} / TeX Live ${{ matrix.year }}
     runs-on: ${{ matrix.os }}
     timeout-minutes: 90
@@ -74,3 +85,257 @@ jobs:
             ${{ env.PERSISTENT_TEX_TEST_ARTIFACTS }}/**/failure.log
             ${{ env.COMPATIBILITY_ROOT }}/installation/installation.json
             ${{ env.COMPATIBILITY_ROOT }}/published-package/portable-package.json
+  position:
+    if: ${{ inputs.suite == 'editing-position' }}
+    name: Editing position diagnosis
+    runs-on: windows-2025
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '24'
+      - name: Choose ephemeral storage
+        shell: pwsh
+        run: |
+          $root=Join-Path $env:RUNNER_TEMP 'texquisite-position'
+          New-Item -ItemType Directory -Path "$root/temporary","$root/artifacts" -Force | Out-Null
+          "COMPATIBILITY_ROOT=$root" >> $env:GITHUB_ENV
+          "PERSISTENT_TEX_TEST_ARTIFACTS=$root/artifacts" >> $env:GITHUB_ENV
+          "PERSISTENT_TEX_TEST_FORMAT_CACHE=$root/test-formats" >> $env:GITHUB_ENV
+          "PERSISTENT_TEX_TEST_RESOURCE_FILE=$root/test-formats/resources.json" >> $env:GITHUB_ENV
+          "TEMP=$root/temporary" >> $env:GITHUB_ENV
+          "TMP=$root/temporary" >> $env:GITHUB_ENV
+          "npm_config_cache=$root/npm-cache" >> $env:GITHUB_ENV
+      - run: npm ci --no-audit --no-fund
+      - run: npm run build
+      - run: node --test test/window-page-fallback.test.cjs test/vertical-placement.test.cjs
+      - name: Install isolated TeX Live 2026
+        shell: pwsh
+        run: |
+          & scripts/install-test-texlive.ps1 -Year 2026 -WorkRoot "$env:COMPATIBILITY_ROOT/installation"
+          if($LASTEXITCODE -ne 0){exit $LASTEXITCODE}
+          "$env:COMPATIBILITY_ROOT/installation/texlive/bin/windows" >> $env:GITHUB_PATH
+      - run: node scripts/retained-test-format.cjs
+      - name: Compare early and late editing
+        run: node scripts/editing-position-test.cjs
+      - name: Compare high-density editing
+        env:
+          PERSISTENT_TEX_TEST_DPR: '2.5'
+        run: node scripts/editing-position-test.cjs
+      - name: Upload bounded diagnostic evidence
+        if: ${{ always() }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: editing-position-results
+          retention-days: 7
+          if-no-files-found: warn
+          path: |
+            ${{ env.PERSISTENT_TEX_TEST_ARTIFACTS }}/**/result.json
+            ${{ env.PERSISTENT_TEX_TEST_ARTIFACTS }}/**/build.log
+  retained:
+    if: ${{ inputs.suite == 'retained-preview' }}
+    name: Retained lecture integration
+    runs-on: windows-2025
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '24'
+      - name: Choose ephemeral storage
+        shell: pwsh
+        run: |
+          $root=Join-Path $env:RUNNER_TEMP 'texquisite-retained'
+          New-Item -ItemType Directory -Path "$root/temporary","$root/artifacts" -Force | Out-Null
+          "COMPATIBILITY_ROOT=$root" >> $env:GITHUB_ENV
+          "PERSISTENT_TEX_TEST_ARTIFACTS=$root/artifacts" >> $env:GITHUB_ENV
+          "PERSISTENT_TEX_TEST_FORMAT_CACHE=$root/test-formats" >> $env:GITHUB_ENV
+          "PERSISTENT_TEX_TEST_RESOURCE_FILE=$root/test-formats/resources.json" >> $env:GITHUB_ENV
+          "TEMP=$root/temporary" >> $env:GITHUB_ENV
+          "TMP=$root/temporary" >> $env:GITHUB_ENV
+          "npm_config_cache=$root/npm-cache" >> $env:GITHUB_ENV
+      - run: npm ci --no-audit --no-fund
+      - name: Build and check geometry, publication and recovery guards
+        shell: pwsh
+        run: |
+          npm run build
+          if($LASTEXITCODE -ne 0){exit $LASTEXITCODE}
+          node --test --test-concurrency=1 test/retained-layout.test.cjs test/retained-navigation.test.cjs test/contraction-probe.test.cjs test/window-page-fallback.test.cjs test/paragraph-split.test.cjs test/region-navigation-cache.test.cjs test/local-preview.test.cjs test/raster-bytes.test.cjs test/ink-bounds.test.cjs test/local-recovery.test.cjs test/preview-recovery.test.cjs test/pdf-work-queue.test.cjs test/performance-report.test.cjs test/recovery-navigation.test.cjs test/vertical-placement.test.cjs
+          if($LASTEXITCODE -ne 0){exit $LASTEXITCODE}
+          node scripts/retained-layout-test.cjs
+          exit $LASTEXITCODE
+      - name: Install isolated TeX Live 2026
+        id: install_retained
+        shell: pwsh
+        run: |
+          & scripts/install-test-texlive.ps1 -Year 2026 -WorkRoot "$env:COMPATIBILITY_ROOT/installation"
+          if($LASTEXITCODE -ne 0){exit $LASTEXITCODE}
+          "$env:COMPATIBILITY_ROOT/installation/texlive/bin/windows" >> $env:GITHUB_PATH
+      - name: Prepare the installation-matched fast format
+        id: prepare_retained
+        run: node scripts/retained-test-format.cjs
+      - name: Native retained ownership and unsupported math fallback
+        id: native_retained
+        run: node --test --test-concurrency=1 test/retained-preview.test.cjs
+      - name: Default-mode report privacy, menu and canonical handoff
+        run: node scripts/performance-report-test.cjs
+      - name: Repaired preview navigation, actionable errors and correction
+        run: node scripts/recovery-navigation-test.cjs
+      - name: Quiet blank-space scrolling and persistent error status
+        run: node scripts/status-bar-test.cjs
+      - name: Compact controls, fit width and persistent timing preference
+        run: node scripts/compact-fit-test.cjs
+      - name: Keep known-error lecture context warm across typing pauses
+        run: node scripts/recovery-idle-test.cjs
+      - name: Automatically continue and clear local errors across paragraphs
+        run: node scripts/automatic-recovery-test.cjs
+      - name: Early-page typing, display baselines and automatic failed-frame recovery
+        run: node scripts/editing-position-test.cjs
+      - name: Early-page typing at high display density
+        env:
+          PERSISTENT_TEX_TEST_DPR: '2.5'
+        run: node scripts/editing-position-test.cjs
+      - name: Re-prove text separated from a drawing
+        run: node scripts/paragraph-split-test.cjs
+      - name: Check separated text at high display density
+        env:
+          PERSISTENT_TEX_TEST_DPR: '2.5'
+        run: node scripts/paragraph-split-test.cjs
+      - name: Normal-mode local error recovery and continued typing
+        shell: pwsh
+        run: |
+          $env:PERSISTENT_TEX_LECTURE_ROUNDS='2'
+          $env:PERSISTENT_TEX_SESSION_MULTI_BLOCK='0'
+          $env:PERSISTENT_TEX_RETAINED_FLOW='0'
+          $env:PERSISTENT_TEX_SESSION_HEALTHY='0'
+          foreach($plain in @('1','0')) {
+            $env:PERSISTENT_TEX_LECTURE_PLAIN=$plain
+            node scripts/lecture-session-test.cjs
+            if($LASTEXITCODE -ne 0){exit $LASTEXITCODE}
+          }
+      - name: Retained navigation, wrapping, deletion and display handoffs
+        env:
+          PERSISTENT_TEX_RETAINED_FLOW: '1'
+        run: node scripts/retained-navigation-test.cjs
+      - name: Build exact 0.111 control in a disposable checkout
+        id: baseline_build
+        if: ${{ success() && steps.prepare_retained.outcome == 'success' }}
+        shell: pwsh
+        run: |
+          git fetch --depth=1 origin 73136916c1cbd5d59175dcbf0b05148652f6c01b
+          if($LASTEXITCODE -ne 0){exit $LASTEXITCODE}
+          git worktree add --detach "$env:COMPATIBILITY_ROOT/baseline" 73136916c1cbd5d59175dcbf0b05148652f6c01b
+          if($LASTEXITCODE -ne 0){exit $LASTEXITCODE}
+          Push-Location "$env:COMPATIBILITY_ROOT/baseline"
+          try {
+            npm ci --no-audit --no-fund
+            if($LASTEXITCODE -ne 0){exit $LASTEXITCODE}
+            npm run build
+            if($LASTEXITCODE -ne 0){exit $LASTEXITCODE}
+          } finally { Pop-Location }
+      - name: Serialized matching baseline and candidate sessions
+        if: ${{ success() && steps.baseline_build.outcome == 'success' }}
+        shell: pwsh
+        run: |
+          $harness=Join-Path $env:GITHUB_WORKSPACE 'scripts/lecture-session-test.cjs'
+          $env:PERSISTENT_TEX_LECTURE_ROUNDS='4'
+          foreach($plain in @('1','0')) {
+            $env:PERSISTENT_TEX_LECTURE_PLAIN=$plain
+            $env:PERSISTENT_TEX_SESSION_MULTI_BLOCK='0'
+            $env:PERSISTENT_TEX_RETAINED_FLOW='0'
+            Push-Location "$env:COMPATIBILITY_ROOT/baseline"
+            try { node $harness; if($LASTEXITCODE -ne 0){exit $LASTEXITCODE} } finally { Pop-Location }
+            $env:PERSISTENT_TEX_SESSION_MULTI_BLOCK='1'
+            $env:PERSISTENT_TEX_RETAINED_FLOW='1'
+            node $harness
+            if($LASTEXITCODE -ne 0){exit $LASTEXITCODE}
+          }
+          $env:PERSISTENT_TEX_LECTURE_PLAIN='1'
+          $env:PERSISTENT_TEX_SESSION_HEALTHY='1'
+          $env:PERSISTENT_TEX_SESSION_MULTI_BLOCK='0'
+          $env:PERSISTENT_TEX_RETAINED_FLOW='0'
+          Push-Location "$env:COMPATIBILITY_ROOT/baseline"
+          try { node $harness; if($LASTEXITCODE -ne 0){exit $LASTEXITCODE} } finally { Pop-Location }
+          $env:PERSISTENT_TEX_SESSION_MULTI_BLOCK='1'
+          $env:PERSISTENT_TEX_RETAINED_FLOW='1'
+          node $harness
+          if($LASTEXITCODE -ne 0){exit $LASTEXITCODE}
+      - name: Package the verified candidate
+        if: ${{ success() && inputs.package_retained }}
+        shell: pwsh
+        run: |
+          $env:ELECTRON_BUILDER_CACHE="$env:COMPATIBILITY_ROOT/builder-cache"
+          node node_modules/electron-builder/out/cli/cli.js --win portable --publish never "--config.directories.output=$env:COMPATIBILITY_ROOT/package"
+          if($LASTEXITCODE -ne 0){exit $LASTEXITCODE}
+          node scripts/verify-retained-package.cjs "$env:COMPATIBILITY_ROOT/package/win-unpacked/resources/app.asar"
+          exit $LASTEXITCODE
+      - name: Test the packaged candidate
+        if: ${{ success() && inputs.package_retained }}
+        shell: pwsh
+        run: |
+          $env:PERSISTENT_TEX_EXECUTABLE="$env:COMPATIBILITY_ROOT/package/win-unpacked/TeXquisite.exe"
+          $env:PERSISTENT_TEX_RETAINED_FLOW='1'
+          node scripts/retained-navigation-test.cjs
+          if($LASTEXITCODE -ne 0){exit $LASTEXITCODE}
+          $env:PERSISTENT_TEX_LECTURE_ROUNDS='6'
+          $env:PERSISTENT_TEX_LECTURE_PLAIN='1'
+          $env:PERSISTENT_TEX_SESSION_MULTI_BLOCK='0'
+          $env:PERSISTENT_TEX_RETAINED_FLOW='0'
+          $env:PERSISTENT_TEX_SESSION_HEALTHY='0'
+          node scripts/performance-report-test.cjs
+          if($LASTEXITCODE -ne 0){exit $LASTEXITCODE}
+          node scripts/recovery-navigation-test.cjs
+          if($LASTEXITCODE -ne 0){exit $LASTEXITCODE}
+          node scripts/status-bar-test.cjs
+          if($LASTEXITCODE -ne 0){exit $LASTEXITCODE}
+          node scripts/compact-fit-test.cjs
+          if($LASTEXITCODE -ne 0){exit $LASTEXITCODE}
+          node scripts/recovery-idle-test.cjs
+          if($LASTEXITCODE -ne 0){exit $LASTEXITCODE}
+          node scripts/automatic-recovery-test.cjs
+          if($LASTEXITCODE -ne 0){exit $LASTEXITCODE}
+          node scripts/editing-position-test.cjs
+          if($LASTEXITCODE -ne 0){exit $LASTEXITCODE}
+          $env:PERSISTENT_TEX_TEST_DPR='2.5'
+          node scripts/editing-position-test.cjs
+          if($LASTEXITCODE -ne 0){exit $LASTEXITCODE}
+          Remove-Item Env:PERSISTENT_TEX_TEST_DPR
+          node scripts/paragraph-split-test.cjs
+          if($LASTEXITCODE -ne 0){exit $LASTEXITCODE}
+          $env:PERSISTENT_TEX_TEST_DPR='2.5'
+          node scripts/paragraph-split-test.cjs
+          if($LASTEXITCODE -ne 0){exit $LASTEXITCODE}
+          Remove-Item Env:PERSISTENT_TEX_TEST_DPR
+          node scripts/lecture-session-test.cjs
+          if($LASTEXITCODE -ne 0){exit $LASTEXITCODE}
+          $env:PERSISTENT_TEX_LECTURE_PLAIN='0'
+          node scripts/lecture-session-test.cjs
+          exit $LASTEXITCODE
+      - name: Upload tested portable
+        if: ${{ success() && inputs.package_retained }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: retained-preview-portable
+          retention-days: 7
+          if-no-files-found: error
+          compression-level: 0
+          path: ${{ env.COMPATIBILITY_ROOT }}/package/TeXquisite-*-Windows.exe
+      - name: Upload bounded integration evidence
+        if: ${{ always() }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: retained-preview-results
+          retention-days: 7
+          if-no-files-found: warn
+          path: |
+            ${{ env.PERSISTENT_TEX_TEST_ARTIFACTS }}/**/result.json
+            ${{ env.PERSISTENT_TEX_TEST_ARTIFACTS }}/**/build.log
+            ${{ env.PERSISTENT_TEX_TEST_ARTIFACTS }}/**/build-before-reopen.log
+            ${{ env.PERSISTENT_TEX_TEST_ARTIFACTS }}/**/status-error.png
+            ${{ env.PERSISTENT_TEX_TEST_ARTIFACTS }}/**/status-healthy.png
+            ${{ env.PERSISTENT_TEX_TEST_FORMAT_CACHE }}/format-result.json

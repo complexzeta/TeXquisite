@@ -166,6 +166,14 @@ function workFiles(directory='/work',prefix=''):Map<string,Uint8Array>{
   }
   return files;
 }
+function neutralWrites(job:string){
+  let clean=true;const open=FS.open,write=FS.write,close=FS.close;
+  const observe=(stream:any)=>{const name=stream?.path;if(name&&(stream.flags&3)!==0&&name!=='/work/'+job+'.pdf'&&name!=='/work/'+job+'.log'&&!name.startsWith('/work/.persistent-tex/')&&!name.startsWith('/dev/'))clean=false;};
+  FS.open=function(...args:any[]){const stream=open.apply(this,args);observe(stream);return stream;};
+  FS.write=function(stream:any,...args:any[]){observe(stream);return write.call(this,stream,...args);};
+  FS.close=function(stream:any){observe(stream);return close.call(this,stream);};
+  return ()=>{FS.open=open;FS.write=write;FS.close=close;return clean;};
+}
 function writeWork(name:string,bytes:Uint8Array|string){
   if(name.startsWith('/')||name.includes('\\')||name.includes(':')||name.split('/').includes('..'))throw new Error('Invalid project resource path.');
   // Immutable input/font files normally survive a warm edit unchanged. Avoid
@@ -958,8 +966,8 @@ async function renderRegion(source:string,request:RegionRequest,jobName:string,e
       if(!configure)throw new Error('Continuous output requires the updated engine.');
       configure(first,last,request.end);
     }else Module._persistentRegionConfigure(first,last,request.end);Module._persistentEnableCheckpoint(1);
-    const inputsAt=performance.now();let code=Module._persistentResume();
-    while(code===100&&Module._persistentCheckpointKind()!==2)code=Module._persistentResume();
+    const inputsAt=performance.now(),finishWrites=process.env.PERSISTENT_TEX_MULTI_BLOCK==='1'?neutralWrites(jobName):undefined;let code:number,writeFree:boolean|undefined;
+    try{code=Module._persistentResume();while(code===100&&Module._persistentCheckpointKind()!==2)code=Module._persistentResume();}finally{writeFree=finishWrites?.();}
     if(code!==100)throw new SourceError((code===104?'Local paragraph needs input beyond its boundary.':'Local paragraph did not reach a safe boundary.')+'\n'+context.memlog);
     regionStateHash=undefined;regionStateHashMs=0;regionStateBytes=0;regionStateHashReused=false;
     const stoppedAt=performance.now();sealStarted=stoppedAt;digestStarted=digestFinished=0;streamCache.resetTiming();
@@ -987,6 +995,10 @@ async function renderRegion(source:string,request:RegionRequest,jobName:string,e
         fragment.flowStateHash=createHash('sha256').update(table.subarray(0,offset)).update(Buffer.alloc(4)).update(table.subarray(offset+4)).update(JSON.stringify(fragment.everypar)).digest('hex');
       }
       delete fragment.everypar;
+    }
+    if(process.env.PERSISTENT_TEX_MULTI_BLOCK==='1'){
+      fragment.neutralWriteFree=writeFree;const table=state.flowTable?.bytes??priorRegionState?.bytes;
+      fragment.neutralCharacters=!!table&&[...bytes.subarray(request.start,request.end)].every(c=>c===10||c===13||c<128&&table.length>(27741+c)*8+8&&[10,11,12].includes(table.readInt32LE((27741+c)*8+4)));
     }
     const pdf=new Uint8Array(FS.readFile('/work/'+jobName+'.pdf')),navigation=FS.readFile('/work/.persistent-tex/navigation.jsonl',{encoding:'utf8'});
     return {scope:'region-fragment' as const,pdf,fragment,navigation,log:context.memlog,timing:{totalMs:performance.now()-started,restoreMs:restoredAt-started,...restoration,inputsMs:inputsAt-restoredAt,typesetMs:stoppedAt-inputsAt,outputMs:performance.now()-stoppedAt,sealTiming,nativeZipMs,nativeZipStreams,nativeFontMs,nativeFonts,fontBodyHits:fontBodyCache.hits,fontBodyMisses:fontBodyCache.misses,fontBodyBytes:fontBodyCache.retainedBytes,fontProgramHits:fontProgramCache.hits,fontProgramMisses:fontProgramCache.misses,fontProgramBytes:fontProgramCache.retainedBytes,fontMemoryCapacity:Module._persistentFontMemoryCapacity?.(),fontMemoryUsed:Module._persistentFontMemoryUsed?.(),fontEncodingHits:fontEncodingCache.hits,fontEncodingMisses:fontEncodingCache.misses,fontEncodingBytes:fontEncodingCache.retainedBytes,stateHashMs:regionStateHashMs,stateHashBytes:regionStateBytes,stateHashReused:regionStateHashReused,stateComparison:fastFlowCapture?'baseline-bytes':'sha256',directStateHash,stateHashVerified:process.env.PERSISTENT_TEX_VERIFY_STATE_HASH==='1',checkpointOffset:checkpoint.offset,preambleOffset:initial.offset,documentSourceBytes:bytes.length,sourceFile:state.inputFile,inputCheckpoint:!!state.inputCheckpoint,reprocessedSourceBytes:request.end-(state.inputFile&&!state.inputCheckpoint?0:checkpoint.offset),excludedSuffixBytes:bytes.length-request.end,syntheticEnd:false,documentComplete:false}};

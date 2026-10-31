@@ -1,6 +1,6 @@
 import {PDFiumLibrary,PDFiumDocument} from '@hyzyla/pdfium';
-import {inkFitsRaster} from './local-raster';
-import {PdfWorkQueue} from './pdf-work-queue';
+import {inkFitsRaster,flowInkBounds,rasterBytesEqual,glyphOutlineKey} from './local-raster';
+import {PdfWorkQueue,pdfWorkPriority} from './pdf-work-queue';
 
 const library=PDFiumLibrary.init({wasmUrl:new URL('./vendor/pdfium.wasm',import.meta.url).href});
 void library.catch(()=>{});
@@ -12,7 +12,7 @@ worker.onmessage=event=>{
   const {id,method,...args}=event.data;
   // PDFium's instance is shared. Serialize calls, including document teardown,
   // while keeping the editor and its event loop independent of rasterization.
-  void work.enqueue(method==='checkedRegion'||method==='renderRegion'?0:args.interactive===true?1:2,async()=>{
+  void work.enqueue(pdfWorkPriority(method,args),async()=>{
     try{
       const lib=await library;
       const queueMs=Number.isFinite(args.postedAt)?Math.max(0,performance.timeOrigin+performance.now()-args.postedAt):0;
@@ -30,15 +30,25 @@ worker.onmessage=event=>{
         try{
           const started=performance.now();
           const bitmap=await page.render({scale:args.scale,colorSpace:'RGBA',transparent:false});
+          const geometry=page.getOriginalSize(),pageWidth=geometry.originalWidth,pageHeight=geometry.originalHeight;
           const rasterMs=performance.now()-started;
           if(args.imageBitmap&&typeof OffscreenCanvas!=='undefined'){
             const canvas=new OffscreenCanvas(bitmap.width,bitmap.height);
             const pixels=new Uint8ClampedArray(bitmap.data.buffer as ArrayBuffer,bitmap.data.byteOffset,bitmap.data.byteLength);
             canvas.getContext('2d')!.putImageData(new ImageData(pixels,bitmap.width,bitmap.height),0,0);
             const image=canvas.transferToImageBitmap();
-            worker.postMessage({id,result:{width:bitmap.width,height:bitmap.height,originalWidth:bitmap.originalWidth,originalHeight:bitmap.originalHeight,image,...(args.includePixels?{data:bitmap.data}:{}),rasterMs,workerMs:performance.now()-started}},args.includePixels?[image,bitmap.data.buffer as ArrayBuffer]:[image]);
-          }else worker.postMessage({id,result:{...bitmap,rasterMs,workerMs:performance.now()-started}},[bitmap.data.buffer as ArrayBuffer]);
+            worker.postMessage({id,result:{width:bitmap.width,height:bitmap.height,originalWidth:bitmap.originalWidth,originalHeight:bitmap.originalHeight,pageWidth,pageHeight,image,...(args.includePixels?{data:bitmap.data}:{}),rasterMs,workerMs:performance.now()-started}},args.includePixels?[image,bitmap.data.buffer as ArrayBuffer]:[image]);
+          }else worker.postMessage({id,result:{...bitmap,pageWidth,pageHeight,rasterMs,workerMs:performance.now()-started}},[bitmap.data.buffer as ArrayBuffer]);
         }finally{page.close();}
+      }else if(method==='verifyPageBand'){
+        const document=documents.get(args.documentId),frames=args.frames;if(!document)throw Error('PDF was closed.');
+        if(!Number.isFinite(args.scale)||args.scale<=0||args.scale>16||!Array.isArray(frames)||frames.length<1||frames.length>3||frames.length!==document.getPageCount()||frames.some(f=>!f||!Number.isSafeInteger(f.width)||!Number.isSafeInteger(f.height)||f.width<1||f.height<1||f.width*f.height>16000000||!(f.pixels instanceof Uint8ClampedArray)||f.pixels.length!==f.width*f.height*4))throw Error('Invalid page proof.');
+        const started=performance.now();let ok=true,pagesChecked=0,rasterMs=0,compareMs=0;
+        for(let i=0;ok&&i<frames.length;i++){
+          const page=document.getPage(i),frame=frames[i];
+          try{const size=(page as any).getSize({scale:args.scale});if(size.width*size.height>16000000)throw Error('Proof raster is too large.');const renderAt=performance.now(),raster=await page.render({scale:args.scale,colorSpace:'RGBA',transparent:false}),comparedAt=performance.now();rasterMs+=comparedAt-renderAt;ok=frame.width===raster.width&&frame.height===raster.height&&rasterBytesEqual(frame.pixels,raster.data);compareMs+=performance.now()-comparedAt;pagesChecked++;}finally{page.close();}
+        }
+        worker.postMessage({id,result:{ok,pagesChecked,queueMs,rasterMs,compareMs,workerMs:performance.now()-started}});
       }else if(method==='checkedRegion'){
         // A local flow fragment has no persistent viewer owner. Load, validate,
         // rasterize and crop in one serialized operation, and release it here.
@@ -56,11 +66,12 @@ worker.onmessage=event=>{
             const size=raw.getSize({scale:args.scale}),actual=page.getOriginalSize();
             if(!Number.isSafeInteger(size.width)||!Number.isSafeInteger(size.height)||size.width<1||size.height<1||size.width>32768||size.height>32768||size.width*size.height>16000000)throw new Error('Paragraph ink raster is too large.');
             const sx=size.width/actual.originalWidth,sy=size.height/actual.originalHeight;
-            const x=Math.max(0,Math.floor(rect.x*sx)),y=Math.max(0,Math.floor(rect.y*sy)),right=Math.min(size.width,Math.ceil((rect.x+rect.width)*sx)),bottom=Math.min(size.height,Math.ceil((rect.y+rect.height)*sy));
+            const x=Math.max(0,Math.floor(rect.x*sx)),y=Math.max(0,Math.floor(rect.y*sy)),bottom=Math.min(size.height,Math.ceil((rect.y+rect.height)*sy));let right=Math.min(size.width,Math.ceil((rect.x+rect.width)*sx));
             if(right<=x||bottom<=y)throw new Error('PDF tile is outside the page.');
             const bitmap=await page.render({scale:args.scale,colorSpace:'RGBA',transparent:false}),renderedAt=performance.now();
             if(bitmap.width!==size.width||bitmap.height!==size.height)throw new Error('Checked raster geometry changed.');
-            const safe=inkFitsRaster(bitmap.data,bitmap.width,bitmap.height,bounds),checkedAt=performance.now();
+            const checkedBounds=flowInkBounds(bitmap.data,bitmap.width,bitmap.height,bounds,12*args.scale),safe=!!checkedBounds,checkedAt=performance.now();
+            if(checkedBounds)right=Math.max(right,Math.ceil(checkedBounds.right));
             const timing={queueMs,loadMs:loadedAt-started,rasterMs:renderedAt-loadedAt,checkMs:checkedAt-renderedAt,rasterPasses:1};
             if(!safe){worker.postMessage({id,result:{safe:false,...timing,workerMs:performance.now()-started}});}
             else{
@@ -111,22 +122,42 @@ worker.onmessage=event=>{
             worker.postMessage({id,result:{...metadata,image,workerMs:performance.now()-started}},[image]);
           }else worker.postMessage({id,result:{...metadata,data,workerMs:performance.now()-started}},[data.buffer]);
         }finally{if(handle)m._FPDFBitmap_Destroy(handle);if(ptr)m.wasmExports.free(ptr);page.close();}
-      }else if(method==='glyphs'){
+      }else if(method==='glyphs'||method==='glyphProofs'){
         const document=documents.get(args.documentId);if(!document)throw new Error('PDF was closed.');
         const page=document.getPage(args.page-1),raw=page as any,m=raw.module;
         let text=0,buffer=0;
         try{
           if(m._FPDFPage_GetRotation(raw.pageIdx)!==0)throw new Error('Rotated pages are editable in the source pane.');
           text=m._FPDFText_LoadPage(raw.pageIdx);if(!text)throw new Error('PDF text is unavailable.');
-          buffer=m.wasmExports.malloc(32);const count=m._FPDFText_CountChars(text),height=page.getOriginalSize().originalHeight,characters:number[][]=[];
+          buffer=m.wasmExports.malloc(128);const count=m._FPDFText_CountChars(text),height=page.getOriginalSize().originalHeight,characters:number[][]=[],proofs:{glyph:number[];outline?:string}[]=[],outlines=new Map<string,Promise<string|undefined>>();
+          const outline=async(index:number,code:number)=>{
+            try{
+              if(code===0xfffd||m._FPDFText_HasUnicodeMapError(text,index)!==0)return;
+              const object=m._FPDFText_GetTextObject(text,index),font=object&&m._FPDFTextObj_GetFont(object),size=m._FPDFText_GetFontSize(text,index);
+              if(!font||m._FPDFFont_GetIsEmbedded(font)!==1||m._FPDFTextObj_GetTextRenderMode(object)!==0||!m._FPDFPageObj_GetFillColor(object,buffer+64,buffer+68,buffer+72,buffer+76)||!m._FPDFPageObj_GetMatrix(object,buffer+80))return;
+              const fill=Array.from(new Uint32Array(m.HEAPU8.buffer,buffer+64,4)),matrix=Array.from(new Float32Array(m.HEAPU8.buffer,buffer+80,4)),key=JSON.stringify([font,code,size,fill,matrix]);
+              if(outlines.has(key))return outlines.get(key);
+              if(outlines.size>=2048)return;
+              const promise=(async()=>{
+                const path=m._FPDFFont_GetGlyphPath(font,code,size),length=path&&m._FPDFGlyphPath_CountGlyphSegments(path),segments:number[][]=[];
+                if(!Number.isSafeInteger(length)||length<1||length>4096)return;
+                for(let i=0;i<length;i++){
+                  const segment=m._FPDFGlyphPath_GetGlyphPathSegment(path,i);if(!segment||!m._FPDFPathSegment_GetPoint(segment,buffer+112,buffer+116))return;
+                  const point=Array.from(new Float32Array(m.HEAPU8.buffer,buffer+112,2));segments.push([m._FPDFPathSegment_GetType(segment),m._FPDFPathSegment_GetClose(segment)?1:0,...point]);
+                }
+                const identity=glyphOutlineKey({size,fill,matrix},segments);if(!identity)return;
+                const digest=await crypto.subtle.digest('SHA-256',new TextEncoder().encode(identity));return Array.from(new Uint8Array(digest),n=>n.toString(16).padStart(2,'0')).join('');
+              })();outlines.set(key,promise);return promise;
+            }catch{return;}
+          };
           if(count>100000)throw new Error('This page has too many characters for preview editing.');
           for(let i=0;i<count;i++){
             const code=m._FPDFText_GetUnicode(text,i),angle=m._FPDFText_GetCharAngle(text,i);
             if(code<33||code>0x10ffff||!Number.isFinite(angle)||Math.abs(angle)>.01||!m._FPDFText_GetCharBox(text,i,buffer,buffer+8,buffer+16,buffer+24))continue;
             const [left,right,bottom,top]=new Float64Array(m.HEAPU8.buffer,buffer,4);
-            if([left,right,bottom,top].every(Number.isFinite)&&right>left&&top>bottom)characters.push([code,left,height-top,right-left,top-bottom]);
+            if([left,right,bottom,top].every(Number.isFinite)&&right>left&&top>bottom){const glyph=[code,left,height-top,right-left,top-bottom];characters.push(glyph);if(method==='glyphProofs')proofs.push({glyph,outline:await outline(i,code)});}
           }
-          worker.postMessage({id,result:characters});
+          worker.postMessage({id,result:method==='glyphProofs'?proofs:characters});
         }finally{if(buffer)m.wasmExports.free(buffer);if(text)m._FPDFText_ClosePage(text);page.close();}
       }else if(method==='close'){
         documents.get(args.documentId)?.destroy();documents.delete(args.documentId);

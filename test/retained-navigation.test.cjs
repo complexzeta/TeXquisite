@@ -1,0 +1,21 @@
+const {test}=require('node:test'),assert=require('node:assert/strict'),{RetainedNavigation}=require('../dist/retained-navigation');
+const baseline='Alpha.\n\nBeta.\n\nTail.\n\n',frame=text=>({root:'main.tex',file:'main.tex',baseId:'base',sourceHash:'hash-'+text,editId:'edit-'+text,text}),a={id:'0:8',baseFrom:0,baseTo:8,from:0,to:12},b={id:'8:15',baseFrom:8,baseTo:15,from:12,to:23},glyph=(at,x=10)=>({at,end:at+1,x,y:20,width:8,height:10}),nav={schema:1,sources:{'main.tex':'baseline'},regions:[],characters:[['main.tex',5,0,3,10,20,8,10,84]]};
+test('Retained flow projects block-local glyphs and unchanged baseline independently',()=>{
+ const n=new RetainedNavigation().updated(frame('Alpha new.\n\nBeta.\n\nTail.\n\n'),baseline,{id:a.id,page:1,prior:[],ranges:[a],locations:[glyph(6)],retainedFlow:true},nav),project=(page,y,id)=>id===a.id?y+100:page===3?y+50:y;
+ assert.equal(n.forward(n.frame,6),undefined,'Local coordinates cannot masquerade as baseline coordinates');assert.equal(n.forward(n.frame,6,project).glyph.y,120);assert.equal(n.inverse(n.frame,1,11,122,project),6);assert.equal(n.inverse(n.frame,3,11,72,project),19);assert.equal(n.forward(n.frame,19,project).glyph.y,70);
+ assert.equal(n.inverse({...n.frame,editId:'stale'},1,11,122,project),undefined);
+});
+function pair(){let n=new RetainedNavigation().updated(frame('Alpha new.\n\nBeta.\n\nTail.\n\n'),baseline,{...a,id:a.id,page:1,prior:[],ranges:[a],locations:[glyph(6)]},nav);return n.updated(frame('Alpha new.\n\nBeta add.\n\nTail.\n\n'),baseline,{id:b.id,page:2,prior:[a.id],ranges:[a,b],locations:[glyph(17)]});}
+test('Retained maps navigate both edited pages and untouched baseline after offset shifts',()=>{
+ const n=pair(),f=n.frame;assert.equal(n.inverse(f,1,11,22),6);assert.equal(n.inverse(f,2,11,22),17);assert.equal(n.inverse(f,3,11,22),23);assert.equal(n.forward(f,17).page,2);assert.equal(n.forward(f,23).page,3);assert.equal(n.inverse(f,4,11,22),undefined);
+ const text='Alpha more new.\n\nBeta add.\n\nTail.\n\n',aa={...a,to:17},bb={...b,from:17,to:28};const moved=n.updated(frame(text),baseline,{id:a.id,page:1,prior:[a.id,b.id],ranges:[aa,bb],locations:[glyph(11)]});assert.equal(moved.inverse(moved.frame,2,11,22),22);assert.equal(moved.inverse(moved.frame,3,11,22),28);assert.equal(n.inverse(f,2,11,22),17,'Previous map immutable');
+});
+test('Retained navigation rejects stale identities, malformed glyphs and unaccounted source changes',()=>{
+ const n=pair();for(const key of ['root','file','baseId','sourceHash','editId','text']){const stale={...n.frame,[key]:'other'};assert.equal(n.inverse(stale,1,11,22),undefined,key);assert.equal(n.forward(stale,6),undefined,key);}
+ assert.equal(n.inverse(n.frame,1,NaN,20),undefined);assert.equal(n.forward(n.frame,-1),undefined);
+ const patch={id:b.id,page:2,prior:[a.id,b.id],ranges:[a,b],locations:[glyph(17)]};for(const invalid of [{...patch,prior:[a.id,a.id]},{...patch,ranges:[b,a]},{...patch,locations:[glyph(100)]},{...patch,locations:[{...glyph(17),width:NaN}]},{...patch,ranges:[a,{...b,baseFrom:7}]}])assert.throws(()=>n.updated(n.frame,baseline,invalid));assert.throws(()=>n.updated(frame(n.frame.text+'outside'),baseline,patch));assert.throws(()=>n.updated({...n.frame,root:'other'},baseline,patch));assert.throws(()=>n.updated(n.frame,baseline+'other',patch));
+});
+test('Unchanged baseline navigation converts UTF-8 columns and ignores generated end-document output',()=>{
+ const base='é.\n\nAlpha.\n\nTail.\n\n\\end{document}\n',r={id:'4:12',baseFrom:4,baseTo:12,from:4,to:16},f=frame(base.replace('Alpha.','Alpha new.')),navigation={schema:1,sources:{'main.tex':'baseline'},regions:[],characters:[['main.tex',1,0,1,10,20,8,10,233,2],['main.tex',5,0,2,10,20,8,10,84],['main.tex',7,0,2,50,100,8,10,49]]};
+ const n=new RetainedNavigation().updated(f,base,{id:r.id,page:1,prior:[],ranges:[r],locations:[glyph(10,40)]},navigation);assert.equal(n.inverse(f,1,11,22),0);assert.equal(n.inverse(f,2,11,22),16);assert.equal(n.inverse(f,2,51,102),undefined);assert.equal(n.forward(f,f.text.indexOf('\\end')),undefined);
+});

@@ -1,6 +1,17 @@
 const {test}=require('node:test'),assert=require('node:assert/strict');
 const {paragraphAt}=require('../dist/local-preview'),{matchLocalRaster}=require('../dist/local-raster');
 const {matchLocalPatchRaster}=require('../dist/local-raster');
+
+test('Fractional native page geometry survives raster rounding but true changes still refuse',()=>{
+ const {matchingPageGeometry}=require('../dist/local-raster'),size={originalWidth:595.2756,originalHeight:841.8898};
+ for(const scale of [1,1.5,2.5]){
+  const canvas={dataset:{pdfPageWidth:String(size.originalWidth),pdfPageHeight:String(size.originalHeight)},style:{width:Math.floor(size.originalWidth)*scale+'px',height:Math.floor(size.originalHeight)*scale+'px'}};
+  assert.equal(matchingPageGeometry(canvas,size,scale),true);
+  canvas.dataset.pdfPageWidth=String(size.originalWidth+.4);assert.equal(matchingPageGeometry(canvas,size,scale),false,'A real change must fail even with identical floored CSS');
+  canvas.dataset.pdfPageWidth='NaN';assert.equal(matchingPageGeometry(canvas,size,scale),false);delete canvas.dataset.pdfPageWidth;assert.equal(matchingPageGeometry(canvas,size,scale),false,'Partial native metadata must not fall back');
+ }
+ assert.equal(matchingPageGeometry({dataset:{},style:{width:'612px',height:'792px'}},{originalWidth:612,originalHeight:792},1),true);
+});
 test('TikZ blocks are not repeatedly expanded into adjacent paragraph preparation',()=>{
  const {flowWindowAt}=require('../dist/local-preview'),first='Ordinary text.\n\n',picture='\\begin{tikzpicture}\\node {Label};\\end{tikzpicture}\n\n',last='Following text.\n\n',source=first+picture+last;
  assert.deepEqual(flowWindowAt(source,2),{from:0,to:first.length});assert.deepEqual(flowWindowAt(source,first.length+10),{from:first.length,to:first.length+picture.length});
@@ -62,7 +73,7 @@ test('Placement calibration tolerates isolated glyph metric outliers but still r
  assert.equal(placementCorrection(Array.from({length:8},()=>({x:1,y:1})),{x:0,y:0}),false,'Large translations reject');
 });
 
-test('Calibrated glyph geometry permits only eight opaque grayscale coverage pixels on existing strokes',()=>{
+test('Calibrated glyph geometry permits only eight opaque grayscale coverage pixels per existing glyph',()=>{
  const width=60,height=40,rect={x:1,y:1,width:58,height:38},a=new Uint8ClampedArray(width*height*4).fill(255),set=(im,x,y,v)=>{for(let c=0;c<3;c++)im[(y*width+x)*4+c]=v;};
  for(let x=10;x<20;x++)set(a,x,9,0);for(let x=10;x<19;x++)set(a,x,10,186);
  const b=new Uint8ClampedArray(a),glyphs=[{x:9,y:8,width:12,height:5}];for(let x=10;x<18;x++)set(b,x,10,126);
@@ -74,4 +85,65 @@ test('Calibrated glyph geometry permits only eight opaque grayscale coverage pix
  rejected(c=>{c[(10*width+10)*4+1]=125;},'Color changes reject');rejected(c=>{c[(10*width+10)*4+3]=254;},'Alpha changes reject');
  rejected(()=>{},'Wrong glyph location rejects',[{x:30,y:20,width:2,height:2}]);rejected(()=>{},'Unbounded glyph masks reject',[{x:0,y:0,width:257,height:40}]);
  const flatA=new Uint8ClampedArray(width*height*4).fill(255),flatB=new Uint8ClampedArray(flatA);set(flatA,10,10,186);set(flatB,10,10,126);assert.equal(matchLocalPatchRaster(flatA,flatB,width,height,rect,glyphs).ok,false,'Geometry without a dark/light stroke in both images rejects');
+});
+
+test('Aligned origins can supply glyph calibration without authorizing shifts or weak consensus',()=>{
+ const {placementCorrection}=require('../dist/local-raster');
+ const aligned=Array.from({length:8},()=>({x:12,y:24}));
+ assert.equal(placementCorrection(aligned,{x:12,y:24}),false);
+ assert.deepEqual(placementCorrection(aligned,{x:12,y:24},true),{dx:0,dy:0});
+ assert.equal(placementCorrection(aligned.slice(0,2),{x:12,y:24},true),false);
+ assert.equal(placementCorrection([...aligned.slice(0,4),...aligned.slice(0,4).map(()=>({x:12.1,y:24}))],{x:12,y:24},true),false);
+ assert.equal(placementCorrection(aligned,{x:0,y:0},true),false);
+});
+
+test('Independent matched glyphs share a capped coverage allowance without hiding a changed glyph',()=>{
+ const width=1100,height=900,rect={x:1,y:1,width:1098,height:898},a=new Uint8ClampedArray(width*height*4).fill(255),b=new Uint8ClampedArray(a),glyphs=[];
+ const set=(im,x,y,v)=>{for(let c=0;c<3;c++)im[(y*width+x)*4+c]=v;};
+ const add=index=>{const left=10+index*20;glyphs.push({x:left-1,y:8,width:12,height:5});for(let x=left;x<left+8;x++){set(a,x,9,0);set(b,x,9,0);set(a,x,10,186);set(b,x,10,126);}};
+ add(0);add(1);const two=matchLocalPatchRaster(a,b,width,height,rect,glyphs);assert.equal(two.ok,true);assert.equal(two.metricPixels,16);
+ assert.equal(matchLocalPatchRaster(a,b,width,height,rect,glyphs.slice(0,1)).ok,false,'Every glyph still needs its independent geometry');
+ for(let i=2;i<8;i++)add(i);assert.equal(matchLocalPatchRaster(a,b,width,height,rect,glyphs).ok,true);
+ add(8);assert.equal(matchLocalPatchRaster(a,b,width,height,rect,glyphs).ok,false,'The patch-wide cap remains 64 even for a large page');
+ assert.equal(matchLocalPatchRaster(a,b,width,height,rect,glyphs,2.5).ok,true,'The physical coverage allowance scales with display density for independently proved glyphs');
+});
+
+test('High-DPI matched glyph coverage scales with resolution while retaining bounded ink checks',()=>{
+ const width=80,height=40,rect={x:1,y:1,width:78,height:38},a=new Uint8ClampedArray(width*height*4).fill(255),set=(im,x,y,v)=>{for(let c=0;c<3;c++)im[(y*width+x)*4+c]=v;};
+ for(let x=10;x<33;x++){set(a,x,9,0);set(a,x,10,186);}const b=new Uint8ClampedArray(a),glyphs=[{x:9,y:8,width:25,height:5}];for(let x=10;x<30;x++)set(b,x,10,126);
+ assert.equal(matchLocalPatchRaster(a,b,width,height,rect,glyphs).ok,false,'1x still caps one glyph at eight pixels');
+ assert.equal(matchLocalPatchRaster(a,b,width,height,rect,glyphs,1.5).ok,false,'1.5x caps one glyph at eighteen pixels');
+ assert.equal(matchLocalPatchRaster(a,b,width,height,rect,glyphs,2.5).ok,true);
+ set(b,30,10,126);assert.equal(matchLocalPatchRaster(a,b,width,height,rect,glyphs,2.5).ok,true,'Coverage grows with pixel density while geometry stays independently matched');
+ set(b,10,10,255);assert.equal(matchLocalPatchRaster(a,b,width,height,rect,glyphs,4).ok,false,'High DPI cannot hide missing ink');
+ assert.equal(matchLocalPatchRaster(a,b,width,height,rect,glyphs,Infinity).ok,false);
+});
+
+test('Matched thin serifs require a real glyph core and retain missing-ink and geometry rejection',()=>{
+ const width=40,height=40,rect={x:1,y:1,width:38,height:38},a=new Uint8ClampedArray(width*height*4).fill(255),set=(im,x,y,v)=>{for(let c=0;c<3;c++)im[(y*width+x)*4+c]=v;};
+ for(let y=12;y<21;y++)set(a,12,y,0);for(let x=13;x<20;x++)set(a,x,10,186);set(a,19,11,244);
+ set(a,19,12,219);const b=new Uint8ClampedArray(a);for(let x=17;x<20;x++)set(b,x,10,150);set(b,19,11,252);set(b,19,12,252);const glyphs=[{x:11,y:9,width:10,height:13}];
+ assert.equal(matchLocalPatchRaster(a,b,width,height,rect).ok,false);
+ assert.equal(matchLocalPatchRaster(a,b,width,height,rect,glyphs).ok,true);
+ assert.equal(matchLocalPatchRaster(a,b,width,height,rect,[{x:25,y:25,width:5,height:5}]).ok,false);
+ for(const missing of [true,false]){const changed=new Uint8ClampedArray(b);if(missing)set(changed,18,10,255);else set(changed,18,12,150);assert.equal(matchLocalPatchRaster(a,changed,width,height,rect,glyphs).ok,false);}
+ const noCoreA=new Uint8ClampedArray(a),noCoreB=new Uint8ClampedArray(b);for(let y=12;y<21;y++){set(noCoreA,12,y,255);set(noCoreB,12,y,255);}assert.equal(matchLocalPatchRaster(noCoreA,noCoreB,width,height,rect,glyphs).ok,false);
+});
+
+test('Exact glyph outlines require complete matching style and path data',()=>{
+ const {glyphOutlineKey}=require('../dist/local-raster'),style={size:12,matrix:[1,0,0,1],fill:[0,0,0,255]},path=[[2,0,0,0],[0,1,10,20]],key=glyphOutlineKey(style,path);assert.ok(key);
+ assert.equal(glyphOutlineKey({...style,matrix:[...style.matrix],fill:[...style.fill]},path.map(p=>[...p])),key);
+ for(const changed of [{...style,size:13},{...style,fill:[32,32,32,255]},{...style,matrix:[-1,0,0,1]}])assert.notEqual(glyphOutlineKey(changed,path),key);
+ assert.notEqual(glyphOutlineKey(style,[[2,0,0,0],[0,1,11,20]]),key);
+ for(const bad of [{...style,size:NaN},{...style,fill:[0,0,0,128]},{...style,fill:[0,1,0,255]},{...style,matrix:[0,0,0,0]}])assert.equal(glyphOutlineKey(bad,path),undefined);
+ for(const bad of [[],[[9,0,0,0]],[[2,0,NaN,0]],Array.from({length:4097},()=>[0,0,0,0])])assert.equal(glyphOutlineKey(style,bad),undefined);
+});
+
+test('Outline-verified glyphs can use the bounded patch pool while geometry alone keeps its smaller allowance',()=>{
+ const width=60,height=40,rect={x:1,y:1,width:58,height:38},a=new Uint8ClampedArray(width*height*4).fill(255),set=(im,x,y,v)=>{for(let c=0;c<3;c++)im[(y*width+x)*4+c]=v;};for(let x=10;x<30;x++){set(a,x,9,0);set(a,x,10,186);}const b=new Uint8ClampedArray(a);for(let x=10;x<30;x++)set(b,x,10,126);const glyph={x:9,y:8,width:23,height:5};
+ assert.equal(matchLocalPatchRaster(a,b,width,height,rect,[glyph]).ok,false);
+ assert.equal(matchLocalPatchRaster(a,b,width,height,rect,[{...glyph,outline:true}]).ok,true);
+ const missing=new Uint8ClampedArray(b);set(missing,15,9,255);assert.equal(matchLocalPatchRaster(a,missing,width,height,rect,[{...glyph,outline:true}]).ok,false,'The outline witness cannot hide disappearance of a core stroke');
+ const fringe=new Uint8ClampedArray(b);set(fringe,31,10,191);assert.equal(matchLocalPatchRaster(a,fringe,width,height,rect,[{...glyph,width:25,outline:true}]).ok,true,'Only identical outlines authorize a hinted edge crossing the white cutoff');
+ assert.equal(matchLocalPatchRaster(a,fringe,width,height,rect,[{...glyph,width:25}]).ok,false);
 });

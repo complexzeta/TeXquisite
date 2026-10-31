@@ -1,4 +1,13 @@
 const {test}=require('node:test'),assert=require('node:assert/strict');const {inkFitsRaster}=require('../dist/local-raster');
+const {flowInkBounds}=require('../dist/local-raster');
+test('Pageless flow captures bounded right overhang without changing strict baseline proofs',()=>{
+ const w=30,h=12,bounds={left:4,top:3,right:20,bottom:9};
+ const image=(x,y)=>{const a=new Uint8Array(w*h*4).fill(255);a[(y*w+x)*4]=0;return a;};
+ assert.deepEqual(flowInkBounds(image(19,4),w,h,bounds,6),bounds);
+ const over=image(22,4);assert.equal(inkFitsRaster(over,w,h,bounds),false);const expanded=flowInkBounds(over,w,h,bounds,6);assert.ok(expanded.right>22&&expanded.right<=26);assert.equal(inkFitsRaster(over,w,h,expanded),true);assert.equal(expanded.left,bounds.left);assert.equal(expanded.top,bounds.top);assert.equal(expanded.bottom,bounds.bottom);
+ for(const [x,y]of [[3,4],[22,2],[22,9],[27,4],[29,4]])assert.equal(flowInkBounds(image(x,y),w,h,bounds,6),undefined,`${x},${y}`);
+ for(const allowance of [NaN,Infinity,-1,257])assert.equal(flowInkBounds(over,w,h,bounds,allowance),undefined);
+});
 test('Worker ink scanning matches the original complete pixel scan at fractional, clipped and off-page bounds',()=>{
  const width=11,height=9;
  const original=(data,b)=>{for(let y=0;y<height;y++)for(let x=0;x<width;x++)if(x<Math.floor(b.left)||x>=Math.ceil(b.right)||y<Math.floor(b.top)||y>=Math.ceil(b.bottom)){const at=4*(y*width+x);if(data[at]<250||data[at+1]<250||data[at+2]<250)return false;}return true;};

@@ -1,5 +1,5 @@
 import {decodeNavigation} from './navigation-codec';
-import {matchLocalPatchRaster,LOCAL_INK_BLEED_BP} from './local-raster';
+import {matchLocalPatchRaster,proofDensityRetry,LOCAL_INK_BLEED_BP} from './local-raster';
 import {placementCorrection,GlyphLookup} from './local-raster';
 import {mathSpans,isMath,nearestMathCaret,mathCaretBox,moveMath,moveMathAcross,changeMath,parseMath,MathFormula,MathSpan,MathAction} from './math-edit';
 import {EditorView,basicSetup} from 'codemirror';
@@ -18,9 +18,11 @@ import {imageTex} from './image-paste';
 import {loadPdf,renderCheckedPdfRegion,copyPdfRaster} from './pdf-viewer';
 import {BaselineCache} from './baseline-cache';
 import {ContinuousView} from './continuous-view';
-import {forwardPosition,backward,sourceLineHasOutput,previewFocusTarget,previewFocusPrefix,PreviewFocus,liveFlowPosition,LiveFlowFrame} from './navigation-query';
+import {RetainedNavigation,RetainedFrame} from './retained-navigation';
+import {forwardPosition,backward,sourceLineHasOutput,previewFocusTarget,previewFocusPrefix,PreviewFocus,liveFlowPosition,LiveFlowFrame,unchangedPageLocations} from './navigation-query';
 import type {BuildDiagnostic} from './diagnostics';
 import {diagnosticAdvice} from './diagnostics';
+import {recoveryLineBlocked,recoveryPointBlocked} from './recovery-navigation';
 import type {Navigation,Region} from './navigation';
 declare global {interface Window {desktop:{call:(method:string,...args:unknown[])=>Promise<any>;on:(callback:(message:any)=>void)=>void};}}
 const api=window.desktop;
@@ -51,14 +53,25 @@ const verifiedPageOutputs=new Set<string>();
 let localDocument:{pdf:any;task:ReturnType<typeof loadPdf>;span:{first:number;last:number}}|undefined;
 function releaseLocalDocument(){const doc=localDocument;localDocument=undefined;void doc?.task.destroy();}
 type FlowLocation={at:number;end:number;x:number;y:number;width:number;height:number};
-let liveFlow:(LiveFlowFrame&{stateChanged?:boolean;baseTo:number;page:number;canvas:HTMLCanvasElement;locations:FlowLocation[]})|undefined;
+let livePages:(LiveFlowFrame&{pages:{page:number;canvas?:HTMLCanvasElement;locations:FlowLocation[];blocked?:{x:number;y:number;width:number;height:number}[]}[]})|undefined;
+function currentLivePages(){
+  const frame=livePages;
+  return frame&&model.continuousPreview&&localCanvas&&view&&frame.root===model.root&&frame.file===active&&frame.text===view.state.doc.toString()&&frame.baseId===continuousView.id&&frame.pages.every(p=>!p.canvas||p.canvas.isConnected&&p.canvas.dataset.localSourceHash===frame.sourceHash&&p.canvas.dataset.localEditId===frame.editId)?frame:undefined;
+}
+let liveFlow:(LiveFlowFrame&{stateChanged?:boolean;baseTo:number;page:number;canvas:HTMLCanvasElement;locations:FlowLocation[];blocked?:{x:number;y:number;width:number;height:number}[]})|undefined;
 const continuousBases=new Map<string,{id:string;navigation:Navigation;text?:string;texts?:Record<string,string>}>();
 let continuousBasis:{id:string;navigation:Navigation;text?:string;texts?:Record<string,string>}|undefined;
 let localPatch:{x:number;y:number;width:number;height:number;page:number}|undefined;
+let neutralBaseId='';const neutralPages=new Map<number,HTMLCanvasElement>(),neutralIds=new Set<string>();
+let retainedNavigation=new RetainedNavigation();
+let retainedExperiment=false,canonicalRequested=false;
+function retainedContext(canvas?:HTMLCanvasElement):RetainedFrame|undefined{const frame=retainedNavigation.frame;if(!frame||!view)return;return {root:model.root,file:active,baseId:continuousView.id,sourceHash:canvas?.dataset.localSourceHash??frame.sourceHash,editId:latestEdit?.id??'',text:view.state.doc.toString()};}
+function clearNeutralMetadata(){for(const c of new Set([...neutralPages.values(),...continuousView.retainedCanvases()])){delete c.dataset.localSourceHash;delete c.dataset.localEditId;delete c.dataset.localLayout;delete c.dataset.neutralActive;}neutralPages.clear();neutralIds.clear();neutralBaseId='';retainedNavigation=new RetainedNavigation();}
 function clearLocalProofs(){for(const proof of localProofs.values())proof.release();localProofs.clear();localPageProofs.clear();for(const held of localPageBaselines.values())held.release();localPageBaselines.clear();}
 let compileIssue:BuildDiagnostic|undefined;
 let projectProblems:BuildDiagnostic[]=[];
 let sourceWarning='';
+let operationIssue:string|undefined,backupIssue:string|undefined;
 let logLength=0;
 let suppressFollow=false,navigationToken=0,followFrame=0;
 let previewApplying=false,previewMapToken=0;
@@ -153,6 +166,8 @@ for(const button of el('mathTools').querySelectorAll<HTMLButtonElement>('button'
  button.addEventListener('mousedown',event=>event.preventDefault());button.addEventListener('click',()=>{if(previewSession?.math){previewChange('',false,false,button.dataset.math as MathAction);previewInput.focus({preventScroll:true});}});
 }
 function refreshPreviewStatus(){
+  if(localCanvas?.dataset.localRecovered==='true'&&localCanvas.dataset.localEditId===latestEdit?.id){el('previewState').textContent='Recovered local preview · details in Problems';el('status').textContent=localStatus+' Temporary preview repair; saved source is unchanged.'+sourceWarning;previewUpdating=false;return;}
+  if(current?.timing?.recovered&&current.timing.editId===latestEdit?.id){el('previewState').textContent='Recovered preview · LaTeX errors need attention';el('status').textContent=current.displayStatus+sourceWarning;previewUpdating=false;return;}
   if(localCanvas?.dataset.localLayout==='flow'&&localCanvas.dataset.localEditId===latestEdit?.id&&current?.timing?.editId===latestEdit?.id){el('previewState').textContent='Continuous scroll · paginated PDF verified';el('status').textContent=localStatus.replace('Paginated PDF verification pending.','Paginated PDF verified.')+sourceWarning;previewUpdating=false;return;}
   if(localCanvas){const newer=localCanvas.dataset.localEditId!==latestEdit?.id,lecture=model.previewMode==='lecture';el('previewState').textContent=(lecture?'Lecture preview · ':'Local paragraph preview · ')+(newer?'newer edits pending':lecture?'full PDF updates on Build or Export':'full document verification pending');el('status').textContent=(lecture?localStatus.replace(/(?:Paginated PDF|Full document) verification pending\./g,'Full PDF updates on Build or Export.'):localStatus)+(newer?' Newer edits pending.':'')+sourceWarning;return;}
   const pending=!previewKnownCurrent||!!latestEdit&&current?.timing?.editId!==latestEdit.id;
@@ -176,13 +191,13 @@ function renderProblems(){
  const summary=`${errors} error${errors===1?'':'s'} · ${warnings} warning${warnings===1?'':'s'}`;
  el('problemSummary').textContent=summary;
  const toggle=el<HTMLButtonElement>('toggleProblems');toggle.title='Project problems: '+summary;toggle.setAttribute('aria-label',toggle.title);toggle.dataset.count=issues.length?String(issues.length):'';toggle.classList.toggle('has-problems',!!issues.length);
- const stale=issues.some(i=>i.editId!==latestEdit?.id);el('problemState').textContent=stale?'Source changed · waiting for the next full build':issues.length?'Latest full build':'No problems reported by the latest full build';
+ const stale=issues.some(i=>i.editId!==latestEdit?.id);el('problemState').textContent=stale?'Source changed · waiting for preview':issues.some(i=>i.id.startsWith('local-recovery-'))?'Current local preview':issues.length?'Latest full build':'No problems reported by the latest full build';
  const list=el('problemList');list.replaceChildren();const filter=el<HTMLSelectElement>('problemFilter').value;
  for(const issue of issues.filter(i=>filter==='all'||(i.severity??'error')===filter)){
   const row=document.createElement('div');row.className='problem-row';row.setAttribute('role','listitem');row.dataset.severity=issue.severity??'error';
   const label=document.createElement('strong');label.textContent=issue.severity==='warning'?'Warning':'Error';
   const message=document.createElement('span');message.textContent=issue.message;
-  row.append(label,message);
+  const copy=document.createElement('div');copy.className='problem-copy';copy.append(message);const advice=diagnosticAdvice(issue.message);if(advice){const hint=document.createElement('span');hint.className='problem-advice';hint.textContent=advice;copy.append(hint);}row.append(label,copy);
   if(issue.file&&issue.line){const link=document.createElement('button');link.textContent=issue.file.split(/[\\/]/).at(-1)+' · line '+issue.line;link.title=issue.file;link.disabled=issue.editId!==latestEdit?.id;link.onclick=()=>void command(()=>navigateProblem(issue));row.append(link);}
   list.append(row);
  }
@@ -213,7 +228,9 @@ function syncErrorMarker(){
 function renderIssue(){
   renderProblems();
   syncErrorMarker();
-  const panel=el('diagnostics');panel.hidden=!compileIssue;if(!compileIssue)return;
+  // Automatic diagnostics stay in the stable Problems badge/list and gutter.
+  // Opening/closing a top banner resized CodeMirror on every error revision.
+  renderRecoveryNotice();const panel=el('diagnostics');panel.hidden=true;if(!compileIssue)return;
   const stale=compileIssue.editId!==latestEdit?.id;
   el('diagnosticMessage').textContent=compileIssue.message;
   el('diagnosticHint').textContent=diagnosticAdvice(compileIssue.message)??'';
@@ -224,6 +241,38 @@ function renderIssue(){
   link.title=compileIssue.file??'';
   panel.dataset.kind=compileIssue.kind;
 }
+let recoveryNoticeState='';
+function renderRecoveryNotice(reason?:string){
+ const issue=compileIssue?.root===model.root?compileIssue:projectProblems.find(i=>i.root===model.root&&i.severity!=='warning'),recovered=localCanvas&&localCanvas.dataset.localEditId===latestEdit?.id?localCanvas.dataset.localRecovered==='true':current?.timing?.recovered,notice=el('previewNotice');
+ const issues=projectProblems.filter(i=>i.root===model.root);if(issue&&!issues.some(i=>i.id===issue.id))issues.push(issue);
+ const errors=issues.filter(i=>i.severity!=='warning').length,warnings=issues.length-errors,extra=[sourceWarning.trim()||(!errors?operationIssue:undefined),backupIssue].filter((s):s is string=>!!s);
+ const count=errors+extra.length,summary=`${count} error${count===1?'':'s'}`+(warnings?` · ${warnings} warning${warnings===1?'':'s'}`:'');
+ const stale=!!issue&&issue.editId!==latestEdit?.id,primary=issue??issues.find(i=>i.severity==='warning');
+ const state=JSON.stringify([model.root,primary?.message,primary?.file,primary?.line,count,warnings,extra,!!issue,stale,!!recovered,reason,!!model.onSave]);
+ // Scrolling must not rewrite an unchanged live region or announce it again.
+ if(state===recoveryNoticeState)return;recoveryNoticeState=state;
+ const badge=el('errorCount');if(badge.textContent!==summary)badge.textContent=summary;badge.dataset.errors=String(count);badge.dataset.warnings=String(warnings);badge.setAttribute('aria-label',summary+'. Show details');
+ el('statusBar').dataset.severity=count?'error':warnings||recovered?'warning':'normal';
+ notice.hidden=!issue&&!recovered&&!reason&&!extra.length&&!warnings;if(notice.hidden){notice.title='';return;}
+ const where=issue?.file&&issue.line?` (${issue.file.split(/[\\/]/).at(-1)}, line ${issue.line})`:'';
+ const message=primary?.message??extra[0]??reason??'Temporary preview repair';
+ const skipped=message.match(/Preview skipped undefined command (\\\S+?)\./),short=skipped?'Undefined command '+skipped[1]:message.replace(/\s+/g,' ').split(/\. (?=[A-Z])/)[0];
+ el('previewNoticeTitle').textContent=short+where+(stale?' · checking newer edits':'');
+ const checking=model.onSave?' Keep editing; each change is checked automatically.':' Automatic preview is paused. Resume Live or choose Retry preview.';
+ const advice=issue?diagnosticAdvice(issue.message):undefined;
+ el('previewNoticeText').textContent=reason?reason+(advice?' '+advice:'')+checking:(stale?(model.onSave?'Checking your latest edits automatically.':'This error belongs to an earlier edit.'+checking):issue?(advice??'Open Details to inspect the build log.')+checking+(recovered?' Navigation is limited to unchanged mapped text. Direct PDF editing resumes after the error is fixed.':' The previous preview is retained.'):'Temporary repairs keep this preview running.'+checking);
+ if(!issue&&!recovered&&!reason)el('previewNoticeText').textContent=message;
+ else if(primary)el('previewNoticeText').textContent=message+' '+el('previewNoticeText').textContent;
+ notice.title=[primary?.message,el('previewNoticeText').textContent,...extra].filter(Boolean).join('\n');
+ const retry=el<HTMLButtonElement>('previewNoticeRetry');retry.textContent=model.onSave?'Check now':'Retry preview';retry.title=model.onSave?'Optional: recheck now. Source changes are checked automatically.':'Recheck the current source';
+ retry.hidden=!issue&&!recovered&&!reason;
+ const go=el<HTMLButtonElement>('previewNoticeError');go.hidden=!issue?.file||!issue.line;go.disabled=stale;
+}
+function explainNavigation(reason:string){el('navState').textContent=reason;renderRecoveryNotice(reason);}
+el('previewNoticeError').onclick=()=>{const issue=compileIssue??projectProblems.find(i=>i.severity!=='warning');if(issue)void command(()=>navigateProblem(issue));};
+el('previewNoticeDetails').onclick=()=>{if(projectProblems.length){el<HTMLDetailsElement>('problems').open=true;el<HTMLSelectElement>('problemFilter').value='all';renderProblems();}else if(backupIssue)void command(showBackups);else el<HTMLDetailsElement>('logs').open=true;};
+el('errorCount').onclick=()=>{if(!el('previewNotice').hidden)el('previewNoticeDetails').click();else el('toggleProblems').click();};
+el('previewNoticeRetry').onclick=()=>void command(async()=>{const button=el<HTMLButtonElement>('previewNoticeRetry');button.disabled=true;try{await flush();canonicalRequested=true;await api.call('retryPreview');}finally{button.disabled=false;}});
 el('diagnosticLog').onclick=()=>{el<HTMLDetailsElement>('logs').open=true;el('logs').querySelector('summary')!.focus();};
 el('diagnosticLocation').onclick=()=>{if(compileIssue)void command(()=>navigateProblem(compileIssue!));};
 async function navigateProblem(issue:BuildDiagnostic){
@@ -234,7 +283,7 @@ async function navigateProblem(issue:BuildDiagnostic){
   const follow=model.followPreview;model=result.state;model.followPreview=follow;renderEditor();void api.call('active',active,true).catch(report);
   if(view){const position=view.state.doc.line(Math.min(result.line,view.state.doc.lines)).from;suppressFollow=true;try{view.dispatch({selection:{anchor:position},effects:EditorView.scrollIntoView(position,{y:'center'})});}finally{suppressFollow=false;}view.focus();}
 }
-const report=(e:unknown)=>{el('status').textContent=String(e).replace(/^Error: Error invoking remote method 'desktop': (?:Error: )?/,'').replace(/^Error: /,'');};
+const report=(e:unknown)=>{operationIssue=String(e).replace(/^Error: Error invoking remote method 'desktop': (?:Error: )?/,'').replace(/^Error: /,'');el('status').textContent=operationIssue;renderRecoveryNotice();};
 async function flush() {
   if(!view||!active)return;
   const file=active,text=view.state.doc.toString();
@@ -267,7 +316,10 @@ surroundInput.addEventListener('input',()=>{if(!acceptSurround()&&surroundSessio
 surroundBox.addEventListener('submit',event=>{event.preventDefault();if(!acceptSurround())el('surroundHint').textContent='Unknown delimiter. Correct it or press Esc to cancel.';});
 surroundInput.addEventListener('keydown',event=>{event.stopPropagation();if(event.key==='Escape'){event.preventDefault();cancelSurround(true);}});
 surroundInput.addEventListener('blur',()=>{if(surroundSession)cancelSurround();});
-function createState(text:string){return EditorState.create({doc:text,extensions:[basicSetup,lintGutter(),StreamLanguage.define(stex),texCompletion(()=>model.autoClose!==false),EditorView.lineWrapping,
+function createState(text:string){
+ let pointer:{id:number;x:number;y:number}|undefined,pointerGeneration=0;
+ const textHit=(event:PointerEvent,editor:EditorView)=>{const line=event.target instanceof Element?event.target.closest('.cm-line'):undefined;if(!line||!editor.contentDOM.contains(line))return false;const range=document.createRange();range.selectNodeContents(line);return [...range.getClientRects()].some(r=>r.width>0&&event.clientX>=r.left&&event.clientX<=r.right&&event.clientY>=r.top&&event.clientY<=r.bottom);};
+ return EditorState.create({doc:text,extensions:[basicSetup,lintGutter(),StreamLanguage.define(stex),texCompletion(()=>model.autoClose!==false),EditorView.lineWrapping,
   EditorView.domEventHandlers({beforeinput(event,editor){
     markInput();
     const input=event as InputEvent;
@@ -278,10 +330,11 @@ function createState(text:string){return EditorState.create({doc:text,extensions
     if(input.data==='\\'&&model.autoClose!==false&&!editor.state.selection.main.empty&&editor.state.selection.ranges.length===1){showSurround(editor);return true;}
     editor.dispatch({...completeTex(editor.state,input.data,model.autoClose!==false),annotations:Transaction.userEvent.of('input.type'),scrollIntoView:true});
     return true;
-  },pointerup(){if(model.continuousPreview&&!suppressFollow){cancelAnimationFrame(followFrame);followFrame=requestAnimationFrame(()=>void locateSource(true).catch(e=>{el('navState').textContent=String(e);}));}return false;},paste(event){if(imagePasteEvent(event))return true;markInput();return false;},cut(){markInput();return false;}}),EditorView.updateListener.of(update=>{
+  },pointerdown(event,editor){pointerGeneration++;pointer=event.button===0&&textHit(event,editor)?{id:event.pointerId,x:event.clientX,y:event.clientY}:undefined;return false;},pointerup(event,editor){const start=pointer;pointer=undefined;if(!start||start.id!==event.pointerId||!textHit(event,editor)||Math.abs(start.x-event.clientX)>4||Math.abs(start.y-event.clientY)>4){pointerGeneration++;renderRecoveryNotice();return false;}if(model.continuousPreview&&!suppressFollow){const generation=++pointerGeneration,doc=editor.state.doc,at=editor.state.selection.main.head;cancelAnimationFrame(followFrame);followFrame=requestAnimationFrame(()=>{if(generation===pointerGeneration&&view===editor&&editor.state.doc===doc&&editor.state.selection.main.head===at)void locateSource(true).catch(e=>{el('navState').textContent=String(e);});});}return false;},scroll(){renderRecoveryNotice();return false;},wheel(){pointer=undefined;pointerGeneration++;return false;},paste(event){if(imagePasteEvent(event))return true;markInput();return false;},cut(){markInput();return false;}}),EditorView.updateListener.of(update=>{
   if(applyingProjectReplace)return;
   if(update.docChanged||update.selectionSet){if(surroundSession)cancelSurround();navigationToken++;if(!previewApplying&&previewSession)endPreview();}
   if(update.docChanged){
+    el('pages').querySelectorAll('.navigation-marker').forEach(marker=>marker.remove());
     const edit={id:editSession+'-'+(++editSequence),startedAt:inputStartedAt||performance.now(),text:update.state.doc.toString()};inputStartedAt=0;
     localInputs.set(edit.id,{file:active,text:edit.text,startedAt:edit.startedAt,sequence:editSequence});if(localInputs.size>128)localInputs.delete(localInputs.keys().next().value!);
     editDetails.set(active,edit);latestEdit=edit;previewKnownCurrent=false;
@@ -331,11 +384,12 @@ function renderTabs(){
   el('editPreview').title=model.continuousPreview?'Switch to Paged PDF to edit the verified preview':'Edit verified text and supported math';
   toolbarButton('follow','follow',model.followPreview?'Follow typing: on. Keep source cursor visible in PDF':'Follow typing: off. Keep source cursor visible in PDF');el('follow').setAttribute('aria-pressed',String(!!model.followPreview));
   toolbarButton('live',model.onSave?'pause':'live',model.onSave?'Live: on. Pause automatic saving and preview':'Live: off. Resume automatic saving and preview');el('live').setAttribute('aria-pressed',String(!!model.onSave));
-  const statusVisible=model.statusBar!==false;el('statusBar').hidden=!statusVisible;document.body.dataset.statusBar=statusVisible?'visible':'hidden';toolbarButton('toggleStatus','status',statusVisible?'Hide status bar':'Show status bar');el('toggleStatus').setAttribute('aria-pressed',String(statusVisible));
+  const statusVisible=model.statusBar!==false;el('statusBar').hidden=false;el('statusDetails').hidden=!statusVisible;document.body.dataset.statusBar=statusVisible?'visible':'hidden';toolbarButton('toggleStatus','status',statusVisible?'Hide preview timing details':'Show preview timing details');el('toggleStatus').setAttribute('aria-pressed',String(statusVisible));
   toolbarSelect('panelLayout','panels','Panel layout: '+el<HTMLSelectElement>('panelLayout').selectedOptions[0]?.textContent);toolbarSelect('layoutMode','pages',model.continuousPreview?'Preview layout: Continuous scroll':'Preview layout: Paged PDF');
   el('tabs').replaceChildren();
   for(const doc of model.docs){const button=document.createElement('button');button.textContent=doc.path.split(/[\\/]/).at(-1)+(doc.dirty?' •':'');button.title=doc.path;button.className=doc.path===active?'active':'';button.onclick=()=>activateDocumentTab(doc.path);el('tabs').append(button);}
   el('rootLabel').textContent=model.root?'Root: '+model.root:'No root selected';
+  renderRecoveryNotice();
 }
 function renderEditor(){
   cancelSurround();endPreview();
@@ -353,7 +407,7 @@ function renderEditor(){
   }
   renderTabs();renderIssue();
 }
-async function command(action:()=>Promise<unknown>){try{await action();}catch(e){report(e);}}
+async function command(action:()=>Promise<unknown>){try{await action();if(operationIssue){operationIssue=undefined;renderRecoveryNotice();}}catch(e){report(e);}}
 let backupSnapshots:import('./backups').BackupSummary[]=[];
 function renderBackupFiles(){
   const snapshot=backupSnapshots.find(s=>s.id===el<HTMLSelectElement>('backupSnapshots').value),select=el<HTMLSelectElement>('backupFiles');select.replaceChildren();
@@ -482,6 +536,7 @@ el('prepareFastFormat').onclick=()=>void command(async()=>{
 el('browseTeX').onclick=()=>void command(async()=>{const report=await api.call('toolchainBrowse',el<HTMLSelectElement>('engine').value,el<HTMLInputElement>('latexmk').value);if(report){el<HTMLInputElement>('texBin').value=report.selected??report.requested??'';renderToolchain(report);}});
 el('toolchainNoticeSettings').onclick=()=>el('settings').click();
 const continuousView=new ContinuousView(el('pages'),el('pdfViewport'));
+el('pdfViewport').addEventListener('scroll',()=>renderRecoveryNotice(),{passive:true});
 let continuousSetup:Promise<void>=Promise.resolve();
 let zoomChoice:number|'fit-width'=1,zoomChange=0,fitTimer=0,fitWidthSeen=0;
 function zoomLabel(){toolbarSelect('zoom','zoom',zoomChoice==='fit-width'?`Fit width: ${Math.round(scale*100)}%`:`Preview zoom: ${Math.round(scale*100)}%`);document.body.dataset.previewScale=String(scale);}
@@ -494,6 +549,7 @@ async function desiredZoom(pdf:any){
 }
 function adoptZoom(next:number){
   if(Math.abs(next-scale)<1e-5){zoomLabel();return false;}
+  if(retainedExperiment&&localCanvas?.isConnected)canonicalRequested=true;
   const before=scale;localRenderToken++;localProofToken++;clearLocalProofs();baselineCache.clear();verifiedPageOutputs.clear();endPreview();
   scale=next;zoomLabel();
   if(model.continuousPreview)continuousView.rescale(next);
@@ -534,13 +590,13 @@ async function cursorLocation(nav:Navigation,page:number,bundleId?:string):Promi
   if(nav.nativeInputs&&bundleId)return api.call('nativeNavigation',bundleId,'forward',{file,line,page});
   return forwardPosition(nav,file,text,head,page);
 }
-function markLocation(row:Region){
+function markLocation(row:Region,highlight=true){
   const canvas=current?.canvas as HTMLCanvasElement|undefined;if(!canvas)return;
-  if(model.continuousPreview){const id=current.id;void continuousSetup.then(()=>{if(current?.id!==id||!model.continuousPreview)return;continuousView.mark(row[2],{x:row[3],y:row[4],width:row[5],height:row[6]});el('navState').textContent=`${row[0].split(/[\\/]/).at(-1)} · line ${row[1]}`;});return;}
+  if(model.continuousPreview){const id=current.id;void continuousSetup.then(()=>{if(current?.id!==id||!model.continuousPreview)return;continuousView.mark(row[2],{x:row[3],y:row[4],width:row[5],height:row[6]},false,highlight);el('navState').textContent=`${row[0].split(/[\\/]/).at(-1)} · line ${row[1]}`;});return;}
   const viewport=el('pdfViewport'),pages=el('pages');pages.querySelector('.navigation-marker')?.remove();
-  const marker=document.createElement('div');marker.className='navigation-marker';
+  if(highlight){const marker=document.createElement('div');marker.className='navigation-marker';
   marker.style.cssText=`left:${row[3]*scale}px;top:${row[4]*scale}px;width:${Math.max(4,row[5]*scale)}px;height:${Math.max(5,row[6]*scale)}px`;
-  pages.append(marker);
+  pages.append(marker);setTimeout(()=>marker.remove(),1200);}
   const canvasBox=canvas.getBoundingClientRect(),viewportBox=viewport.getBoundingClientRect();
   viewport.scrollTop+=canvasBox.top-viewportBox.top+row[4]*scale-viewport.clientHeight/2;
   const left=canvasBox.left-viewportBox.left+viewport.scrollLeft+row[3]*scale;if(left<viewport.scrollLeft||left>viewport.scrollLeft+viewport.clientWidth-30)viewport.scrollLeft=Math.max(0,left-40);
@@ -551,13 +607,19 @@ async function locateContinuous(explicit:boolean){
   await continuousSetup;
   const valid=()=>token===navigationToken&&model.continuousPreview&&active===file&&view?.state.doc.toString()===text&&view.state.selection.main.head===at;
   if(!valid())return;
-  const line=view!.state.doc.lineAt(at).number,flow=liveFlow?.canvas.isConnected?liveFlow:undefined,basis=continuousBasis;
-  const status=(ok:boolean)=>{if(ok)el('navState').textContent=`${file.split(/[\\/]/).at(-1)} · line ${line}`;else if(explicit)el('navState').textContent='No current mapped output here; wait for the preview to update.';};
-  if(flow&&file===flow.file&&text===flow.text&&at>=flow.from&&at<flow.to){
-    const glyph=flow.locations.reduce<FlowLocation|undefined>((best,g)=>!best||Math.abs(g.at-at)<Math.abs(best.at-at)?g:best,undefined);
-    const found=!!glyph&&continuousView.mark(flow.page,glyph,true);if(found)pageNumber=flow.page;status(found);return;
+  const line=view!.state.doc.lineAt(at).number;if(!sourceLineHasOutput(view!.state.doc.line(line).text)){if(explicit)el('navState').textContent='This source line produces no visible output.';renderRecoveryNotice();return;}const flow=liveFlow?.canvas.isConnected?liveFlow:undefined,basis=continuousBasis;
+  const status=(ok:boolean)=>{if(ok){el('navState').textContent=`${file.split(/[\\/]/).at(-1)} · line ${line}`;renderRecoveryNotice();}else if(explicit)explainNavigation('This source location has no current preview mapping.');};
+  if(neutralIds.size){const context=retainedContext(),found=context&&retainedNavigation.forward(context,at,continuousView.retainedProjection);if(found&&valid()){const marked=continuousView.mark(found.page,found.glyph,false,explicit);if(marked)pageNumber=found.page;status(marked);}else status(false);return;}
+  const pages=currentLivePages();
+  if(pages){
+    const found=pages.pages.flatMap(p=>p.locations.map(g=>({p,g}))).filter(({g})=>view!.state.doc.lineAt(g.at).number===line).sort((a,b)=>Math.abs(a.g.at-at)-Math.abs(b.g.at-at))[0];
+    const marked=!!found&&(found.p.canvas?continuousView.markCanvas(found.p.canvas,found.g,explicit):continuousView.mark(found.p.page,found.g,false,explicit));if(marked)pageNumber=found.p.page;status(marked);return;
   }
-  if(flow?.stateChanged){status(false);return;}
+  if(flow&&file===flow.file&&text===flow.text&&at>=flow.from&&at<flow.to){
+    const glyph=flow.locations.filter(g=>view!.state.doc.lineAt(g.at).number===line).reduce<FlowLocation|undefined>((best,g)=>!best||Math.abs(g.at-at)<Math.abs(best.at-at)?g:best,undefined);
+    const found=!!glyph&&continuousView.mark(flow.page,glyph,true,explicit);if(found)pageNumber=flow.page;status(found);return;
+  }
+  if(flow?.stateChanged&&at>=flow.from){status(false);return;}
   if(!basis){status(false);return;}
   let mappedText=text,mappedAt=at;
   if(flow&&file===flow.file){
@@ -567,47 +629,60 @@ async function locateContinuous(explicit:boolean){
   if(!valid())return;
   const row=basis.navigation.nativeInputs?await cursorLocation(basis.navigation,pageNumber,basis.id):forwardPosition(basis.navigation,file,mappedText,mappedAt,pageNumber);
   if(!valid())return;
-  const found=!!row&&continuousView.mark(row[2],{x:row[3],y:row[4],width:row[5],height:row[6]});if(found)pageNumber=row![2];status(found);
+  const found=!!row&&continuousView.mark(row[2],{x:row[3],y:row[4],width:row[5],height:row[6]},false,explicit);if(found)pageNumber=row![2];status(found);
 }
 async function locateSource(explicit:boolean){
   if(model.continuousPreview&&view){if(explicit)endPreview();await locateContinuous(explicit);return;}
-  if(localCanvas){if(explicit)el('navState').textContent='PDF navigation resumes after full document verification.';return;}
+  if(localCanvas){if(explicit)explainNavigation('This local preview has no mapping here. Build or Check now can request a complete source map.');return;}
   if(!explicit&&previewSession)return;
   if(explicit)endPreview();
   const token=++navigationToken,candidate=current;
-  if(!candidate?.navigation){if(explicit)el('navState').textContent='Source navigation is unavailable for this preview.';return;}
+  if(!candidate?.navigation){if(explicit)explainNavigation('This preview has no source map. Open Details for the build error.');return;}
   const row=await cursorLocation(candidate.navigation,candidate.page,candidate.id);
   if(token!==navigationToken||candidate.id!==current?.id)return;
-  if(!row){if(explicit)el('navState').textContent='No current mapped output here; the preview may be behind your edits.';return;}
+  if(!row){if(explicit)explainNavigation('This source location is not mapped in the displayed preview. Use Go to error.');return;}
   if(row[2]!==candidate.page){
     const canvas=await render(candidate.pdf,row[2]);if(token!==navigationToken||candidate.id!==current?.id){canvas.width=canvas.height=0;return;}
     copyCanvasMetadata(canvas,candidate.canvas);
     renderToken++;current={...current,canvas,page:row[2]};show(current);if(!model.continuousPreview)candidate.canvas.width=candidate.canvas.height=0;
   }
-  markLocation(row);
+  markLocation(row,explicit);
 }
-el('editPreview').onclick=()=>void command(async()=>{navigationToken++;endPreview();const enabled=model.previewEditing=!model.previewEditing;renderTabs();await flush();await api.call('previewEditing',enabled);el('navState').textContent=enabled?'Preparing editable text · click plain text after the preview updates':'Click PDF text to show its source';});
+el('editPreview').onclick=()=>void command(async()=>{if(!model.previewEditing&&(current?.navigation?.recovery||current?.timing?.recovered||localCanvas?.dataset.localRecovered==='true')){explainNavigation('Direct PDF editing is paused for this temporary preview. Use the source editor or Go to error. Corrections are checked automatically while Live is on.');return;}navigationToken++;endPreview();const enabled=model.previewEditing=!model.previewEditing;renderTabs();await flush();await api.call('previewEditing',enabled);el('navState').textContent=enabled?'Preparing editable text · click plain text after the preview updates':'Click PDF text to show its source';});
 el('locate').onclick=()=>void command(()=>locateSource(true));
 el('follow').onclick=()=>void command(async()=>{navigationToken++;const enabled=model.followPreview=!model.followPreview;renderTabs();await api.call('follow',enabled);if(enabled&&model.followPreview)await locateSource(true);});
 el('pages').addEventListener('click',event=>void command(async()=>{
   const target=event.target as HTMLElement,canvas=target instanceof HTMLCanvasElement?target:undefined;
+  if(model.continuousPreview&&canvas&&neutralIds.size&&view){
+    const page=Number(canvas.closest<HTMLElement>('.flow-page')?.dataset.page),context=retainedContext(canvas),point=continuousView.canvasPoint(page,canvas,event.clientX,event.clientY);
+    const at=canvas.isConnected&&point&&context&&(!neutralPages.has(page)||canvas.dataset.localEditId===context.editId)?retainedNavigation.inverse(context,page,point.x,point.y,continuousView.retainedProjection):undefined;
+    if(at!==undefined){endPreview();navigationToken++;pageNumber=page;suppressFollow=true;try{view.dispatch({selection:{anchor:at},effects:EditorView.scrollIntoView(at,{y:'center'})});view.focus();}finally{suppressFollow=false;}el('navState').textContent=`${active.split(/[\\/]/).at(-1)} · line ${view.state.doc.lineAt(at).number}`;return;}
+    el('navState').textContent='No current mapped output here; wait for the preview to update.';return;
+  }
   if(localCanvas){
+    const pages=currentLivePages(),mapped=pages?.pages.find(p=>(p.canvas??continuousView.canvasForPage(p.page))===canvas);
+    if(pages&&mapped&&canvas&&view){
+      const rect=canvas.getBoundingClientRect(),at=liveFlowPosition(pages,{root:model.root,file:active,baseId:continuousView.id,sourceHash:pages.sourceHash,editId:pages.editId,text:view.state.doc.toString()},mapped.locations,(event.clientX-rect.left)/scale,(event.clientY-rect.top)/scale,mapped.blocked);
+      if(at!==undefined){endPreview();navigationToken++;pageNumber=mapped.page;suppressFollow=true;try{view.dispatch({selection:{anchor:at},effects:EditorView.scrollIntoView(at,{y:'center'})});view.focus();}finally{suppressFollow=false;}el('navState').textContent=`${active.split(/[\\/]/).at(-1)} · line ${view.state.doc.lineAt(at).number}`;return;}
+    }
     const flow=liveFlow;
     if(model.continuousPreview&&flow&&canvas===flow.canvas&&localCanvas===flow.canvas&&canvas.isConnected&&view){
-      const rect=canvas.getBoundingClientRect(),at=liveFlowPosition(flow,{root:model.root,file:active,baseId:continuousView.id,sourceHash:canvas.dataset.localSourceHash,editId:canvas.dataset.localEditId,text:view.state.doc.toString()},flow.locations,(event.clientX-rect.left)/scale,(event.clientY-rect.top)/scale);
+      const rect=canvas.getBoundingClientRect(),at=liveFlowPosition(flow,{root:model.root,file:active,baseId:continuousView.id,sourceHash:canvas.dataset.localSourceHash,editId:canvas.dataset.localEditId,text:view.state.doc.toString()},flow.locations,(event.clientX-rect.left)/scale,(event.clientY-rect.top)/scale,flow.blocked);
       if(at!==undefined){
         endPreview();navigationToken++;pageNumber=flow.page;suppressFollow=true;
         try{view.dispatch({selection:{anchor:at},effects:EditorView.scrollIntoView(at,{y:'center'})});view.focus();}finally{suppressFollow=false;}
         el('navState').textContent=`${flow.file.split(/[\\/]/).at(-1)} · line ${view.state.doc.lineAt(at).number}`;return;
       }
     }
-    el('navState').textContent='Local preview is awaiting full verification. Continue editing in the source pane.';return;
+    explainNavigation('This area has no current source mapping. Details explains any reported error. Build or Check now can request a complete map.');return;
   }
+  if(retainedExperiment&&model.continuousPreview&&continuousView.id!==current?.id)return;
   const flowPage=model.continuousPreview?canvas?.closest<HTMLElement>('.flow-page'):undefined;
   const candidate=current&&flowPage?{...current,canvas,page:Number(flowPage.dataset.page)}:current;
-  if(!candidate?.navigation||!canvas||canvas!==candidate.canvas||model.continuousPreview&&!flowPage)return;
+  if(!canvas||model.continuousPreview&&!flowPage)return;if(!candidate?.navigation||canvas!==candidate.canvas){explainNavigation('This preview has no source map. Open Details for the build error.');return;}
   endPreview();const pointToken=++navigationToken,priorFile=active,priorText=view?.state.doc.toString();
   const rect=candidate.canvas.getBoundingClientRect(),x=(event.clientX-rect.left)/scale,y=(event.clientY-rect.top)/scale;
+  if(recoveryPointBlocked(candidate.navigation,candidate.page,x,y)){explainNavigation('This text contains a temporary repair. Use Go to error to correct its source.');return;}
   const row=candidate.navigation.nativeInputs?await api.call('nativeNavigation',candidate.id,'backward',{page:candidate.page,x,y}):backward(candidate.navigation,candidate.page,x,y);
   if(current?.id!==candidate.id||pointToken!==navigationToken)return;if(!row){el('navState').textContent='No source location near this point.';return;}
   try{
@@ -618,8 +693,8 @@ el('pages').addEventListener('click',event=>void command(async()=>{
       const glyph=[...(candidate.navigation.characters??[]),...(candidate.navigation.mathCharacters??[])].filter(g=>g[0]===row[0]&&g[1]===row[1]&&g[3]===candidate.page).map(g=>({g,d:Math.max(g[4]-x,0,x-g[4]-g[6])**2+Math.max(g[5]-y,0,y-g[5]-g[7])**2})).sort((a,b)=>a.d-b.d)[0];
       if(text!==undefined&&glyph&&glyph.d<24*24){const lines=text.split('\n'),start=lines.slice(0,row[1]-1).reduce((n,line)=>n+line.length+1,0),line=lines[row[1]-1]??'';position=start+new TextDecoder().decode(new TextEncoder().encode(line).slice(0,glyph.g[2])).length;}
     }
-    if(model.previewEditing&&!candidate.navigation.nativeInputs){const text=result.state.docs.find((doc:any)=>doc.path===row[0])?.text;const glyphs=pageGlyphs=await candidate.pdf.glyphs(candidate.page);if(text!==undefined)for(const span of proseSpans(candidate.navigation,row[0],row[1],candidate.page,text,glyphs)){const at=nearestCaret(span,x,y);if(at!==undefined){mapped=span;position=at;break;}}}
-    if(model.previewEditing&&!mapped&&!candidate.navigation.nativeInputs){const text=result.state.docs.find((doc:any)=>doc.path===row[0])?.text;if(text!==undefined)for(const span of mathSpans(candidate.navigation,row[0],row[1],candidate.page,text,pageGlyphs)){const caret=nearestMathCaret(span,x,y);if(caret){mapped=span;position=caret.at;mathSlot=caret.slot;break;}}}
+    if(model.previewEditing&&!candidate.navigation.nativeInputs&&!candidate.navigation.recovery){const text=result.state.docs.find((doc:any)=>doc.path===row[0])?.text;const glyphs=pageGlyphs=await candidate.pdf.glyphs(candidate.page);if(text!==undefined)for(const span of proseSpans(candidate.navigation,row[0],row[1],candidate.page,text,glyphs)){const at=nearestCaret(span,x,y);if(at!==undefined){mapped=span;position=at;break;}}}
+    if(model.previewEditing&&!mapped&&!candidate.navigation.nativeInputs&&!candidate.navigation.recovery){const text=result.state.docs.find((doc:any)=>doc.path===row[0])?.text;if(text!==undefined)for(const span of mathSpans(candidate.navigation,row[0],row[1],candidate.page,text,pageGlyphs)){const caret=nearestMathCaret(span,x,y);if(caret){mapped=span;position=caret.at;mathSlot=caret.slot;break;}}}
     if(pointToken!==navigationToken||active!==priorFile||view?.state.doc.toString()!==priorText||current?.id!==candidate.id)return;
     const follow=model.followPreview,editing=model.previewEditing;model=result.state;model.followPreview=follow;model.previewEditing=editing;renderEditor();void api.call('active',active,true).catch(e=>{el('navState').textContent=String(e);});
     if(model.continuousPreview)pageNumber=candidate.page;
@@ -629,18 +704,19 @@ el('pages').addEventListener('click',event=>void command(async()=>{
         el('pages').querySelector('.navigation-marker')?.remove();previewInput.value='';previewInput.focus({preventScroll:true});drawPreviewCaret();updateMathTools();el('navState').textContent=isMath(mapped)?'Editing math · Tab moves between parts and cells · Esc returns to source':'Editing plain text · Esc returns to source';
       }else{view.focus();markLocation(row);if(editing)el('navState').textContent='Use the source editor for this text.';}
     }
-  }catch(e){el('navState').textContent=String(e).replace(/^.*Error: /,'');}
+  }catch(e){explainNavigation(String(e).replace(/^.*Error: /,'')+' Source changes are checked automatically while Live is on.');}
 }));
-function copyCanvasMetadata(canvas:HTMLCanvasElement,source:HTMLCanvasElement){for(const [key,value] of Object.entries(source.dataset))if(value!==undefined&&!['renderScale','renderRatio','pageWidth','pageHeight','rasterMs','workerMs','renderMs'].includes(key))canvas.dataset[key]=value;}
-async function render(pdf:any,page:number,includePixels=false){
-  const zoom=scale,ratio=window.devicePixelRatio||1,canvas=await pdf.render(page,zoom,ratio,includePixels);canvas.dataset.renderScale=String(zoom);canvas.dataset.renderRatio=String(ratio);canvas.dataset.pageWidth=String(parseFloat(canvas.style.width)/zoom);canvas.dataset.pageHeight=String(parseFloat(canvas.style.height)/zoom);return canvas;
+function copyCanvasMetadata(canvas:HTMLCanvasElement,source:HTMLCanvasElement){for(const [key,value] of Object.entries(source.dataset))if(value!==undefined&&!['renderScale','renderRatio','pageWidth','pageHeight','pdfPageWidth','pdfPageHeight','rasterMs','workerMs','renderMs'].includes(key))canvas.dataset[key]=value;}
+async function render(pdf:any,page:number,includePixels=false,urgent=false){
+  const zoom=scale,ratio=window.devicePixelRatio||1,canvas=await pdf.render(page,zoom,ratio,includePixels,urgent);canvas.dataset.renderScale=String(zoom);canvas.dataset.renderRatio=String(ratio);canvas.dataset.pageWidth=String(parseFloat(canvas.style.width)/zoom);canvas.dataset.pageHeight=String(parseFloat(canvas.style.height)/zoom);return canvas;
 }
 function show(candidate:any,reconcileBands=false){
+  clearNeutralMetadata();
   const rasterScale=Number(candidate.canvas.dataset.renderScale)||scale,rasterRatio=Number(candidate.canvas.dataset.renderRatio)||window.devicePixelRatio||1;
   candidate.canvas.style.width=Number(candidate.canvas.dataset.pageWidth)*scale+'px';candidate.canvas.style.height=Number(candidate.canvas.dataset.pageHeight)*scale+'px';
   if(!model.continuousPreview||continuousLease&&continuousLease.id!==candidate.id)releaseContinuousLease();
   el('pages').classList.toggle('continuous',!!model.continuousPreview);
-  liveFlow=undefined;
+  liveFlow=undefined;livePages=undefined;
   if(model.continuousPreview){continuousBasis=continuousBases.get(candidate.id);continuousSetup=continuousView.show(candidate.id,candidate.pdf,candidate.canvas,candidate.page,scale,rasterScale*rasterRatio/scale,reconcileBands);}else{continuousBasis=undefined;continuousView.clear();}
   releaseLocalDocument();
   localRenderToken++;if(localCanvas){if(!model.continuousPreview)localCanvas.width=localCanvas.height=0;localCanvas=undefined;localStatus='';localPatch=undefined;}
@@ -669,8 +745,8 @@ async function navigate(delta:number){
 }
 el('prevPage').onclick=()=>void navigate(-1);el('nextPage').onclick=()=>void navigate(1);
 el<HTMLSelectElement>('zoom').onchange=()=>{const value=el<HTMLSelectElement>('zoom').value;zoomChoice=value==='fit-width'?value:Number(value);model.zoom=zoomChoice;zoomLabel();void api.call('zoom',zoomChoice).catch(report);void applyZoom().catch(report);};
-el<HTMLSelectElement>('layoutMode').onchange=()=>void command(async()=>{await flush();model.continuousPreview=await api.call('continuous',el<HTMLSelectElement>('layoutMode').value==='continuous');if(model.continuousPreview){model.previewEditing=false;endPreview();}localRenderToken++;if(current){const canvas=await render(current.pdf,current.page);copyCanvasMetadata(canvas,current.canvas);current={...current,canvas};show(current);}renderTabs();});
-el<HTMLSelectElement>('previewMode').onchange=()=>{const mode=el<HTMLSelectElement>('previewMode').value;void command(async()=>{await flush();model=await api.call('previewMode',mode);renderTabs();refreshPreviewStatus();});};
+el<HTMLSelectElement>('layoutMode').onchange=()=>void command(async()=>{await flush();if(retainedExperiment)canonicalRequested=true;model.continuousPreview=await api.call('continuous',el<HTMLSelectElement>('layoutMode').value==='continuous');if(model.continuousPreview){model.previewEditing=false;endPreview();}localRenderToken++;if(current&&!(retainedExperiment&&localCanvas)){const canvas=await render(current.pdf,current.page);copyCanvasMetadata(canvas,current.canvas);current={...current,canvas};show(current);}renderTabs();});
+el<HTMLSelectElement>('previewMode').onchange=()=>{const mode=el<HTMLSelectElement>('previewMode').value;void command(async()=>{await flush();if(mode==='document')canonicalRequested=true;model=await api.call('previewMode',mode);renderTabs();refreshPreviewStatus();});};
 const proofKey=(message:any)=>[message.baseId,message.proofPage??message.page,scale,window.devicePixelRatio||1].join(':');
 // Different regions can start on the same page but have distinct proved page
 // spans and continuations. Parking one must not overwrite another's proof.
@@ -678,8 +754,8 @@ const pageProofKey=(message:any)=>{const span=message.baselineSpan??message.page
 function mayShowLocal(message:any){
   const file=message.sourceFile??message.root,input=localInputs.get(message.editId),latest=latestEdit&&localInputs.get(latestEdit.id),text=model.docs.find((doc:any)=>doc.path===file)?.text;
   if(!input||input.file!==file||latest?.file!==file||input.sequence<=displayedSequence||message.root!==model.root||model.previewEditing||!model.onSave||typeof text!=='string')return false;
-  if(!message.sourceFile&&current?.canvas.dataset.sourceHash===message.sourceHash&&!message.flowOutput)return false;
-  if(!model.followPreview&&!message.flowOutput&&!(model.continuousPreview&&message.pageOutput)){const s=message.pageOutput?message.sourcePages:undefined;if(s?(pageNumber<s.first||pageNumber>s.last):pageNumber!==message.page)return false;}
+  if(!message.sourceFile&&current?.canvas.dataset.sourceHash===message.sourceHash&&!message.flowOutput&&!message.neutralBlock)return false;
+  if(!model.followPreview&&!message.flowOutput&&!(model.continuousPreview&&(message.pageOutput||message.neutralBlock))){const s=message.pageOutput?message.sourcePages:undefined;if(s?(pageNumber<s.first||pageNumber>s.last):pageNumber!==message.page)return false;}
   const {rangeFrom:from,rangeTo:to}=message;if(!Number.isSafeInteger(from)||!Number.isSafeInteger(to)||from<0||to<from||to>input.text.length)return false;
   const prefix=input.text.slice(0,from),suffix=input.text.slice(to);return text.length>=prefix.length+suffix.length&&text.startsWith(prefix)&&text.endsWith(suffix);
 }
@@ -692,7 +768,7 @@ async function tileMatchesFull(pdf:any,box:any,full:{width:number;height:number}
   return equal;
 }
 function localInkBounds(message:any){
-  const f=message.fragment,factor=72/(72.27*65536),bleed=LOCAL_INK_BLEED_BP,ratio=scale*(window.devicePixelRatio||1),left=(f.paddingSp*factor-bleed)*ratio;
+  const f=message.fragment,factor=72/(72.27*65536),proposed=message.inkBleedBp??message.calibration?.inkBleedBp,bleed=typeof proposed==='number'&&proposed>=.25&&proposed<=LOCAL_INK_BLEED_BP?proposed:LOCAL_INK_BLEED_BP,ratio=scale*(window.devicePixelRatio||1),left=(f.paddingSp*factor-bleed)*ratio;
   // Preserve the original arithmetic before floor/ceil at pixel boundaries.
   return {left,top:((message.inkTopSp??f.paddingSp)*factor-bleed)*ratio,right:((f.paddingSp+f.widthSp)*factor+bleed)*ratio,bottom:((f.paddingSp+f.heightSp+f.depthSp)*factor+bleed)*ratio};
 }
@@ -702,16 +778,32 @@ async function localInkFits(message:any,providedPdf?:any){
   finally{await task?.destroy();}
 }
 async function localCorrection(message:any,base:any,fragment:any){
-  const [fullGlyphs,fragmentGlyphs]=await Promise.all([base.glyphs(message.page),fragment.glyphs(message.fragment.page)]);
+  const [fullProofs,fragmentProofs]=await Promise.all([base.glyphProofs(message.page),fragment.glyphProofs(message.fragment.page)]);
+  const fullGlyphs=fullProofs.map((p:any)=>p.glyph) as PdfCharacter[],fragmentGlyphs=fragmentProofs.map((p:any)=>p.glyph) as PdfCharacter[];
+  const fullOutlines=new Map<PdfCharacter,string|undefined>(fullProofs.map((p:any)=>[p.glyph,p.outline] as const)),fragmentOutlines=new Map<PdfCharacter,string|undefined>(fragmentProofs.map((p:any)=>[p.glyph,p.outline] as const));
   const fullLookup=new GlyphLookup<PdfCharacter>(fullGlyphs),fragmentLookup=new GlyphLookup<PdfCharacter>(fragmentGlyphs);
   const offsets:{x:number;y:number;full:PdfCharacter;fragment:PdfCharacter}[]=[];
-  for(const a of message.calibration?.anchors??[]){const full=fullLookup.nearest(a.code,a.full),local=fragmentLookup.nearest(a.code,a.fragment);if(full&&local)offsets.push({x:full[1]-local[1],y:full[2]-local[2],full,fragment:local});}
-  const correction=placementCorrection(offsets,message.calibration);if(!correction)return false;
-  const x=message.calibration.x+correction.dx,y=message.calibration.y+correction.dy,calibratedGlyphs:{x:number;y:number;width:number;height:number}[]=[];
+  const slices=message.calibration?.slices as {from:number;to:number;dy:number}[]|undefined;
+  const vertical=(y:number)=>slices?.find(s=>y>=s.from&&y<s.to)?.dy??message.calibration.y;
+  for(const a of message.calibration?.anchors??[]){const full=fullLookup.nearest(a.code,a.full),local=fragmentLookup.nearest(a.code,a.fragment);if(full&&local)offsets.push({x:full[1]-local[1],y:full[2]-local[2]-vertical(local[2])+message.calibration.y,full,fragment:local});}
+  const proposal=placementCorrection(offsets,message.calibration,true);
+  if(!message.calibration||![message.calibration.x,message.calibration.y].every(Number.isFinite))return false;
+  // Translation requires an anchor consensus. Independently matched vector
+  // glyphs at the unchanged native origin can still witness coverage when
+  // PDF text metrics do not supply that consensus; they cannot move the patch.
+  const correction=proposal||{dx:0,dy:0};
+  // An already aligned origin still needs independently matched glyph boxes
+  // for bounded antialiasing coverage. Do not repeat an identical proposal
+  // after those boxes have already failed their raster check.
+  if(correction.dx===0&&correction.dy===0&&message.calibration?.calibratedGlyphs?.length)return false;
+  const x=message.calibration.x+correction.dx,y=message.calibration.y+correction.dy,calibratedGlyphs:{x:number;y:number;width:number;height:number;outline?:boolean}[]=[];
   for(const g of fragmentGlyphs){
-    const full=fullLookup.nearest(g[0],[g[1]+x,g[2]+y,g[3],g[4]]);if(!full)continue;
-    if(Math.abs(full[1]-g[1]-x)<=.02&&Math.abs(full[2]-g[2]-y)<=.02&&Math.abs(full[3]-g[3])<=.02&&Math.abs(full[4]-g[4])<=.02)calibratedGlyphs.push({x:full[1],y:full[2],width:full[3],height:full[4]});
+    const gy=vertical(g[2])+correction.dy,full=fullLookup.nearest(g[0],[g[1]+x,g[2]+gy,g[3],g[4]]);if(!full)continue;
+    if(Math.abs(full[1]-g[1]-x)<=.02&&Math.abs(full[2]-g[2]-gy)<=.02&&Math.abs(full[3]-g[3])<=.02&&Math.abs(full[4]-g[4])<=.02){const outline=fullOutlines.get(full);calibratedGlyphs.push({x:full[1],y:full[2],width:full[3],height:full[4],outline:typeof outline==='string'&&outline.length===64&&outline===fragmentOutlines.get(g)});}
   }
+  const outlines=calibratedGlyphs.filter(g=>g.outline).length;
+  if(!proposal&&outlines<3)return false;
+  console.debug('Local glyph calibration',JSON.stringify({glyphs:calibratedGlyphs.length,outlines,translationConsensus:!!proposal,dx:correction.dx,dy:correction.dy}));
   return {...correction,calibratedGlyphs};
 }
 api.on(async message=>{
@@ -742,28 +834,47 @@ api.on(async message=>{
     const baseline=acceptedBaseline(message),task=loadPdf(message.pdf,true);
     try{const [base,partial]=await Promise.all([baseline.document,task.promise]);
       ok=message.root===model.root&&Number.isSafeInteger(span.first)&&Number.isSafeInteger(span.last)&&span.first>=1&&span.last>=span.first&&span.last-span.first<3&&span.last<=base.numPages&&partial.numPages===span.last-span.first+1;
-      for(let page=span.first;ok&&page<=span.last;page++){
-        const cached=await baseline.page(page),a=cached.value.canvas;
-        try{const raster=await partial.renderPixels(page-span.first+1,scale,window.devicePixelRatio||1),pb=raster.pixels,pa=cached.value.pixels;ok=a.width===raster.width&&a.height===raster.height&&pa.length===pb.length;for(let i=0;ok&&i<pa.length;i++)if(pa[i]!==pb[i])ok=false;}
-        finally{cached.release();}
-      }
+      const pages:Awaited<ReturnType<typeof baseline.page>>[]=[];
+      try{
+        for(let page=span.first;ok&&currentProof()&&page<=span.last;page++)pages.push(await baseline.page(page));
+        ok=ok&&currentProof()&&pages.length===span.last-span.first+1;
+        if(ok){const proof=await partial.verifyPageBand(pages.map(frame=>({width:frame.value.canvas.width,height:frame.value.canvas.height,pixels:frame.value.pixels.slice()})),scale*(window.devicePixelRatio||1));ok=proof.ok;console.debug('Page baseline verification',JSON.stringify(proof));}
+      }finally{for(const page of pages)page.release();}
       ok=ok&&currentProof();
       if(ok){retainPageBaseline(baseline);localPageProofs.add(key);if(verifiedPageOutputs.size>=8)verifiedPageOutputs.delete(verifiedPageOutputs.values().next().value!);verifiedPageOutputs.add(fingerprint);}console.debug('Local page range verification',JSON.stringify({ok,reused:false,span,scale,ratio:window.devicePixelRatio}));
     }catch{ok=false;}finally{baseline.release();void task.destroy().catch(()=>{});await api.call('localAck',message.token,ok);}return;
   }
   if(message.type==='localVerify'){
+    const proofStarted=performance.now();let loadedAt=proofStarted,readAt=proofStarted,comparedAt=proofStarted,tileAt=proofStarted;
     let ok=false,reply:boolean|{dx:number;dy:number}=false;const proofToken=localProofToken,key=proofKey(message),baseline=acceptedBaseline(message),tasks=[loadPdf(message.pdf,true),loadPdf(message.fragmentPdf,true)];
     let cached:Awaited<ReturnType<typeof baseline.page>>|undefined;
     try{if(message.root===model.root){const [base,composed,fragment]=await Promise.all([baseline.document,...tasks.map(task=>task.promise)]);
+      loadedAt=performance.now();
+      if(proofToken!==localProofToken||key!==proofKey(message)||message.root!==model.root)return;
       // Submit the independent proof reads together. Otherwise an idle page
       // render can start between each round trip and delay the same proof
       // repeatedly. PDFium still executes each request serially.
       const reads=[baseline.page(message.page).then(frame=>cached=frame),composed.renderPixels(1,scale,window.devicePixelRatio||1),localInkFits(message,fragment),composed.regionPixels(1,message.footprint,scale,window.devicePixelRatio||1)] as const;
       const [frame,composedRaster,ink,tile]=await Promise.all(reads).catch(async error=>{await Promise.allSettled(reads);throw error;});
+      readAt=performance.now();
       const a=frame.value.canvas,pa=frame.value.pixels,pb=composedRaster.pixels;
-      const factor=scale*(window.devicePixelRatio||1),box=message.footprint,result=matchLocalPatchRaster(pa,pb,a.width,a.height,{x:box.x*factor,y:box.y*factor,width:box.width*factor,height:box.height*factor},(message.calibration?.calibratedGlyphs??[]).map((g:any)=>({x:g.x*factor,y:g.y*factor,width:g.width*factor,height:g.height*factor})));
+      const factor=scale*(window.devicePixelRatio||1),box=message.footprint,result=matchLocalPatchRaster(pa,pb,a.width,a.height,{x:box.x*factor,y:box.y*factor,width:box.width*factor,height:box.height*factor},(message.calibration?.calibratedGlyphs??[]).map((g:any)=>({x:g.x*factor,y:g.y*factor,width:g.width*factor,height:g.height*factor,outline:g.outline===true})),factor);
       ok=ink&&a.width===composedRaster.width&&a.height===composedRaster.height&&result.ok;
+      // Tiny matched math glyphs can be entirely gray at display resolution.
+      // Repeat the COMPLETE proof at a bounded higher density instead of
+      // waiving its dark-core, color, ink, geometry or coverage requirements.
+      const proofFactor=ink&&a.width===composedRaster.width&&a.height===composedRaster.height?proofDensityRetry(result,factor,a.width,a.height):undefined;
+      if(!ok&&proofFactor){
+        const bounds=localInkBounds(message),multiple=proofFactor/factor;
+        const checks=[base.renderPixels(message.page,proofFactor,1),composed.renderPixels(1,proofFactor,1),fragment.inkFits(message.fragment.page,{left:bounds.left*multiple,top:bounds.top*multiple,right:bounds.right*multiple,bottom:bounds.bottom*multiple},proofFactor,1),composed.regionPixels(1,box,proofFactor,1)] as const;
+        const [fullHi,patchHi,inkHi,tileHi]=await Promise.all(checks).catch(async error=>{await Promise.allSettled(checks);throw error;});
+        const high=matchLocalPatchRaster(fullHi.pixels,patchHi.pixels,fullHi.width,fullHi.height,{x:box.x*proofFactor,y:box.y*proofFactor,width:box.width*proofFactor,height:box.height*proofFactor},(message.calibration?.calibratedGlyphs??[]).map((g:any)=>({x:g.x*proofFactor,y:g.y*proofFactor,width:g.width*proofFactor,height:g.height*proofFactor,outline:g.outline===true})),proofFactor);
+        ok=inkHi.safe===true&&fullHi.width===patchHi.width&&fullHi.height===patchHi.height&&high.ok&&await tileMatchesFull(composed,box,patchHi,patchHi.pixels,tileHi);
+        console.debug('Local higher-density proof',JSON.stringify({factor:proofFactor,ink:inkHi.safe,...high,ok}));
+      }
+      comparedAt=performance.now();
       if(ok)ok=await tileMatchesFull(composed,message.footprint,composedRaster,pb,tile);
+      tileAt=performance.now();
       console.debug('Local raster verification',JSON.stringify({ink,...result,scale,ratio:window.devicePixelRatio}));
       ok=ok&&proofToken===localProofToken&&key===proofKey(message)&&message.root===model.root;
       if(ok){
@@ -773,20 +884,23 @@ api.on(async message=>{
         localProofs.get(key)?.release();localProofs.set(key,{canvas:a,page:message.page,release:frame.release,retain:baseline.retain});cached=undefined;
       }
       reply=ok?true:ink&&proofToken===localProofToken&&key===proofKey(message)?await localCorrection(message,base,fragment):false;
+      console.debug('Local paragraph proof',JSON.stringify({loadMs:loadedAt-proofStarted,readMs:readAt-loadedAt,compareMs:comparedAt-readAt,tileMs:tileAt-comparedAt,correctionMs:performance.now()-tileAt,totalMs:performance.now()-proofStarted,ok,correction:typeof reply==='object'}));
     }}catch{reply=false;}finally{cached?.release();baseline.release();void Promise.all(tasks.map(task=>task.destroy())).catch(()=>{});await api.call('localAck',message.token,reply);}
     return;
   }
   if(message.type==='localPage'){
-    let ok=true;const token=++localRenderToken;
-    if(!mayShowLocal(message)){await api.call('localAck',message.token,true);return;}
+    let ok=!message.neutralBlock;const token=++localRenderToken;
+    if(!mayShowLocal(message)){await api.call('localAck',message.token,!message.neutralBlock);return;}
     const input=localInputs.get(message.editId)!,inputAt=input.startedAt;
     const receivedAt=performance.now();
-    const task=message.flowOutput?undefined:loadPdf(message.pdf,true);let keepTask=false;
+    const task=message.flowOutput?undefined:loadPdf(message.pdf,true,true);let keepTask=false,flowImage:ImageBitmap|undefined;
     try{
       if(message.flowOutput){
+        if(!message.retainedFlow)clearNeutralMetadata();
         if(!model.continuousPreview)throw Error('Continuous preview was turned off.');
         const proof=localProofs.get(proofKey(message));if(!proof)throw Error('Continuous block needs a verified baseline.');
         const tile=await renderCheckedPdfRegion(message.pdf,message.fragment.page,message.flowOutput.fragmentRect,localInkBounds(message),scale,window.devicePixelRatio||1),tiledAt=performance.now();
+        flowImage=tile.image;
         if(tile.safe!==true)throw Error('Continuous block ink exceeds its bounds.');
         await continuousSetup;
         if(token!==localRenderToken||!mayShowLocal(message)){tile.image?.close();return;}
@@ -796,11 +910,35 @@ api.on(async message=>{
           continuousBasis=continuousBases.get(message.baseId);
           continuousSetup=continuousView.show(message.baseId,baseline,copy,message.page,scale,window.devicePixelRatio||1);await continuousSetup;
         }
-        const canvas=continuousView.patch(message.page,proof.canvas,tile,message.flowOutput);localCanvas=canvas;localPatch=undefined;displayedSequence=input.sequence;
-        liveFlow={root:message.root,baseId:message.baseId,sourceHash:message.sourceHash,editId:message.editId,file:message.sourceFile??message.root,stateChanged:!!message.flowOutput.stateChanged,text:input.text,from:message.rangeFrom,to:message.rangeTo,baseTo:message.flowOutput.baseRangeTo,page:message.page,canvas,locations:message.flowOutput.locations??[]};
-        canvas.dataset.renderScope='local';canvas.dataset.localLayout='flow';canvas.dataset.localStateChanged=String(!!message.flowOutput.stateChanged);canvas.dataset.localSourceHash=message.sourceHash;canvas.dataset.localEditId=message.editId;canvas.dataset.sourceHash=current?.canvas.dataset.sourceHash??'';
+        let retainedBaseline:string|undefined;
+        if(message.retainedFlow){
+          const block=message.neutralBlock;if(!block||message.recovery||message.flowOutput.stateChanged)throw Error('Retained flow has no independent source proof.');
+          if(neutralBaseId!==message.baseId){clearNeutralMetadata();neutralBaseId=message.baseId;}
+          if(block.prior.length!==neutralIds.size||block.prior.some((id:string)=>!neutralIds.has(id)))throw Error('Retained display history changed.');
+          const basis=continuousBasis;if(!basis||basis.id!==message.baseId)throw Error('Retained source baseline is unavailable.');
+          retainedBaseline=basis.texts?.[input.file]??(input.file===model.root?basis.text:undefined);
+          if(retainedBaseline===undefined){
+            // The accepted build can finish after the editor has advanced.
+            // Its first retained update supplies that immutable source once;
+            // validate it against the accepted navigation, never today's draft.
+            const source=message.retainedSource;if(typeof source!=='string'||source.length>2*1024*1024||!await matchesSource(basis.navigation,input.file,source))throw Error('Retained source baseline does not match its accepted navigation.');
+            if(token!==localRenderToken||continuousBasis!==basis||!mayShowLocal(message))return;
+            retainedBaseline=source;(basis.texts??={})[input.file]=source;if(input.file===model.root)basis.text=source;
+          }else if(message.retainedSource!==undefined&&message.retainedSource!==retainedBaseline)throw Error('Retained source baseline differs from its accepted snapshot.');
+          retainedNavigation.updated({root:message.root,file:input.file,baseId:message.baseId,sourceHash:message.sourceHash,editId:message.editId,text:input.text},retainedBaseline,{...block,page:message.page,retainedFlow:true},continuousBasis?.navigation);
+        }
+        const canvas=message.retainedFlow?continuousView.patchRetained(message.page,proof.canvas,tile,message.flowOutput,message.neutralBlock.id):continuousView.patch(message.page,proof.canvas,tile,message.flowOutput),leadingCorrection=Number(canvas.dataset.flowLeadingCorrection??0);localCanvas=canvas;localPatch=undefined;displayedSequence=input.sequence;
+        if(message.retainedFlow){
+          const block=message.neutralBlock;retainedNavigation=retainedNavigation.updated({root:message.root,file:input.file,baseId:message.baseId,sourceHash:message.sourceHash,editId:message.editId,text:input.text},retainedBaseline!,{...block,page:message.page,retainedFlow:true,locations:block.locations.map((g:any)=>({...g,y:g.y+leadingCorrection}))},continuousBasis?.navigation);
+          neutralPages.set(message.page,canvas);neutralIds.add(block.id);retainedExperiment=true;ok=true;
+          for(const c of continuousView.retainedCanvases()){c.dataset.renderScope='local';c.dataset.localLayout='retained-flow';c.dataset.neutralActive=String(c===canvas);c.dataset.localSourceHash=message.sourceHash;c.dataset.localEditId=message.editId;c.dataset.sourceHash=current?.canvas.dataset.sourceHash??'';}
+        }
+        livePages=undefined;liveFlow={root:message.root,baseId:message.baseId,sourceHash:message.sourceHash,editId:message.editId,file:message.sourceFile??message.root,stateChanged:!!message.flowOutput.stateChanged,text:input.text,from:message.rangeFrom,to:message.rangeTo,baseTo:message.flowOutput.baseRangeTo,page:message.page,canvas,blocked:message.flowOutput.blocked?.map((g:any)=>({...g,y:g.y+leadingCorrection})),locations:(message.flowOutput.locations??[]).map((g:any)=>({...g,y:g.y+leadingCorrection}))};
+        if(message.retainedFlow)liveFlow=undefined;
+        canvas.dataset.renderScope='local';canvas.dataset.localLayout=message.retainedFlow?'retained-flow':'flow';canvas.dataset.localStateChanged=String(!!message.flowOutput.stateChanged);canvas.dataset.localSourceHash=message.sourceHash;canvas.dataset.localEditId=message.editId;canvas.dataset.sourceHash=current?.canvas.dataset.sourceHash??'';
+        canvas.dataset.localRecovered=String(!!message.recovery||!!message.recoveredBasis);
         canvas.dataset.localPipeline=JSON.stringify({compiler:message.timing,receiveMs:receivedAt-inputAt,checkedRegionMs:tiledAt-receivedAt,pdfWorker:{queueMs:tile.queueMs,loadMs:tile.loadMs,rasterMs:tile.rasterMs,checkMs:tile.checkMs,cropMs:tile.cropMs,workerMs:tile.workerMs,rasterPasses:tile.rasterPasses},canvasMs:performance.now()-tiledAt});
-        if(model.followPreview&&Number.isFinite(message.flowOutput.caretY))continuousView.reveal(canvas,message.flowOutput.caretY);
+        if(model.followPreview&&Number.isFinite(message.flowOutput.caretY))continuousView.reveal(canvas,message.flowOutput.caretY+leadingCorrection);
         const finish=()=>{if(token!==localRenderToken||localCanvas!==canvas)return;const latency=Math.ceil(performance.now()-inputAt);input.displayedLatencyMs??=latency;canvas.dataset.localLatencyMs=String(latency);canvas.dataset.localLatencyEditId=message.editId;canvas.dataset.timingEndpoint=message.visible?'paint opportunity':'canvas (window hidden)';void api.call('localWarm',message.root,message.baseId,message.editId,Math.ceil(performance.now()-inputAt),canvas.dataset.localLayout).catch(()=>{});localStatus=`Continuous block updated in ${latency} ms from edit. Paginated PDF verification pending.`;refreshPreviewStatus();};
         if(message.visible)requestAnimationFrame(()=>requestAnimationFrame(finish));else finish();return;
       }
@@ -817,8 +955,13 @@ api.on(async message=>{
             // A checked family checkpoint can skip unchanged leading pages.
             // Restore those exact baseline pixels as well, so an older live
             // band cannot leave stale content or cover the updated suffix.
-            if(prefixPages){const baseline=await proof.document;for(let page=proof.span.first;page<span.first;page++)canvases.push(await render(baseline,page));}
-            for(let page=1;page<=pdf.numPages;page++)canvases.push(await render(pdf,page));
+            const pendingRasters:Promise<HTMLCanvasElement>[]=[];
+            if(prefixPages){const baseline=await proof.document;for(let page=proof.span.first;page<span.first;page++)pendingRasters.push(render(baseline,page,false,true));}
+            for(let page=1;page<=pdf.numPages;page++)pendingRasters.push(render(pdf,page,false,true));
+            // Submit the whole band before yielding. PDFium remains serialized,
+            // but queued proof work cannot slip between every live page read.
+            const rasters=await Promise.allSettled(pendingRasters);for(const raster of rasters)if(raster.status==='fulfilled')canvases.push(raster.value);
+            const failed=rasters.find(r=>r.status==='rejected');if(failed?.status==='rejected')throw failed.reason;
             await continuousSetup;
             if(token!==localRenderToken||!mayShowLocal(message))return;
             if(continuousView.id!==message.baseId||!continuousView.matchesScale(scale,window.devicePixelRatio||1)){
@@ -834,6 +977,10 @@ api.on(async message=>{
             if(token!==localRenderToken||!mayShowLocal(message))return;
             if(proof.continuation)continuousView.patchBand(proof.span,canvases);else continuousView.patchPages(proof.span.first,canvases);
             const canvas=canvases[prefixPages],painted=[...canvases];localCanvas=canvas;localPatch=undefined;liveFlow=undefined;displayedSequence=input.sequence;
+            livePages=message.pageLocations?{root:message.root,file:message.sourceFile??message.root,baseId:message.baseId,editId:message.editId,sourceHash:message.sourceHash,text:input.text,from:0,to:input.text.length,pages:message.pageLocations.map((p:any)=>({...p,canvas:canvases[p.page-proof.span.first]})).filter((p:any)=>!!p.canvas)}:undefined;
+            const baselineText=continuousBasis?.texts?.[input.file]??(input.file===model.root?continuousBasis?.text:undefined);
+            if(livePages&&continuousBasis&&baselineText!==undefined)livePages.pages.push(...unchangedPageLocations(continuousBasis.navigation,input.file,baselineText,input.text,{first:span.first,last:proof.span.last}).map(p=>({...p,canvas:p.page>=proof.span.first&&p.page<span.first?canvases[p.page-proof.span.first]:undefined})));
+            for(const c of canvases)c.dataset.localRecovered=String(!!message.recovery||!!message.recoveredBasis);
             for(const c of canvases){c.dataset.renderScope='local';c.dataset.localLayout='continuous-pages';c.dataset.localSourceHash=message.sourceHash;c.dataset.localEditId=message.editId;c.dataset.localFirstPage=String(proof.span.first);c.dataset.localLastPage=String(span.last);c.dataset.localPipeline=JSON.stringify({compiler:message.timing,receiveMs:receivedAt-inputAt,loadRenderMs:performance.now()-receivedAt});}
             if(model.followPreview){
               const page=Math.max(span.first,Math.min(span.last,message.cursorPage??span.first)),target=message.cursorPosition;
@@ -851,6 +998,7 @@ api.on(async message=>{
         localPatch={x:0,y:0,width:canvas.width,height:canvas.height,page};displayedSequence=input.sequence;
         canvas.dataset.renderScope='local';canvas.dataset.localLayout='page';canvas.dataset.localProofKey=proofKey(message);canvas.dataset.localSourceHash=message.sourceHash;canvas.dataset.localEditId=message.editId;canvas.dataset.sourceHash=current?.canvas.dataset.sourceHash??'';
         canvas.dataset.localFirstPage=String(span.first);canvas.dataset.localLastPage=String(span.last);el('pages').replaceChildren(canvas);el('empty').hidden=true;pageNumber=page;el('pageLabel').textContent=`${pageNumber} / …`;
+        canvas.dataset.localRecovered=String(!!message.recovery||!!message.recoveredBasis);
         if(model.followPreview&&message.cursorPosition)continuousView.reveal(canvas,message.cursorPosition.y+message.cursorPosition.height,scale);
         const finish=()=>{if(token!==localRenderToken||localCanvas!==canvas||canvas.dataset.localEditId!==message.editId)return;void api.call('localWarm',message.root,message.baseId,message.editId,Math.ceil(performance.now()-inputAt),canvas.dataset.localLayout).catch(()=>{});const latency=Math.ceil(performance.now()-inputAt);input.displayedLatencyMs??=latency;canvas.dataset.localLatencyMs=String(latency);canvas.dataset.localLatencyEditId=message.editId;canvas.dataset.timingEndpoint=message.visible?'paint opportunity':'canvas (window hidden)';localStatus=`Affected ${span.last>span.first?'pages':'page'} updated in ${latency} ms from edit. Full document verification pending.`+(!message.visible?' Window hidden; measured to canvas.':'');refreshPreviewStatus();};
         if(message.visible)requestAnimationFrame(()=>requestAnimationFrame(finish));else finish();return;
@@ -863,6 +1011,31 @@ api.on(async message=>{
       if(token===localRenderToken&&mayShowLocal(message)){
         if(!proof)throw Error('Local page baseline expired.');
         releaseLocalDocument();
+        if(message.neutralBlock){
+          if(!model.continuousPreview)throw Error('Neutral paragraphs require Continuous scroll.');
+          if(neutralBaseId!==message.baseId){clearNeutralMetadata();neutralBaseId=message.baseId;}
+          const block=message.neutralBlock;
+          if(block.prior.length!==neutralIds.size||block.prior.some((id:string)=>!neutralIds.has(id)))throw Error('Neutral display history does not match the source.');
+          const baselineText=continuousBasis?.texts?.[input.file]??(input.file===model.root?continuousBasis?.text:undefined);if(baselineText===undefined)throw Error('Retained source baseline is unavailable.');
+          const nextNavigation=retainedNavigation.updated({root:message.root,file:input.file,baseId:message.baseId,sourceHash:message.sourceHash,editId:message.editId,text:input.text},baselineText,{...block,page:message.page},continuousBasis?.navigation);
+          await continuousSetup;
+          if(continuousView.id!==message.baseId||!continuousView.matchesScale(scale,window.devicePixelRatio||1)){
+            if(neutralIds.size)throw Error('Neutral display scale changed.');
+            const held=proof.retain(),baseline=await held.document;releaseContinuousLease();continuousLease={id:message.baseId,task:{destroy:async()=>held.release()}};
+            const copy=document.createElement('canvas');copy.width=proof.canvas.width;copy.height=proof.canvas.height;copy.style.width=proof.canvas.style.width;copy.style.height=proof.canvas.style.height;copy.getContext('2d')!.drawImage(proof.canvas,0,0);continuousSetup=continuousView.show(message.baseId,baseline,copy,message.page,scale,window.devicePixelRatio||1);await continuousSetup;
+          }
+          if(token!==localRenderToken||!mayShowLocal(message)){tile.image?.close();return;}
+          const region=tileCanvas(tile);let canvas:HTMLCanvasElement;try{canvas=continuousView.patchNeutral(message.page,proof.canvas,region,tile,block.id);}finally{region.width=region.height=0;}
+          neutralPages.set(message.page,canvas);neutralIds.add(block.id);
+          retainedNavigation=nextNavigation;
+          retainedExperiment=true;
+          ok=true;
+          for(const c of neutralPages.values()){c.dataset.renderScope='local';c.dataset.localLayout='neutral-blocks';c.dataset.neutralActive=String(c===canvas);c.dataset.localSourceHash=message.sourceHash;c.dataset.localEditId=message.editId;c.dataset.sourceHash=current?.canvas.dataset.sourceHash??'';}
+          localCanvas=canvas;localPatch=undefined;liveFlow=undefined;livePages=undefined;displayedSequence=input.sequence;
+          canvas.dataset.localPipeline=JSON.stringify({compiler:message.timing,receiveMs:receivedAt-inputAt,loadAndInkMs:checkedAt-receivedAt,tileMs:tiledAt-checkedAt,canvasMs:performance.now()-tiledAt});
+          if(model.followPreview&&Number.isFinite(block.caretY))continuousView.revealPosition(message.page,block.caretY);
+          const latency=Math.ceil(performance.now()-inputAt);canvas.dataset.localLatencyMs=String(latency);canvas.dataset.localLatencyEditId=message.editId;localStatus=`Lecture blocks updated in ${latency} ms from edit. Full verification pending.`;refreshPreviewStatus();void api.call('localWarm',message.root,message.baseId,message.editId,latency,'neutral-blocks').catch(()=>{});return;
+        }
         let canvas=localCanvas;
         if(!canvas||canvas.dataset.localProofKey!==key||canvas.width!==tile.fullWidth||canvas.height!==tile.fullHeight){
           canvas=document.createElement('canvas');canvas.width=tile.fullWidth;canvas.height=tile.fullHeight;canvas.style.width=tile.originalWidth*scale+'px';canvas.style.height=tile.originalHeight*scale+'px';
@@ -873,16 +1046,17 @@ api.on(async message=>{
         localPatch={x:tile.x,y:tile.y,width:tile.patchWidth,height:tile.patchHeight,page:message.page};
         displayedSequence=input.sequence;
         canvas.dataset.renderScope='local';canvas.dataset.localLayout='paragraph';canvas.dataset.localProofKey=key;canvas.dataset.localSourceHash=message.sourceHash;canvas.dataset.localEditId=message.editId;canvas.dataset.sourceHash=current?.canvas.dataset.sourceHash??'';canvas.dataset.localRasterMs=String(tile.rasterMs);
+        canvas.dataset.localRecovered=String(!!message.recovery||!!message.recoveredBasis);
         canvas.dataset.localPipeline=JSON.stringify({compiler:message.timing,receiveMs:receivedAt-inputAt,loadAndInkMs:checkedAt-receivedAt,tileMs:tiledAt-checkedAt,canvasMs:performance.now()-tiledAt});
         if(canvas.parentElement!==el('pages'))el('pages').replaceChildren(canvas);el('empty').hidden=true;pageNumber=message.page;el('pageLabel').textContent=`${pageNumber} / ${current?.pdf.numPages??'?'}`;
         const finish=()=>{if(token!==localRenderToken||localCanvas!==canvas||canvas.dataset.localEditId!==message.editId)return;void api.call('localWarm',message.root,message.baseId,message.editId,Math.ceil(performance.now()-inputAt),canvas.dataset.localLayout).catch(()=>{});const latency=Math.ceil(performance.now()-inputAt);input.displayedLatencyMs??=latency;canvas.dataset.localLatencyMs=String(latency);canvas.dataset.localLatencyEditId=message.editId;canvas.dataset.timingEndpoint=message.visible?'paint opportunity':'canvas (window hidden)';localStatus=`Local paragraph updated in ${latency} ms from edit. Full document verification pending.`+(!message.visible?' Window hidden; measured to canvas.':'');refreshPreviewStatus();};
         if(message.visible)requestAnimationFrame(()=>requestAnimationFrame(finish));else finish();
       }else tile.image?.close();
-    }catch(error){console.debug('Local page output rejected',String(error));ok=false;}finally{if(!keepTask)await task?.destroy();await api.call('localAck',message.token,ok);}
+    }catch(error){console.debug('Local page output rejected',String(error));ok=false;}finally{flowImage?.close();if(!keepTask)await task?.destroy();if(ok&&localCanvas?.dataset.localEditId===message.editId&&message.editId===latestEdit?.id)renderRecoveryNotice();await api.call('localAck',message.token,ok);}
     return;
   }
-  if(message.type==='backupStatus'){el('backupStatus').textContent=message.text;el('backupWarning').hidden=!message.error;el('backupWarning').querySelector('span')!.textContent=message.text;return;}
-  if(message.type==='menuAction'){const {action,value}=message;if(action==='browseBackups'){void command(showBackups);return;}if(action==='backupNow'){void command(backupNow);return;}if(action==='automaticBackups'){void command(async()=>{model.backups=await api.call('automaticBackups',model.backups===false);el<HTMLInputElement>('automaticBackups').checked=model.backups;});return;}if(action==='pasteImage'){void command(()=>pasteImage());return;}if(['zoom','panelLayout','layoutMode','previewMode'].includes(action)){const select=el<HTMLSelectElement>(action);if(select.value===value)return;select.value=value;select.dispatchEvent(new Event('change',{bubbles:true}));}else if(action.startsWith('math-'))document.querySelector<HTMLButtonElement>(`[data-math="${action.slice(5)}"]`)?.click();else document.getElementById(action)?.click();return;}
+  if(message.type==='backupStatus'){el('backupStatus').textContent=message.text;el('backupWarning').hidden=true;el('backupWarning').querySelector('span')!.textContent=message.text;backupIssue=message.error?message.text:undefined;renderRecoveryNotice();return;}
+  if(message.type==='menuAction'){const {action,value}=message;if(action==='copyPerformanceReport'){void command(()=>api.call('copyPerformanceReport'));return;}if(action==='browseBackups'){void command(showBackups);return;}if(action==='backupNow'){void command(backupNow);return;}if(action==='automaticBackups'){void command(async()=>{model.backups=await api.call('automaticBackups',model.backups===false);el<HTMLInputElement>('automaticBackups').checked=model.backups;});return;}if(action==='pasteImage'){void command(()=>pasteImage());return;}if(['zoom','panelLayout','layoutMode','previewMode'].includes(action)){const select=el<HTMLSelectElement>(action);if(select.value===value)return;select.value=value;select.dispatchEvent(new Event('change',{bubbles:true}));}else if(action.startsWith('math-'))document.querySelector<HTMLButtonElement>(`[data-math="${action.slice(5)}"]`)?.click();else document.getElementById(action)?.click();return;}
   if(message.type==='cacheCleanup')el('cacheStatus').textContent=message.text;
   if(message.type==='root'){model.root=message.root;renderTabs();}
   if(message.type==='saved'){
@@ -893,21 +1067,23 @@ api.on(async message=>{
   if(message.type==='status'){
     sourceWarning=message.conflict?` ${message.conflict} changed outside the app; its draft is preserved. Use Save copy or Reload disk.`:'';
     const updated=message.text.startsWith('Preview updated'),failed=/^Build failed:|snapshot exceeds|not found/i.test(message.text);
-    if(updated){previewUpdating=true;refreshPreviewStatus();}
+    if(updated){operationIssue=undefined;previewUpdating=true;refreshPreviewStatus();}
     else{
       el('status').textContent=message.text;
-      if(failed){previewUpdating=false;previewKnownCurrent=false;el('previewState').textContent=current?'Preview behind source — build failed':'No successful preview yet';}
+      if(failed){operationIssue=message.text;previewUpdating=false;previewKnownCurrent=false;el('previewState').textContent=current?'Preview behind source — build failed':'No successful preview yet';}
       else if(/Saving edits|Updating preview/.test(message.text)){previewUpdating=true;refreshPreviewStatus();}
       else if(/Build cancelled/.test(message.text)){previewUpdating=false;renderIssue();el('previewState').textContent=current?'Previous preview retained':'No successful preview yet';}
       else if(/Source saved|Restored last/.test(message.text))el('previewState').textContent='Preview has pending changes';
       else previewUpdating=false;
     }
+    renderRecoveryNotice();
   }
-  if(message.type==='problems'){if(message.root!==model.root||message.editId!==latestEdit?.id)return;projectProblems=message.issues;renderProblems();}
+  if(message.type==='problems'){if(message.root!==model.root||message.editId!==latestEdit?.id)return;projectProblems=message.issues;if(!message.issues.some((i:any)=>i.severity!=='warning'))compileIssue=undefined;renderProblems();renderRecoveryNotice();}
   if(message.type==='diagnostic'){
     if(message.issue.root!==model.root||message.issue.editId!==latestEdit?.id)return;
     compileIssue=message.issue;projectProblems=[message.issue];previewKnownCurrent=false;previewUpdating=false;renderIssue();
   }
+  if(message.type==='localRecovered'&&message.root===model.root&&message.editId===latestEdit?.id){compileIssue=undefined;projectProblems=[];renderIssue();}
   if(message.type==='log'){
     const log=el('log');
     if(!message.append){log.textContent=message.text;logLength=message.text.length;}
@@ -922,11 +1098,11 @@ api.on(async message=>{
   }
   if(message.type==='reset'){
     releaseContinuousLease();
-    continuousView.clear();continuousBases.clear();continuousBasis=undefined;liveFlow=undefined;
+    continuousView.clear();continuousBases.clear();continuousBasis=undefined;liveFlow=undefined;livePages=undefined;canonicalRequested=false;
     baselineCache.clear();
     verifiedPageOutputs.clear();
     releaseLocalDocument();
-    localProofToken++;localInputs.clear();displayedSequence=0;
+    localProofToken++;localInputs.clear();displayedSequence=0;clearNeutralMetadata();
     localRenderToken++;if(localCanvas)localCanvas.width=localCanvas.height=0;localCanvas=undefined;localStatus='';localPatch=undefined;clearLocalProofs();
     endPreview();
     navigationToken++;
@@ -967,13 +1143,13 @@ api.on(async message=>{
     }catch(e){void task?.destroy();await api.call('ack',message.bundle.id,String(e));}
   }
   if(message.type==='commit'&&prepared?.id===message.id){
-    const fullSequence=localInputs.get(message.timing?.editId)?.sequence??0,retainLocal=!!message.timing&&!!localCanvas&&(fullSequence<displayedSequence||model.continuousPreview&&localCanvas.dataset.localLayout==='flow'&&localCanvas.dataset.localStateChanged!=='true'&&fullSequence===displayedSequence);
-    renderToken++;const old=current;current=prepared;prepared=undefined;if(!retainLocal)show(current,!!localCanvas&&localCanvas.dataset.localSourceHash===current.canvas.dataset.sourceHash);
+    const fullSequence=localInputs.get(message.timing?.editId)?.sequence??0,recoveryVerified=current?.timing?.recovered&&message.timing&&!message.timing.recovered&&fullSequence>=displayedSequence,retainLocal=!!message.timing&&!message.timing.recovered&&localCanvas?.dataset.localRecovered!=='true'&&!recoveryVerified&&!!localCanvas&&(fullSequence<displayedSequence||!canonicalRequested&&model.continuousPreview&&localCanvas.dataset.localLayout==='flow'&&localCanvas.dataset.localStateChanged!=='true'&&fullSequence===displayedSequence);
+    renderToken++;const old=current;current=prepared;prepared=undefined;if(!retainLocal){show(current,!!localCanvas&&localCanvas.dataset.localSourceHash===current.canvas.dataset.sourceHash);canonicalRequested=false;}
     if(retainLocal&&localCanvas?.dataset.localLayout==='paragraph'&&localPatch&&current.page===localPatch.page&&current.canvas.width===localCanvas.width&&current.canvas.height===localCanvas.height){
       const p=localPatch,saved=document.createElement('canvas');saved.width=p.width;saved.height=p.height;saved.getContext('2d')!.drawImage(localCanvas,p.x,p.y,p.width,p.height,0,0,p.width,p.height);const ctx=localCanvas.getContext('2d')!;ctx.drawImage(current.canvas,0,0);ctx.drawImage(saved,p.x,p.y);saved.width=saved.height=0;
     }
     if(!retainLocal)displayedSequence=fullSequence;scheduleFit(true);
-    navigationToken++;el('navState').textContent=retainLocal?'Source navigation will be available after full verification.':current.navigation?'Click PDF text to show its source':'Source navigation unavailable for this preview';
+    navigationToken++;el('navState').textContent=retainLocal?'Source navigation will be available after full verification.':current.navigation?current.navigation.recovery?'Temporary preview: unchanged mapped text is navigable':'Click PDF text to show its source':'Source navigation unavailable for this preview';
     if(!retainLocal&&current.displayFocus&&current.navigation){const frame=current;void continuousSetup.then(async()=>{if(await matchesSource(frame.navigation,active))return;const row=await displayFocusLocation(frame.displayFocus,frame.navigation);if(current===frame&&model.continuousPreview&&model.followPreview&&row&&row[2]<=frame.pdf.numPages)continuousView.revealPosition(row[2],row[4]);}).catch(()=>{});}
     if(!retainLocal&&model.followPreview&&current.navigation)void locateSource(false).catch(e=>{el('navState').textContent=String(e);});
     current.timing=message.timing;
@@ -997,7 +1173,7 @@ api.on(async message=>{
       current.canvas.dataset.editLatencyMs=elapsed===undefined?'':String(elapsed);
       current.canvas.dataset.editId=message.timing?.editId??'';
       current.canvas.dataset.timingEndpoint=message.visible?'paint opportunity':'canvas (window hidden)';
-      current.displayStatus=localElapsed!==undefined?`Full document verified. Local preview appeared in ${localElapsed} ms from edit.`:elapsed===undefined?'Preview updated.':`Preview updated in ${elapsed} ms from edit.`;
+      current.displayStatus=message.timing?.recovered?'Recovered preview updated.':localElapsed!==undefined?`Full document verified. Local preview appeared in ${localElapsed} ms from edit.`:elapsed===undefined?'Preview updated.':`Preview updated in ${elapsed} ms from edit.`;
       if(message.timing?.backend)current.displayStatus+=' '+message.timing.backend;
       if(message.timing&&!message.visible)current.displayStatus+=' Window hidden; measured to canvas.';
       if(message.timing&&previewUpdating)refreshPreviewStatus();

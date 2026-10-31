@@ -39,7 +39,11 @@ The Windows executable is an unsigned test build. Use the release checksum to id
 
 Choose **Build → Working mode** or the small mode selector in the preview toolbar. Lecture mode defers idle full-document verification after successful local edits, preserving the interactive formatter for the next edit. Continuous scroll is recommended for lectures. Edits requiring a broader build still compile automatically; first loads, preamble changes and complex diagrams can remain slower. Build explicitly verifies the full document, and Export PDF builds and verifies current source before exporting in either mode. A successful local preview is not a promise that pagination or references throughout the document are current. Document mode is the default and resumes automatic full-document checks after a pause. Both modes keep the same saving and backup behavior.
 
+When TeXquisite can safely render a temporary repair, it keeps navigation mappings for unchanged source lines. A permanent bottom status bar shows the number of reported errors in red and updates automatically as errors are corrected. Its compact message offers **Go to error**, **Check now** and **Details** on demand; hover for the full explanation, or open Problems for spelling, delimiter or package advice. Errors do not open a panel or cover or resize the document. Scrolling through blank space does not request navigation. View's **Show preview timing details** option controls only the optional timing text; the error bar remains visible. Suggestions never edit your source automatically. If repair is unsafe, the previous output remains visible; verified export still requires a successful complete build.
+
 An empty literal document body, including a comments-only body, produces one blank page. The placeholder is added only to the compilation copy; it never changes the editor or saved source.
+
+For an unexpectedly slow update, choose **Build > Copy performance report** immediately afterward. This copies a bounded timing/routing and memory summary, excluding source text, file paths and compiler logs. It separates local preview acknowledgements from full-document verification; these are renderer timings, not a measurement of the physical screen. Nothing is uploaded automatically.
 
 ## Files and privacy
 
