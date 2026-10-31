@@ -390,3 +390,95 @@ profile, normal flags and external temporary storage. The duplicate portable
 download archive was removed after staged-byte verification. Bulk evidence stays
 on Kingston. This remains a draft-branch trial without a main merge, tag or new
 public binary release, pending a convenient normal restart.
+
+## 0.119: earlier-page text and display-math editing
+
+The user's existing 0.118 diagnostics recorded a 612 ms affected-pages update:
+about 455 ms in the compiler, including 417 ms typesetting, and 1,641 source
+bytes reprocessed. This was an already-ready local lane, not a cold preamble
+or solely a renderer delay. Only timing metadata was read; the user's window
+and source were not edited or benchmarked, and their manuscript was not uploaded.
+
+Synthetic `amsart` fixtures reproduced an early/late distinction without errors.
+A failed opportunistic two-paragraph raster proof retained a page lane that
+processed roughly 5.3 KB and three pages for each word, while the late paragraph
+processed about 80 bytes. Lecture mode now retries the actual paragraph on the
+same warm worker before accepting that broader fallback. Document mode keeps
+its previous policy.
+
+Display paragraphs exposed another limitation: page-builder stretch gives the
+same paragraph several vertical translations. A constant translation cannot
+reconstruct its baseline. Lecture/continuous preparation can now propose up to
+64 separated vertical slices, with constant horizontal placement and bounded
+vertical spread. Overlapping ink groups, reordered groups, invalid geometry,
+multiple source pages and fixed-paragraph use refuse this proposal. Glyphs only
+propose the cuts: the composed original must still pass the complete baseline
+raster, native-fragment ink and independent tile checks. Unrecorded rule/drawing
+ink cut or moved incorrectly therefore prevents acceptance. New live output
+uses the existing flowing-block renderer; saved source and strict export do not
+inherit these provisional layout rules.
+
+At low display density, an independently matched tiny math glyph can contain
+only gray pixels. The existing dark-core rule refused it despite identical vector
+outlines; at 2.5x density the complete proof passed. That specific matched-vector
+failure may now request a complete proof at 2.5x density, within the existing
+16-million-pixel/32,768-dimension limits. Both complete rasters, fragment ink and
+tile must pass; dark-core, color/alpha, geometry and coverage thresholds are
+unchanged. The displayed-density ink and tile checks remain required. This work
+is preparation, not a new denser raster on every typed character.
+
+A deliberately rejected local frame also exposed two recovery issues. Lecture
+mode's ordinary idle-verification suppression could suppress the required full
+fallback itself; that fallback now explicitly requests verification. Separately,
+a failed translation consensus could discard independently matched vector glyphs
+at the unchanged native origin. An origin-preserving witness now requires at
+least three matched outlines; it cannot move the patch, and the full raster/ink/
+tile proof still decides acceptance. The new regression requires automatic full
+recovery and subsequent flowing output, with no Retry or Build.
+
+Validation for runtime/test commit `5b4b7b6f3e0cd916783c68af3229ee07c0ef08bb`
+passed in [the source and packaged cloud run](https://github.com/complexzeta/TeXquisite/actions/runs/41150890855):
+78 focused guards, the separate native ownership guard, and all 66 integration
+and package result records. Forty new position records cover ten scenarios at
+normal and 2.5x display density in both source and packaged apps. Ordinary
+single-page text/math must use flowing output; warm words must not trigger full
+publications between pauses. The deliberately rejected frame must recover
+automatically and subsequent words must return to flowing output.
+
+Across the source/packaged samples, earlier short-paragraph edits were 18–29 ms,
+late edits 25–33 ms, earlier display-math edits 24–42 ms and the same display
+paragraph with a remote error 27–43 ms. Explicit ragged-page controls were
+23–62 ms. Text separated from a later drawing was 20–49 ms. These are small
+ordered hidden-renderer samples, not physical-screen or arbitrary-document
+guarantees, nor a controlled overall version speedup. Eight complete denser
+proofs succeeded. No raster, ink, geometry or dark-core threshold was relaxed.
+
+The forced internal frame failure recovered through an automatic full preview
+in 119–160 ms. Its first subsequent word included preparation/handoff and took
+296–452 ms, then the next word took 20–23 ms. Thus this pass does not establish
+consistent sub-300-ms transition latency. Definition-based corrections requiring
+canonical verification took 521/524 ms in the existing recovery session.
+Paragraphs spanning pages still used page output, 67–101 ms here; an attached
+drawing remained in that path at 202–275 ms. Those bounded fixtures do not make
+the remaining page path fast for arbitrary complicated diagrams or manuscripts.
+
+Existing automatic error correction, two-way navigation, privacy, paragraph
+splits, normal/high-density cases, editing, exact saving, strict export/reopen
+and serialized baseline comparisons passed. Nineteen runtime assets matched the
+packaged build; version/licensing, private paths and development-file exclusions
+passed. All 387 tracked source files passed the UTF-8/UTF-16 private-data audit.
+No fresh broad compatibility matrix or complex TikZ campaign was run; the TeX
+engine and WASM are unchanged. All builds, editor tests and packaging ran in the
+cloud, without interacting with or benchmarking the user's manuscript locally.
+
+The verified portable is 119,534,943 bytes, SHA-256:
+
+```text
+d25888fa8b86e014fef575a210ac551c131ccddfe4bcf35d4cb528669a4ae7c8
+```
+
+The executable, normal-profile launcher, checksum and provenance are staged on
+Kingston. The duplicate portable ZIP was removed after checking the staged bytes;
+bounded results/logs remain on Kingston. This is a draft-branch trial without a
+main merge, tag or new public binary release. The user's 0.118 session remains
+open pending a convenient normal restart.
