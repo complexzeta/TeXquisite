@@ -8,7 +8,7 @@ test('Vertical placement cuts only separate nonoverlapping ink groups and reject
  assert.equal(verticalBands([{from:10,to:18,y:0},{from:30,to:40,y:250}]),undefined);
 });
 test('Lecture variable placement remains a baseline proposal; strict placement and page separation refuse it',async()=>{
- const document=await PDFDocument.create();document.addPage([100,100]);const pdf=await document.save();
+ const document=await PDFDocument.create();document.addPage([100,100]).drawText('A',{x:20,y:60,size:8});const pdf=await document.save();
  const row=(line,x,y)=>['main.tex',line,0,1,x,y,6,8,65,1],full=[row(3,20,20),row(4,20,50)],local=[row(3,10,10),row(4,10,30)],nav=rows=>rows.map(glyph=>JSON.stringify({glyph})).join('\n');
  const original={pdf,navigation:nav(local),fragment:{page:1,paddingSp:655360,widthSp:1310720,heightSp:2621440,depthSp:0,stateHash:'fixture',flowStateHash:'fixture',shape:[]}};
  await assert.rejects(RegionCompositor.create(pdf,nav(full),original),/nonuniform/);
