@@ -158,7 +158,7 @@ const localPreview=new LocalPreview(
     }
     return accepted;
   });},
-  editId=>{if(state.onSave&&editId===latestEditId)scheduleFullVerification(editId,0);},
+  editId=>{if(state.onSave&&editId===latestEditId)scheduleFullVerification(editId,0,true);},
   value=>{tracePreview({event:'local-state',state:value});send({type:'localState',state:value});},message=>{tracePreview({event:'local-log',message:message.split('\n')[0].slice(0,500)});appendLog(message);},
   (basis,pdf,pageSpan,continuation)=>localMessage({type:'localVerifyPages',continuation,root:basis.options.root,baseId:basis.bundle.id,basePdf:new Uint8Array(basis.pdf),pdf:new Uint8Array(pdf),pageSpan}).then(result=>result===true),
   (basis,page,fragmentPdf,fragment,calibration)=>localMessage({type:'localPlacement',root:basis.options.root,baseId:basis.bundle.id,basePdf:new Uint8Array(basis.pdf),page,fragmentPdf:new Uint8Array(fragmentPdf),fragment,calibration}));

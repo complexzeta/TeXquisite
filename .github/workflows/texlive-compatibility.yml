@@ -165,7 +165,7 @@ jobs:
         run: |
           npm run build
           if($LASTEXITCODE -ne 0){exit $LASTEXITCODE}
-          node --test --test-concurrency=1 test/retained-layout.test.cjs test/retained-navigation.test.cjs test/contraction-probe.test.cjs test/window-page-fallback.test.cjs test/paragraph-split.test.cjs test/region-navigation-cache.test.cjs test/local-preview.test.cjs test/raster-bytes.test.cjs test/ink-bounds.test.cjs test/local-recovery.test.cjs test/preview-recovery.test.cjs test/pdf-work-queue.test.cjs test/performance-report.test.cjs test/recovery-navigation.test.cjs
+          node --test --test-concurrency=1 test/retained-layout.test.cjs test/retained-navigation.test.cjs test/contraction-probe.test.cjs test/window-page-fallback.test.cjs test/paragraph-split.test.cjs test/region-navigation-cache.test.cjs test/local-preview.test.cjs test/raster-bytes.test.cjs test/ink-bounds.test.cjs test/local-recovery.test.cjs test/preview-recovery.test.cjs test/pdf-work-queue.test.cjs test/performance-report.test.cjs test/recovery-navigation.test.cjs test/vertical-placement.test.cjs
           if($LASTEXITCODE -ne 0){exit $LASTEXITCODE}
           node scripts/retained-layout-test.cjs
           exit $LASTEXITCODE
@@ -190,6 +190,12 @@ jobs:
         run: node scripts/recovery-idle-test.cjs
       - name: Automatically continue and clear local errors across paragraphs
         run: node scripts/automatic-recovery-test.cjs
+      - name: Early-page typing, display baselines and automatic failed-frame recovery
+        run: node scripts/editing-position-test.cjs
+      - name: Early-page typing at high display density
+        env:
+          PERSISTENT_TEX_TEST_DPR: '2.5'
+        run: node scripts/editing-position-test.cjs
       - name: Re-prove text separated from a drawing
         run: node scripts/paragraph-split-test.cjs
       - name: Check separated text at high display density
@@ -285,6 +291,12 @@ jobs:
           if($LASTEXITCODE -ne 0){exit $LASTEXITCODE}
           node scripts/automatic-recovery-test.cjs
           if($LASTEXITCODE -ne 0){exit $LASTEXITCODE}
+          node scripts/editing-position-test.cjs
+          if($LASTEXITCODE -ne 0){exit $LASTEXITCODE}
+          $env:PERSISTENT_TEX_TEST_DPR='2.5'
+          node scripts/editing-position-test.cjs
+          if($LASTEXITCODE -ne 0){exit $LASTEXITCODE}
+          Remove-Item Env:PERSISTENT_TEX_TEST_DPR
           node scripts/paragraph-split-test.cjs
           if($LASTEXITCODE -ne 0){exit $LASTEXITCODE}
           $env:PERSISTENT_TEX_TEST_DPR='2.5'
