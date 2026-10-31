@@ -16,7 +16,7 @@ test('A failed window raster uses page proof in the same context; failed page pr
   try{
    await local.arm();assert.deepEqual(ranges[0],flowWindowAt(source,at));assert.equal(published,0,'Preparing a context must not display unverified output');
    if(matches==='margin'){assert.equal(ranges.length,1);assert.equal(pageCalls,0);assert.equal(local.ready,true);assert.equal(local.slot.compositor.inkBleedBp,.75);assert.deepEqual(margins,[1,.75]);}
-   else if(matches){assert.equal(ranges.length,1);assert.equal(pageCalls,1);assert.equal(local.ready,true);assert.equal(local.slot.pageMode,true);assert.equal(local.slot.pageReady,true);if(matches==='margin-refused')assert.deepEqual(margins,[1,.75,.5,.25]);}
+   else if(matches){assert.equal(ranges.length,matches==='margin-refused'?2:1);assert.equal(pageCalls,1);assert.equal(local.ready,true);assert.equal(local.slot.pageMode,true);assert.equal(local.slot.pageReady,true);if(matches==='margin-refused'){assert.deepEqual(ranges[1],paragraphAt(source,at));assert.deepEqual(margins,[1,.75,.5,.25,1,.75,.5,.25]);assert.ok(logs.some(line=>line.includes('preparation narrowed')));}}
    else{assert.equal(local.ready,false);assert.deepEqual(ranges[1],paragraphAt(source,at));assert.equal(pageCalls,2);assert.ok(logs.some(line=>line.includes('preparation narrowed')));}
   }finally{local.stop();}
  }

@@ -467,6 +467,10 @@ export class LocalPreview{
           }
         }
         if(verified!==true){
+          // An opportunistic forward window must not make ordinary Lecture
+          // typing own several pages. Retry the actual paragraph on the same
+          // worker before accepting the broader page lane.
+          if(this.lecture&&expanded&&!background)throw new Error('Adjacent-paragraph baseline needs a narrower region.');
           if(background||expanded&&(!this.continuous||process.env.PERSISTENT_TEX_DISABLE_WINDOW_PAGE_FALLBACK==='1'))throw new Error('Adjacent-paragraph baseline needs a narrower region.');
           if(!this.verifyPages)throw new Error('The composed baseline did not match the accepted page.');
           if(expanded)this.log('Adjacent-paragraph raster mismatch uses verified page output before narrowing.\n');
