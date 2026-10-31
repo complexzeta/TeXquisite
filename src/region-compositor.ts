@@ -6,6 +6,23 @@ const sourceMatches=(file:string,name:string)=>{const actual=file.replaceAll('\\
 const spToBp=72/(72.27*65536);
 export type ParagraphOutput={pdf:Uint8Array;fragment:RegionFragment;navigation:string};
 export type ParagraphAnchor={code:number;full:number[];fragment:number[]};
+export type VerticalSlice={from:number;to:number;dy:number};
+// Glyphs only propose cuts through interline whitespace. The independently
+// rendered complete baseline must still match after composition; a cut through
+// a rule, drawing or other unrecorded ink therefore cannot authorize a patch.
+export function verticalBands(rows:{from:number;to:number;y:number}[]){
+  const bands:{from:number;to:number;y:number}[]=[];
+  for(const row of [...rows].sort((a,b)=>a.from-b.from||a.to-b.to)){
+    if(![row.from,row.to,row.y].every(Number.isFinite)||row.to<row.from)return;
+    const prior=bands.at(-1);
+    if(prior&&Math.abs(prior.y-row.y)<=.003){prior.to=Math.max(prior.to,row.to);continue;}
+    if(prior&&row.from<prior.to+.01)return;
+    bands.push({...row});if(bands.length>64)return;
+  }
+  if(!bands.length||Math.max(...bands.map(b=>b.y))-Math.min(...bands.map(b=>b.y))>200)return;
+  for(let i=1;i<bands.length;i++)if(bands[i].from+bands[i].y<bands[i-1].to+bands[i-1].y)return;
+  return bands;
+}
 // A taller letter can reduce the leading baseline glue by exactly the same
 // amount. That leaves the baseline and all following material unchanged.
 export function sameSingleLinePlacement(a:RegionFragment,b:RegionFragment){
@@ -82,25 +99,28 @@ export function flowLocations(navigation:string,source:string,jobName:string,pag
  * and retain the full compiler for verification and changed layout. */
 export class RegionCompositor{
   inkBleedBp=LOCAL_INK_BLEED_BP;
+  private bands?:{from:number;to:number;y:number}[];
   private constructor(private base:PDFDocument,private original:ParagraphOutput,readonly page:number,public x:number,public y:number,readonly anchors:ParagraphAnchor[]){}
-  static async create(pdf:Uint8Array|PDFDocument,navigation:string,original:ParagraphOutput){
+  static async create(pdf:Uint8Array|PDFDocument,navigation:string,original:ParagraphOutput,variableLeading=false){
     const byKey=glyphIndex(navigation);
-    const offsets:{page:number;x:number;y:number}[]=[];
+    const offsets:{page:number;x:number;y:number;from:number;to:number}[]=[];
     const anchors:ParagraphAnchor[]=[];
     for(const row of glyphs(original.navigation,original.fragment.page)){
       const candidates=byKey.get(key(row));if(!candidates||candidates.length!==1)throw new Error('Paragraph anchor is ambiguous.');
-      const full=candidates[0];offsets.push({page:full[3],x:full[4]-row[4],y:full[5]-row[5]});
+      const full=candidates[0];offsets.push({page:full[3],x:full[4]-row[4],y:full[5]-row[5],from:row[5],to:row[5]+row[7]});
       if(row[8]>=32&&row[8]<=126&&anchors.length<32)anchors.push({code:row[8],full:[full[4],full[5],full[6],full[7]],fragment:[row[4],row[5],row[6],row[7]]});
     }
     if(!offsets.length)throw new Error('Paragraph has no exact source anchors.');
     const anchor=offsets[0];
-    if(offsets.some(o=>o.page!==anchor.page||Math.abs(o.x-anchor.x)>.003||Math.abs(o.y-anchor.y)>.003))throw new Error('Paragraph spans pages or has nonuniform page placement: '+JSON.stringify({pages:[...new Set(offsets.map(o=>o.page))],xSpread:Math.max(...offsets.map(o=>o.x))-Math.min(...offsets.map(o=>o.x)),ySpread:Math.max(...offsets.map(o=>o.y))-Math.min(...offsets.map(o=>o.y))})+'.');
+    const uniform=offsets.every(o=>Math.abs(o.y-anchor.y)<=.003),bands=!uniform&&variableLeading?verticalBands(offsets):undefined;
+    if(offsets.some(o=>o.page!==anchor.page||Math.abs(o.x-anchor.x)>.003)||!uniform&&!bands)throw new Error('Paragraph spans pages or has nonuniform page placement: '+JSON.stringify({pages:[...new Set(offsets.map(o=>o.page))],xSpread:Math.max(...offsets.map(o=>o.x))-Math.min(...offsets.map(o=>o.x)),ySpread:Math.max(...offsets.map(o=>o.y))-Math.min(...offsets.map(o=>o.y))})+'.');
     const base=pdf instanceof PDFDocument?pdf:await PDFDocument.load(pdf,{throwOnInvalidObject:true});
     if(anchor.page<1||anchor.page>base.getPageCount())throw new Error('Invalid paragraph page.');
-    return new RegionCompositor(base,original,anchor.page,anchor.x,anchor.y,anchors);
+    const compositor=new RegionCompositor(base,original,anchor.page,anchor.x,anchor.y,anchors);compositor.bands=bands?.map(b=>({...b,y:b.y-anchor.y}));return compositor;
   }
   adjust(dx:number,dy:number){if(!Number.isFinite(dx)||!Number.isFinite(dy)||Math.abs(dx)>.01||Math.abs(dy)>.01)throw new Error('Invalid subpixel placement correction.');this.x+=dx;this.y+=dy;}
-  get footprint(){const f=this.original.fragment,bleed=this.inkBleedBp;return {x:this.x+f.paddingSp*spToBp-bleed,y:this.y+f.paddingSp*spToBp-bleed,width:f.widthSp*spToBp+2*bleed,height:(f.heightSp+f.depthSp)*spToBp+2*bleed};}
+  get slices():VerticalSlice[]|undefined{const bands=this.bands;if(!bands)return;const f=this.original.fragment,bleed=this.inkBleedBp,top=f.paddingSp*spToBp-bleed,bottom=(f.paddingSp+f.heightSp+f.depthSp)*spToBp+bleed;return bands.map((b,i)=>({from:i?(bands[i-1].to+b.from)/2:top,to:i+1<bands.length?(b.to+bands[i+1].from)/2:bottom,dy:this.y+b.y}));}
+  get footprint(){const f=this.original.fragment,bleed=this.inkBleedBp,slices=this.slices,top=slices?Math.min(...slices.map(s=>s.from+s.dy)):this.y+f.paddingSp*spToBp-bleed,bottom=slices?Math.max(...slices.map(s=>s.to+s.dy)):top+(f.heightSp+f.depthSp)*spToBp+2*bleed;return {x:this.x+f.paddingSp*spToBp-bleed,y:top,width:f.widthSp*spToBp+2*bleed,height:bottom-top};}
   compatible(output:ParagraphOutput){
     const a=this.original.fragment,b=output.fragment;
     return a.stateHash===b.stateHash&&a.widthSp===b.widthSp&&a.depthSp===b.depthSp&&a.paddingSp===b.paddingSp&&
@@ -121,6 +141,7 @@ export class RegionCompositor{
     return {rect,leading:newLeading,baselineLeading:oldLeading,...(a.flowStateHash!==b.flowStateHash||b.lectureSideEffects?{stateChanged:true}:{}),fragmentRect:{x:b.paddingSp*spToBp-bleed,y:b.paddingSp*spToBp-bleed,width:b.widthSp*spToBp+2*bleed,height:(b.heightSp+b.depthSp)*spToBp+2*bleed}};
   }
   async compose(output:ParagraphOutput){
+    if(this.bands&&output!==this.original)throw new Error('Variable baseline placement requires flowing output.');
     if(!this.compatible(output))throw new Error('Paragraph layout or state changed; broader recomputation required.');
     const doc=await PDFDocument.create(),[page]=await doc.copyPages(this.base,[this.page-1]);doc.addPage(page);
     const [tile]=await doc.embedPdf(output.pdf,[output.fragment.page-1]),{x,y,width,height}=this.footprint;
@@ -128,7 +149,12 @@ export class RegionCompositor{
     const bottom=page.getHeight()-y-height;
     page.drawRectangle({x,y:bottom,width,height,color:rgb(1,1,1)});
     page.pushOperators(pushGraphicsState(),rectangle(x,bottom,width,height),clip(),endPath());
-    page.drawPage(tile,{x:this.x,y:page.getHeight()-this.y-tile.height+(output.fragment.heightSp-this.original.fragment.heightSp)*spToBp});
+    const slices=this.slices;
+    if(slices)for(const slice of slices){
+      page.pushOperators(pushGraphicsState(),rectangle(x,page.getHeight()-slice.to-slice.dy,width,slice.to-slice.from),clip(),endPath());
+      page.drawPage(tile,{x:this.x,y:page.getHeight()-slice.dy-tile.height});
+      page.pushOperators(popGraphicsState());
+    }else page.drawPage(tile,{x:this.x,y:page.getHeight()-this.y-tile.height+(output.fragment.heightSp-this.original.fragment.heightSp)*spToBp});
     page.pushOperators(popGraphicsState());
     return {pdf:await doc.save({useObjectStreams:false,objectsPerTick:1000}),page:this.page,footprint:this.footprint};
   }

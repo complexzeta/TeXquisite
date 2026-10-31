@@ -13,7 +13,7 @@ import {recoveryLocations,carryRecoveryDiagnostics} from './recovery-navigation'
 import type {BuildDiagnostic} from './diagnostics';
 type CalibrationGlyph={x:number;y:number;width:number;height:number;outline?:boolean};
 export type LocalVerification=boolean|{dx:number;dy:number;calibratedGlyphs?:CalibrationGlyph[]};
-export interface LocalCalibration {x:number;y:number;anchors:ParagraphAnchor[];calibratedGlyphs?:CalibrationGlyph[];inkBleedBp?:number;}
+export interface LocalCalibration {x:number;y:number;anchors:ParagraphAnchor[];calibratedGlyphs?:CalibrationGlyph[];inkBleedBp?:number;slices?:{from:number;to:number;dy:number}[];}
 const hash=(s:string)=>createHash('sha256').update(s).digest('hex');
 export function plainTextChange(before:string,after:string){
   if(before===after)return false;
@@ -385,7 +385,7 @@ export class LocalPreview{
       }
       try{
         const cached=this.compositionBase??={id:basis.bundle.id,pdf:PDFDocument.load(basis.pdf,{throwOnInvalidObject:true})};
-        if(original)slot.compositor=await RegionCompositor.create(await cached.pdf,prepared.navigation,original);
+        if(original){slot.compositor=await RegionCompositor.create(await cached.pdf,prepared.navigation,original,this.lecture&&this.continuous);if(slot.compositor.slices)this.log('Local vertical placement proposed: '+JSON.stringify({slices:slot.compositor.slices.length})+'\n');}
       }catch(error){if(background||expanded||!this.verifyPages)throw error;this.log('Paragraph composition unavailable: '+String(error)+'\n');slot.pageMode=true;}
       if(!valid())return;
       const placedAt=performance.now();
@@ -433,13 +433,13 @@ export class LocalPreview{
         // raster. Estimate placement only after replaying a different prefix.
         if(this.placement&&this.continuous&&!background&&(preparation?.anchorSourceBytes??0)>0&&process.env.PERSISTENT_TEX_DISABLE_PLACEMENT_PREFLIGHT!=='1'){
           const c=slot.compositor,at=performance.now();
-          const correction=await Promise.race([this.placement(basis,c.page,original!.pdf,original!.fragment,{x:c.x,y:c.y,anchors:c.anchors}).catch(()=>false as const),cancelled]);
+          const correction=await Promise.race([this.placement(basis,c.page,original!.pdf,original!.fragment,{x:c.x,y:c.y,anchors:c.anchors,slices:c.slices}).catch(()=>false as const),cancelled]);
           preflightMs=performance.now()-at;if(!valid())return;
           // Placement is only a proposal. The complete raster, ink and tile
           // proof below must still authorize this exact composed output.
           if(typeof correction==='object'){c.adjust(correction.dx,correction.dy);calibratedGlyphs=correction.calibratedGlyphs;preflightApplied=true;}
         }
-        const verify=async()=>{rasterAttempts++;const c=slot.compositor!,started=performance.now(),check=await c.compose(original!),composedAt=performance.now();paragraphComposeMs+=composedAt-started;try{return await this.verify(basis,check.pdf,check.page,original!.pdf,original!.fragment,check.footprint,{x:c.x,y:c.y,anchors:c.anchors,calibratedGlyphs,inkBleedBp:c.inkBleedBp});}finally{paragraphRasterWaitMs+=performance.now()-composedAt;}};
+        const verify=async()=>{rasterAttempts++;const c=slot.compositor!,started=performance.now(),check=await c.compose(original!),composedAt=performance.now();paragraphComposeMs+=composedAt-started;try{return await this.verify(basis,check.pdf,check.page,original!.pdf,original!.fragment,check.footprint,{x:c.x,y:c.y,anchors:c.anchors,calibratedGlyphs,inkBleedBp:c.inkBleedBp,slices:c.slices});}finally{paragraphRasterWaitMs+=performance.now()-composedAt;}};
         const checkPlacement=async()=>{
           let result=await Promise.race([verify(),cancelled]);if(!valid())return false;
           if(typeof result==='object'){
@@ -763,3 +763,4 @@ export class LocalPreview{
     }}finally{this.running=false;this.canPrefetch=false;this.scheduleIdle();}
   }
 }
+

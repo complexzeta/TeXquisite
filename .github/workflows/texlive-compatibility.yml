@@ -111,7 +111,7 @@ jobs:
           "npm_config_cache=$root/npm-cache" >> $env:GITHUB_ENV
       - run: npm ci --no-audit --no-fund
       - run: npm run build
-      - run: node --test test/window-page-fallback.test.cjs
+      - run: node --test test/window-page-fallback.test.cjs test/vertical-placement.test.cjs
       - name: Install isolated TeX Live 2026
         shell: pwsh
         run: |

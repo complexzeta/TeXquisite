@@ -6,9 +6,9 @@ async function scenario(name,body,broken=false){
  let expected='\\documentclass[12pt]{amsart}\n\\usepackage{amsmath,tikz}\n'+(name.includes('spanning')?'\\setlength{\\textheight}{150pt}\n':'')+'\\newcommand{\\LaterDrawing}{\\begin{tikzpicture}\\foreach \\x in {1,...,150}{\\draw (0,0) -- (\\x:1cm); }\\end{tikzpicture}}\n\\begin{document}'+(name.includes('ragged')?'\\raggedbottom':'')+'\n\nWarmup paragraph.\n\n'+body+'\n\\end{document}\n';
  await fs.writeFile(root,expected);await fs.writeFile(path.join(profile,'session.json'),JSON.stringify({docs:[{path:root,text:expected,diskHash:hash(expected),dirty:false,eol:'\n'}],root,active:root,engine:'pdflatex',latexmk:'latexmk',previewMode:'lecture',onSave:true,liveVersion:2,continuousPreview:true,followPreview:false,autoClose:false}));
  const app=await electron.launch({...(process.env.PERSISTENT_TEX_EXECUTABLE?{executablePath:process.env.PERSISTENT_TEX_EXECUTABLE,args:[]}:{args:['.']}),env:{...process.env,PERSISTENT_TEX_TEST_DATA:profile,PERSISTENT_TEX_MULTI_BLOCK:'0',PERSISTENT_TEX_RETAINED_FLOW:'0',PERSISTENT_TEX_TEST_HIDDEN:'1',PERSISTENT_TEX_PROFILE:'1'}});os.setPriority(app.process().pid,os.constants.priority.PRIORITY_BELOW_NORMAL);
- const result={passed:false,name,broken,samples:[],rendererFailures:[]};let page;
+ const result={passed:false,name,broken,samples:[],rendererFailures:[],proofs:[]};let page;
  try{
-  page=await app.firstWindow();page.on('console',m=>{if(/^Local page output rejected/.test(m.text())&&result.rendererFailures.length<12)result.rendererFailures.push(m.text());});
+  page=await app.firstWindow();page.on('console',m=>{const text=m.text();if(/^Local page output rejected/.test(text)&&result.rendererFailures.length<12)result.rendererFailures.push(text);if(/^Local (raster verification|paragraph proof|glyph calibration|placement)/.test(text)&&result.proofs.length<80)result.proofs.push(text);});
   await page.waitForFunction(h=>[...document.querySelectorAll('#pages canvas')].some(c=>c.dataset.sourceHash===h&&!c.dataset.localEditId),hash(expected),{timeout:90000,polling:25});
   let at=expected.indexOf('TargetSentinel')+'TargetSentinel'.length;assert.ok(at>15);
   await page.evaluate(async({root,at})=>{const v=document.querySelector('.cm-content').cmTile.root.view;v.dispatch({selection:{anchor:at}});v.focus();await window.desktop.call('localCursor',root,at);},{root,at});

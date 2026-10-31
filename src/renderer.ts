@@ -760,7 +760,9 @@ async function localCorrection(message:any,base:any,fragment:any){
   const fullOutlines=new Map<PdfCharacter,string|undefined>(fullProofs.map((p:any)=>[p.glyph,p.outline] as const)),fragmentOutlines=new Map<PdfCharacter,string|undefined>(fragmentProofs.map((p:any)=>[p.glyph,p.outline] as const));
   const fullLookup=new GlyphLookup<PdfCharacter>(fullGlyphs),fragmentLookup=new GlyphLookup<PdfCharacter>(fragmentGlyphs);
   const offsets:{x:number;y:number;full:PdfCharacter;fragment:PdfCharacter}[]=[];
-  for(const a of message.calibration?.anchors??[]){const full=fullLookup.nearest(a.code,a.full),local=fragmentLookup.nearest(a.code,a.fragment);if(full&&local)offsets.push({x:full[1]-local[1],y:full[2]-local[2],full,fragment:local});}
+  const slices=message.calibration?.slices as {from:number;to:number;dy:number}[]|undefined;
+  const vertical=(y:number)=>slices?.find(s=>y>=s.from&&y<s.to)?.dy??message.calibration.y;
+  for(const a of message.calibration?.anchors??[]){const full=fullLookup.nearest(a.code,a.full),local=fragmentLookup.nearest(a.code,a.fragment);if(full&&local)offsets.push({x:full[1]-local[1],y:full[2]-local[2]-vertical(local[2])+message.calibration.y,full,fragment:local});}
   const correction=placementCorrection(offsets,message.calibration,true);if(!correction)return false;
   // An already aligned origin still needs independently matched glyph boxes
   // for bounded antialiasing coverage. Do not repeat an identical proposal
@@ -768,8 +770,8 @@ async function localCorrection(message:any,base:any,fragment:any){
   if(correction.dx===0&&correction.dy===0&&message.calibration?.calibratedGlyphs?.length)return false;
   const x=message.calibration.x+correction.dx,y=message.calibration.y+correction.dy,calibratedGlyphs:{x:number;y:number;width:number;height:number;outline?:boolean}[]=[];
   for(const g of fragmentGlyphs){
-    const full=fullLookup.nearest(g[0],[g[1]+x,g[2]+y,g[3],g[4]]);if(!full)continue;
-    if(Math.abs(full[1]-g[1]-x)<=.02&&Math.abs(full[2]-g[2]-y)<=.02&&Math.abs(full[3]-g[3])<=.02&&Math.abs(full[4]-g[4])<=.02){const outline=fullOutlines.get(full);calibratedGlyphs.push({x:full[1],y:full[2],width:full[3],height:full[4],outline:typeof outline==='string'&&outline.length===64&&outline===fragmentOutlines.get(g)});}
+    const gy=vertical(g[2])+correction.dy,full=fullLookup.nearest(g[0],[g[1]+x,g[2]+gy,g[3],g[4]]);if(!full)continue;
+    if(Math.abs(full[1]-g[1]-x)<=.02&&Math.abs(full[2]-g[2]-gy)<=.02&&Math.abs(full[3]-g[3])<=.02&&Math.abs(full[4]-g[4])<=.02){const outline=fullOutlines.get(full);calibratedGlyphs.push({x:full[1],y:full[2],width:full[3],height:full[4],outline:typeof outline==='string'&&outline.length===64&&outline===fragmentOutlines.get(g)});}
   }
   console.debug('Local glyph calibration',JSON.stringify({glyphs:calibratedGlyphs.length,outlines:calibratedGlyphs.filter(g=>g.outline).length,dx:correction.dx,dy:correction.dy}));
   return {...correction,calibratedGlyphs};
