@@ -121,6 +121,10 @@ jobs:
       - run: node scripts/retained-test-format.cjs
       - name: Compare early and late editing
         run: node scripts/editing-position-test.cjs
+      - name: Compare high-density editing
+        env:
+          PERSISTENT_TEX_TEST_DPR: '2.5'
+        run: node scripts/editing-position-test.cjs
       - name: Upload bounded diagnostic evidence
         if: ${{ always() }}
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02

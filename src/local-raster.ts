@@ -105,10 +105,10 @@ function matchRaster(a:Uint8ClampedArray,b:Uint8ClampedArray,width:number,height
   const edge=(pixels:Uint8ClampedArray,p:number)=>{const x=p%width,y=Math.floor(p/width);let dark=false,light=false;
     for(let dy=-2;dy<=2;dy++)for(let dx=-2;dx<=2;dx++){const xx=x+dx,yy=y+dy;if(xx<0||xx>=width||yy<0||yy>=height)continue;const at=(yy*width+xx)*4,value=Math.min(pixels[at],pixels[at+1],pixels[at+2]);if(value<96)dark=true;if(value>224)light=true;}return dark&&light;};
   const background=(pixels:Uint8ClampedArray,p:number)=>pixels[p*4]>=250&&pixels[p*4+1]>=250&&pixels[p*4+2]>=250&&pixels[p*4+3]===255;
-  const core=new Map<number,boolean>();let coveragePixels=metricPixels;
+  const core=new Map<number,boolean>();let coveragePixels=metricPixels,fringeFailure:unknown;
   const glyphFringe=(p:number)=>{
     const x=p%width,y=Math.floor(p/width),glyph=masks.findIndex(g=>x>=Math.floor(g.x)-1&&x<=Math.ceil(g.x+g.width)+1&&y>=Math.floor(g.y)-1&&y<=Math.ceil(g.y+g.height)+1);
-    if(glyph<0)return false;
+    if(glyph<0){fringeFailure={reason:'unmatched',x,y};return false;}
     if(!opaqueGray(a,p)||!opaqueGray(b,p))return false;
     if(!core.has(glyph)){
       const g=masks[glyph];let darkA=false,darkB=false;
@@ -117,15 +117,15 @@ function matchRaster(a:Uint8ClampedArray,b:Uint8ClampedArray,width:number,height
       }
       core.set(glyph,darkA&&darkB);
     }
-    if(!core.get(glyph))return false;
+    if(!core.get(glyph)){fringeFailure={reason:'no-core',x,y,outline:masks[glyph].outline===true,box:masks[glyph]};return false;}
     const fringe=(pixels:Uint8ClampedArray)=>{let ink=false,light=false;for(let dy=-2;dy<=2;dy++)for(let dx=-2;dx<=2;dx++){const xx=x+dx,yy=y+dy;if(xx<0||xx>=width||yy<0||yy>=height)continue;const at=(yy*width+xx)*4,value=Math.min(pixels[at],pixels[at+1],pixels[at+2]);ink ||=value<(masks[glyph].outline===true?250:224);light ||=value>224;}return ink&&light;};
-    if(!fringe(a)||!fringe(b))return false;
-    if(!metricPositions.has(p)){if(coveragePixels>=coverageLimit||glyphPixels[glyph]>=quota(glyph))return false;coveragePixels++;glyphPixels[glyph]++;}
+    if(!fringe(a)||!fringe(b)){fringeFailure={reason:'not-fringe',x,y,outline:masks[glyph].outline===true};return false;}
+    if(!metricPositions.has(p)){if(coveragePixels>=coverageLimit||glyphPixels[glyph]>=quota(glyph)){fringeFailure={reason:'quota',x,y,outline:masks[glyph].outline===true,glyphPixels:glyphPixels[glyph],coveragePixels};return false;}coveragePixels++;glyphPixels[glyph]++;}
     return true;
   };
   // Use the same ink threshold as inkFitsRaster. Near-white coverage in both
   // images is background; darker or newly missing ink still needs both edges.
-  const ok=changed.every(p=>background(a,p)&&background(b,p)||edge(a,p)&&edge(b,p)||glyphFringe(p));return {ok,differingPixels:changed.length,maxDifference,...(metricPixels?{metricPixels}:{}),...(coveragePixels>metricPixels?{coveragePixels}:{}),...(!ok?{sample:changed.slice(0,4).map(p=>({x:p%width,y:Math.floor(p/width),a:[...a.slice(p*4,p*4+4)],b:[...b.slice(p*4,p*4+4)]}))}:{})};
+  const ok=changed.every(p=>background(a,p)&&background(b,p)||edge(a,p)&&edge(b,p)||glyphFringe(p));return {ok,differingPixels:changed.length,maxDifference,...(metricPixels?{metricPixels}:{}),...(coveragePixels>metricPixels?{coveragePixels}:{}),...(!ok?{fringeFailure,sample:changed.slice(0,4).map(p=>({x:p%width,y:Math.floor(p/width),a:[...a.slice(p*4,p*4+4)],b:[...b.slice(p*4,p*4+4)]}))}:{})};
 }
 
 // Glyph bounding boxes can contain a metric outlier even when the paragraph
