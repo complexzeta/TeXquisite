@@ -1,5 +1,11 @@
 const {test}=require('node:test'),assert=require('node:assert/strict'),{PDFDocument}=require('pdf-lib');
 const {verticalBands,RegionCompositor}=require('../dist/region-compositor');
+const {proofDensityRetry}=require('../dist/local-raster');
+test('Only independently matched faint-core failures can request a bounded complete denser proof',()=>{
+ const result={ok:false,fringeFailure:{reason:'no-core',outline:true}};assert.equal(proofDensityRetry(result,1,600,800),2.5);
+ for(const r of [{ok:true,fringeFailure:result.fringeFailure},{ok:false},{ok:false,fringeFailure:{reason:'no-core',outline:false}},{ok:false,fringeFailure:{reason:'quota',outline:true}},{ok:false,fringeFailure:{reason:'unmatched',outline:true}}])assert.equal(proofDensityRetry(r,1,600,800),undefined);
+ for(const [scale,width,height]of [[NaN,600,800],[0,600,800],[2.5,600,800],[3,600,800],[1,10000,10000],[1,1.5,800],[1,0,800]])assert.equal(proofDensityRetry(result,scale,width,height),undefined);
+});
 test('Vertical placement cuts only separate nonoverlapping ink groups and rejects unsafe proposals',()=>{
  assert.deepEqual(verticalBands([{from:10,to:18,y:20},{from:11,to:17,y:20.001},{from:30,to:40,y:31}]),[{from:10,to:18,y:20},{from:30,to:40,y:31}]);
  assert.equal(verticalBands([{from:10,to:25,y:20},{from:20,to:30,y:31}]),undefined);

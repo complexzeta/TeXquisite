@@ -1,5 +1,5 @@
 import {decodeNavigation} from './navigation-codec';
-import {matchLocalPatchRaster,LOCAL_INK_BLEED_BP} from './local-raster';
+import {matchLocalPatchRaster,proofDensityRetry,LOCAL_INK_BLEED_BP} from './local-raster';
 import {placementCorrection,GlyphLookup} from './local-raster';
 import {mathSpans,isMath,nearestMathCaret,mathCaretBox,moveMath,moveMathAcross,changeMath,parseMath,MathFormula,MathSpan,MathAction} from './math-edit';
 import {EditorView,basicSetup} from 'codemirror';
@@ -830,6 +830,18 @@ api.on(async message=>{
       const a=frame.value.canvas,pa=frame.value.pixels,pb=composedRaster.pixels;
       const factor=scale*(window.devicePixelRatio||1),box=message.footprint,result=matchLocalPatchRaster(pa,pb,a.width,a.height,{x:box.x*factor,y:box.y*factor,width:box.width*factor,height:box.height*factor},(message.calibration?.calibratedGlyphs??[]).map((g:any)=>({x:g.x*factor,y:g.y*factor,width:g.width*factor,height:g.height*factor,outline:g.outline===true})),factor);
       ok=ink&&a.width===composedRaster.width&&a.height===composedRaster.height&&result.ok;
+      // Tiny matched math glyphs can be entirely gray at display resolution.
+      // Repeat the COMPLETE proof at a bounded higher density instead of
+      // waiving its dark-core, color, ink, geometry or coverage requirements.
+      const proofFactor=ink&&a.width===composedRaster.width&&a.height===composedRaster.height?proofDensityRetry(result,factor,a.width,a.height):undefined;
+      if(!ok&&proofFactor){
+        const bounds=localInkBounds(message),multiple=proofFactor/factor;
+        const checks=[base.renderPixels(message.page,proofFactor,1),composed.renderPixels(1,proofFactor,1),fragment.inkFits(message.fragment.page,{left:bounds.left*multiple,top:bounds.top*multiple,right:bounds.right*multiple,bottom:bounds.bottom*multiple},proofFactor,1),composed.regionPixels(1,box,proofFactor,1)] as const;
+        const [fullHi,patchHi,inkHi,tileHi]=await Promise.all(checks).catch(async error=>{await Promise.allSettled(checks);throw error;});
+        const high=matchLocalPatchRaster(fullHi.pixels,patchHi.pixels,fullHi.width,fullHi.height,{x:box.x*proofFactor,y:box.y*proofFactor,width:box.width*proofFactor,height:box.height*proofFactor},(message.calibration?.calibratedGlyphs??[]).map((g:any)=>({x:g.x*proofFactor,y:g.y*proofFactor,width:g.width*proofFactor,height:g.height*proofFactor,outline:g.outline===true})),proofFactor);
+        ok=inkHi.safe===true&&fullHi.width===patchHi.width&&fullHi.height===patchHi.height&&high.ok&&await tileMatchesFull(composed,box,patchHi,patchHi.pixels,tileHi);
+        console.debug('Local higher-density proof',JSON.stringify({factor:proofFactor,ink:inkHi.safe,...high,ok}));
+      }
       comparedAt=performance.now();
       if(ok)ok=await tileMatchesFull(composed,message.footprint,composedRaster,pb,tile);
       tileAt=performance.now();

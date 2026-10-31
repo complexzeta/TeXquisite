@@ -61,6 +61,12 @@ export function glyphOutlineKey(style:{size:number;matrix:number[];fill:number[]
  const key=JSON.stringify([style.size,style.matrix,style.fill,segments]);return key.length<=262144?key:undefined;
 }
 type RasterRect={x:number;y:number;width:number;height:number;outline?:boolean};
+export function proofDensityRetry(result:{ok:boolean;fringeFailure?:unknown},factor:number,width:number,height:number){
+ const failure=result.fringeFailure as {reason?:string;outline?:boolean}|undefined,density=2.5;
+ if(result.ok||failure?.reason!=='no-core'||failure.outline!==true||!Number.isFinite(factor)||factor<=0||factor>=density||![width,height].every(n=>Number.isSafeInteger(n)&&n>0))return;
+ const w=Math.ceil(width*density/factor),h=Math.ceil(height*density/factor);
+ return w<=32768&&h<=32768&&w*h<=16000000?density:undefined;
+}
 export function matchLocalRaster(a:Uint8ClampedArray,b:Uint8ClampedArray,width:number,height:number,rect:RasterRect){return matchRaster(a,b,width,height,rect,false);}
 export function matchLocalPatchRaster(a:Uint8ClampedArray,b:Uint8ClampedArray,width:number,height:number,rect:RasterRect,calibratedGlyphs:RasterRect[]=[],pixelScale=1){return matchRaster(a,b,width,height,rect,true,calibratedGlyphs,pixelScale);}
 function matchRaster(a:Uint8ClampedArray,b:Uint8ClampedArray,width:number,height:number,rect:RasterRect,patchOnly:boolean,calibratedGlyphs:RasterRect[]=[],pixelScale=1){

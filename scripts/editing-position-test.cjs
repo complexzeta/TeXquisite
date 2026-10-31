@@ -19,6 +19,7 @@ async function scenario(name,body,broken=false){
    await page.waitForFunction(h=>[...document.querySelectorAll('#pages canvas')].some(c=>c.dataset.localSourceHash===h&&c.dataset.localLatencyEditId===c.dataset.localEditId),hash(expected),{timeout:30000,polling:10});
    result.samples.push(await page.evaluate(h=>{const c=[...document.querySelectorAll('#pages canvas')].find(c=>c.dataset.localSourceHash===h&&c.dataset.localLatencyEditId===c.dataset.localEditId);return {ms:Number(c.dataset.localLatencyMs),layout:c.dataset.localLayout,pipeline:JSON.parse(c.dataset.localPipeline??'null')};},hash(expected)));await delay(750);
   }
+  if(!['spanning-display','attached-drawing'].includes(name))assert.ok(result.samples.every(s=>s.layout==='flow'),'Ordinary single-page text and display math must retain flowing output');
   assert.equal(await fs.readFile(root,'utf8'),expected);result.passed=true;
  }catch(error){result.error=String(error);}finally{if(page){await fs.writeFile(path.join(directory,'build.log'),await page.locator('#log').textContent().catch(()=>''));result.after=await page.evaluate(()=>window.desktop.call('previewPerformance',true)).catch(()=>undefined);}await app.close().catch(()=>{});await fs.writeFile(path.join(directory,'result.json'),JSON.stringify(result,null,2));console.log(JSON.stringify({name,passed:result.passed,error:result.error,samples:result.samples}));}
  return result.passed;
