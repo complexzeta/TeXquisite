@@ -2,8 +2,8 @@ const {_electron:electron}=require('playwright'),fs=require('node:fs/promises'),
 const hash=s=>createHash('sha256').update(s).digest('hex');
 (async()=>{
  os.setPriority(0,os.constants.priority.PRIORITY_BELOW_NORMAL);
- const directory=require('./test-artifacts.cjs').testDirectory('compact-fit'),profile=path.join(directory,'profile');await fs.mkdir(profile);require('./retained-test-format.cjs').seedProfile(profile);
- const root=path.join(directory,'main.tex');let source='\\documentclass{article}\n\\usepackage{amsmath}\n\\begin{document}\n\nBefore with $\\sqrt{\\pi}$.\n\nFitMark ordinary text.\n\nAfter unchanged text.\n\n\\newpage\nSecond page text.\n\\end{document}\n',at=source.indexOf('FitMark')+8;
+ const directory=require('./test-artifacts.cjs').testDirectory('compact-fit'),profile=path.join(directory,'profile'),project=path.join(directory,'project');await fs.mkdir(profile);await fs.mkdir(project);require('./retained-test-format.cjs').seedProfile(profile);
+ const root=path.join(project,'main.tex');let source='\\documentclass{article}\n\\usepackage{amsmath}\n\\begin{document}\n\nBefore with $\\sqrt{\\pi}$.\n\nFitMark ordinary text.\n\nAfter unchanged text.\n\n\\newpage\nSecond page text.\n\\end{document}\n',at=source.indexOf('FitMark')+8;
  await fs.writeFile(root,source);await fs.writeFile(path.join(profile,'session.json'),JSON.stringify({docs:[{path:root,text:source,diskHash:hash(source),dirty:false,eol:'\n'}],root,active:root,onSave:true,liveVersion:2,engine:'pdflatex',latexmk:'latexmk',continuousPreview:true,lastCursor:{file:root,at}}));
  const launch=()=>electron.launch({...(process.env.PERSISTENT_TEX_EXECUTABLE?{executablePath:process.env.PERSISTENT_TEX_EXECUTABLE,args:[]}:{args:['.']}),env:{...process.env,PERSISTENT_TEX_TEST_DATA:profile,PERSISTENT_TEX_TEST_HIDDEN:'1'}});
  let app=await launch(),page=await app.firstWindow();const errors=[];page.on('pageerror',e=>errors.push(String(e)));
