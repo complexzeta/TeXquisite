@@ -482,3 +482,46 @@ Kingston. The duplicate portable ZIP was removed after checking the staged bytes
 bounded results/logs remain on Kingston. This is a draft-branch trial without a
 main merge, tag or new public binary release. The user's 0.118 session remains
 open pending a convenient normal restart.
+
+## 0.120 — quiet scrolling and permanent error status (2026-10-30)
+
+Automatic preview notices now occupy a fixed 28 CSS pixel bottom bar. A red
+indicator counts reported errors, updates as errors clear, and remains visible
+even when an older session hid the status bar. The View menu and toolbar toggle
+now control only optional timing details. Full advice is available on hover or
+through Details; Go to error and Check now remain explicit actions. Backup
+failures also use this bar. Unchanged status does not rewrite its live region
+while scrolling.
+
+Blank source padding, gutters and scroll releases no longer request PDF
+navigation. Actual text clicks still navigate with Follow typing off. Explicit
+unmapped requests use a compact informational message without inventing a TeX
+error; scrolling clears that transient message while retaining real errors.
+
+[Cloud validation](https://github.com/complexzeta/TeXquisite/actions/runs/41169994984)
+passed for runtime commit `81fe6affa4c30b6ac6470f017e267ed7aabd59e6`: 78 focused
+tests, one native retained test, all 70 integration/package result records and
+19 matching runtime assets. Both source and packaged status checks verified
+2 → 1 → 0 errors without automatic dialogs, pane resizing or source-selection
+changes; errors clear without a manual retry, and saved source stays exact.
+Compact-control checks covered timing preference persistence, native menus,
+fit width, panel/window resizing, live-text retention and paged navigation.
+The disposable cloud profile is kept outside its project snapshot. Error and
+healthy screenshots were visually inspected. Existing typing, recovery and
+privacy checks passed; all 388 tracked files passed the private-data audit.
+
+All builds, tests and packaging ran in the cloud, using synthetic documents.
+No local manuscript benchmark, fresh broad TeX Live matrix or complex TikZ
+campaign was run. The TeX engine and WASM are unchanged. These checks do not
+promise arbitrary-document or physical-display latency.
+
+The verified portable is 119,535,357 bytes, SHA-256:
+
+```text
+dd0cfdb737180f1eab507415ae97ec4a5d9b49a2ced05db57062d6170d3dd159
+```
+
+The executable, normal-profile launcher, checksum and provenance are staged on
+Kingston. The duplicate portable ZIP was removed after verifying the staged
+bytes. This remains a draft-branch trial without a main merge, tag or new public
+binary release.
