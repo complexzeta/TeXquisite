@@ -71,6 +71,7 @@ function clearLocalProofs(){for(const proof of localProofs.values())proof.releas
 let compileIssue:BuildDiagnostic|undefined;
 let projectProblems:BuildDiagnostic[]=[];
 let sourceWarning='';
+let operationIssue:string|undefined,backupIssue:string|undefined;
 let logLength=0;
 let suppressFollow=false,navigationToken=0,followFrame=0;
 let previewApplying=false,previewMapToken=0;
@@ -240,20 +241,37 @@ function renderIssue(){
   link.title=compileIssue.file??'';
   panel.dataset.kind=compileIssue.kind;
 }
+let recoveryNoticeState='';
 function renderRecoveryNotice(reason?:string){
  const issue=compileIssue?.root===model.root?compileIssue:projectProblems.find(i=>i.root===model.root&&i.severity!=='warning'),recovered=localCanvas&&localCanvas.dataset.localEditId===latestEdit?.id?localCanvas.dataset.localRecovered==='true':current?.timing?.recovered,notice=el('previewNotice');
- notice.hidden=!issue&&!recovered&&!reason;if(notice.hidden)return;
- const stale=!!issue&&issue.editId!==latestEdit?.id,where=issue?.file&&issue.line?` (${issue.file.split(/[\\/]/).at(-1)}, line ${issue.line})`:'';
- el('previewNoticeTitle').textContent=stale?'Checking newer edits':issue?issue.message+where:recovered?'Temporary preview':'Navigation needs attention';
+ const issues=projectProblems.filter(i=>i.root===model.root);if(issue&&!issues.some(i=>i.id===issue.id))issues.push(issue);
+ const errors=issues.filter(i=>i.severity!=='warning').length,warnings=issues.length-errors,extra=[sourceWarning.trim()||(!errors?operationIssue:undefined),backupIssue].filter((s):s is string=>!!s);
+ const count=errors+extra.length,summary=`${count} error${count===1?'':'s'}`+(warnings?` · ${warnings} warning${warnings===1?'':'s'}`:'');
+ const stale=!!issue&&issue.editId!==latestEdit?.id,primary=issue??issues.find(i=>i.severity==='warning');
+ const state=JSON.stringify([model.root,primary?.message,primary?.file,primary?.line,count,warnings,extra,!!issue,stale,!!recovered,reason,!!model.onSave]);
+ // Scrolling must not rewrite an unchanged live region or announce it again.
+ if(state===recoveryNoticeState)return;recoveryNoticeState=state;
+ const badge=el('errorCount');if(badge.textContent!==summary)badge.textContent=summary;badge.dataset.errors=String(count);badge.dataset.warnings=String(warnings);badge.setAttribute('aria-label',summary+'. Show details');
+ el('statusBar').dataset.severity=count?'error':warnings||recovered?'warning':'normal';
+ notice.hidden=!issue&&!recovered&&!reason&&!extra.length&&!warnings;if(notice.hidden){notice.title='';return;}
+ const where=issue?.file&&issue.line?` (${issue.file.split(/[\\/]/).at(-1)}, line ${issue.line})`:'';
+ const message=primary?.message??extra[0]??reason??'Temporary preview repair';
+ const skipped=message.match(/Preview skipped undefined command (\\\S+?)\./),short=skipped?'Undefined command '+skipped[1]:message.replace(/\s+/g,' ').split(/\. (?=[A-Z])/)[0];
+ el('previewNoticeTitle').textContent=short+where+(stale?' · checking newer edits':'');
  const checking=model.onSave?' Keep editing; each change is checked automatically.':' Automatic preview is paused. Resume Live or choose Retry preview.';
  const advice=issue?diagnosticAdvice(issue.message):undefined;
  el('previewNoticeText').textContent=reason?reason+(advice?' '+advice:'')+checking:(stale?(model.onSave?'Checking your latest edits automatically.':'This error belongs to an earlier edit.'+checking):issue?(advice??'Open Details to inspect the build log.')+checking+(recovered?' Navigation is limited to unchanged mapped text. Direct PDF editing resumes after the error is fixed.':' The previous preview is retained.'):'Temporary repairs keep this preview running.'+checking);
+ if(!issue&&!recovered&&!reason)el('previewNoticeText').textContent=message;
+ else if(primary)el('previewNoticeText').textContent=message+' '+el('previewNoticeText').textContent;
+ notice.title=[primary?.message,el('previewNoticeText').textContent,...extra].filter(Boolean).join('\n');
  const retry=el<HTMLButtonElement>('previewNoticeRetry');retry.textContent=model.onSave?'Check now':'Retry preview';retry.title=model.onSave?'Optional: recheck now. Source changes are checked automatically.':'Recheck the current source';
+ retry.hidden=!issue&&!recovered&&!reason;
  const go=el<HTMLButtonElement>('previewNoticeError');go.hidden=!issue?.file||!issue.line;go.disabled=stale;
 }
 function explainNavigation(reason:string){el('navState').textContent=reason;renderRecoveryNotice(reason);}
 el('previewNoticeError').onclick=()=>{const issue=compileIssue??projectProblems.find(i=>i.severity!=='warning');if(issue)void command(()=>navigateProblem(issue));};
-el('previewNoticeDetails').onclick=()=>{if(projectProblems.length){el<HTMLDetailsElement>('problems').open=true;el<HTMLSelectElement>('problemFilter').value='all';renderProblems();}else el<HTMLDetailsElement>('logs').open=true;};
+el('previewNoticeDetails').onclick=()=>{if(projectProblems.length){el<HTMLDetailsElement>('problems').open=true;el<HTMLSelectElement>('problemFilter').value='all';renderProblems();}else if(backupIssue)void command(showBackups);else el<HTMLDetailsElement>('logs').open=true;};
+el('errorCount').onclick=()=>{if(!el('previewNotice').hidden)el('previewNoticeDetails').click();else el('toggleProblems').click();};
 el('previewNoticeRetry').onclick=()=>void command(async()=>{const button=el<HTMLButtonElement>('previewNoticeRetry');button.disabled=true;try{await flush();canonicalRequested=true;await api.call('retryPreview');}finally{button.disabled=false;}});
 el('diagnosticLog').onclick=()=>{el<HTMLDetailsElement>('logs').open=true;el('logs').querySelector('summary')!.focus();};
 el('diagnosticLocation').onclick=()=>{if(compileIssue)void command(()=>navigateProblem(compileIssue!));};
@@ -265,7 +283,7 @@ async function navigateProblem(issue:BuildDiagnostic){
   const follow=model.followPreview;model=result.state;model.followPreview=follow;renderEditor();void api.call('active',active,true).catch(report);
   if(view){const position=view.state.doc.line(Math.min(result.line,view.state.doc.lines)).from;suppressFollow=true;try{view.dispatch({selection:{anchor:position},effects:EditorView.scrollIntoView(position,{y:'center'})});}finally{suppressFollow=false;}view.focus();}
 }
-const report=(e:unknown)=>{el('status').textContent=String(e).replace(/^Error: Error invoking remote method 'desktop': (?:Error: )?/,'').replace(/^Error: /,'');};
+const report=(e:unknown)=>{operationIssue=String(e).replace(/^Error: Error invoking remote method 'desktop': (?:Error: )?/,'').replace(/^Error: /,'');el('status').textContent=operationIssue;renderRecoveryNotice();};
 async function flush() {
   if(!view||!active)return;
   const file=active,text=view.state.doc.toString();
@@ -298,7 +316,10 @@ surroundInput.addEventListener('input',()=>{if(!acceptSurround()&&surroundSessio
 surroundBox.addEventListener('submit',event=>{event.preventDefault();if(!acceptSurround())el('surroundHint').textContent='Unknown delimiter. Correct it or press Esc to cancel.';});
 surroundInput.addEventListener('keydown',event=>{event.stopPropagation();if(event.key==='Escape'){event.preventDefault();cancelSurround(true);}});
 surroundInput.addEventListener('blur',()=>{if(surroundSession)cancelSurround();});
-function createState(text:string){return EditorState.create({doc:text,extensions:[basicSetup,lintGutter(),StreamLanguage.define(stex),texCompletion(()=>model.autoClose!==false),EditorView.lineWrapping,
+function createState(text:string){
+ let pointer:{id:number;top:number;left:number}|undefined,pointerGeneration=0;
+ const textHit=(event:PointerEvent,editor:EditorView)=>{const line=event.target instanceof Element?event.target.closest('.cm-line'):undefined;if(!line||!editor.contentDOM.contains(line))return false;const range=document.createRange();range.selectNodeContents(line);return [...range.getClientRects()].some(r=>r.width>0&&event.clientX>=r.left&&event.clientX<=r.right&&event.clientY>=r.top&&event.clientY<=r.bottom);};
+ return EditorState.create({doc:text,extensions:[basicSetup,lintGutter(),StreamLanguage.define(stex),texCompletion(()=>model.autoClose!==false),EditorView.lineWrapping,
   EditorView.domEventHandlers({beforeinput(event,editor){
     markInput();
     const input=event as InputEvent;
@@ -309,7 +330,7 @@ function createState(text:string){return EditorState.create({doc:text,extensions
     if(input.data==='\\'&&model.autoClose!==false&&!editor.state.selection.main.empty&&editor.state.selection.ranges.length===1){showSurround(editor);return true;}
     editor.dispatch({...completeTex(editor.state,input.data,model.autoClose!==false),annotations:Transaction.userEvent.of('input.type'),scrollIntoView:true});
     return true;
-  },pointerup(){if(model.continuousPreview&&!suppressFollow){cancelAnimationFrame(followFrame);followFrame=requestAnimationFrame(()=>void locateSource(true).catch(e=>{el('navState').textContent=String(e);}));}return false;},paste(event){if(imagePasteEvent(event))return true;markInput();return false;},cut(){markInput();return false;}}),EditorView.updateListener.of(update=>{
+  },pointerdown(event,editor){pointerGeneration++;pointer=event.button===0&&textHit(event,editor)?{id:event.pointerId,top:editor.scrollDOM.scrollTop,left:editor.scrollDOM.scrollLeft}:undefined;return false;},pointerup(event,editor){const start=pointer;pointer=undefined;if(!start||start.id!==event.pointerId||!textHit(event,editor)||Math.abs(start.top-editor.scrollDOM.scrollTop)>1||Math.abs(start.left-editor.scrollDOM.scrollLeft)>1){pointerGeneration++;renderRecoveryNotice();return false;}if(model.continuousPreview&&!suppressFollow){const generation=++pointerGeneration;cancelAnimationFrame(followFrame);followFrame=requestAnimationFrame(()=>{if(generation===pointerGeneration)void locateSource(true).catch(e=>{el('navState').textContent=String(e);});});}return false;},scroll(){pointer=undefined;pointerGeneration++;renderRecoveryNotice();return false;},paste(event){if(imagePasteEvent(event))return true;markInput();return false;},cut(){markInput();return false;}}),EditorView.updateListener.of(update=>{
   if(applyingProjectReplace)return;
   if(update.docChanged||update.selectionSet){if(surroundSession)cancelSurround();navigationToken++;if(!previewApplying&&previewSession)endPreview();}
   if(update.docChanged){
@@ -363,11 +384,12 @@ function renderTabs(){
   el('editPreview').title=model.continuousPreview?'Switch to Paged PDF to edit the verified preview':'Edit verified text and supported math';
   toolbarButton('follow','follow',model.followPreview?'Follow typing: on. Keep source cursor visible in PDF':'Follow typing: off. Keep source cursor visible in PDF');el('follow').setAttribute('aria-pressed',String(!!model.followPreview));
   toolbarButton('live',model.onSave?'pause':'live',model.onSave?'Live: on. Pause automatic saving and preview':'Live: off. Resume automatic saving and preview');el('live').setAttribute('aria-pressed',String(!!model.onSave));
-  const statusVisible=model.statusBar!==false;el('statusBar').hidden=!statusVisible;document.body.dataset.statusBar=statusVisible?'visible':'hidden';toolbarButton('toggleStatus','status',statusVisible?'Hide status bar':'Show status bar');el('toggleStatus').setAttribute('aria-pressed',String(statusVisible));
+  const statusVisible=model.statusBar!==false;el('statusBar').hidden=false;el('statusDetails').hidden=!statusVisible;document.body.dataset.statusBar=statusVisible?'visible':'hidden';toolbarButton('toggleStatus','status',statusVisible?'Hide preview timing details':'Show preview timing details');el('toggleStatus').setAttribute('aria-pressed',String(statusVisible));
   toolbarSelect('panelLayout','panels','Panel layout: '+el<HTMLSelectElement>('panelLayout').selectedOptions[0]?.textContent);toolbarSelect('layoutMode','pages',model.continuousPreview?'Preview layout: Continuous scroll':'Preview layout: Paged PDF');
   el('tabs').replaceChildren();
   for(const doc of model.docs){const button=document.createElement('button');button.textContent=doc.path.split(/[\\/]/).at(-1)+(doc.dirty?' •':'');button.title=doc.path;button.className=doc.path===active?'active':'';button.onclick=()=>activateDocumentTab(doc.path);el('tabs').append(button);}
   el('rootLabel').textContent=model.root?'Root: '+model.root:'No root selected';
+  renderRecoveryNotice();
 }
 function renderEditor(){
   cancelSurround();endPreview();
@@ -385,7 +407,7 @@ function renderEditor(){
   }
   renderTabs();renderIssue();
 }
-async function command(action:()=>Promise<unknown>){try{await action();}catch(e){report(e);}}
+async function command(action:()=>Promise<unknown>){try{await action();if(operationIssue){operationIssue=undefined;renderRecoveryNotice();}}catch(e){report(e);}}
 let backupSnapshots:import('./backups').BackupSummary[]=[];
 function renderBackupFiles(){
   const snapshot=backupSnapshots.find(s=>s.id===el<HTMLSelectElement>('backupSnapshots').value),select=el<HTMLSelectElement>('backupFiles');select.replaceChildren();
@@ -514,6 +536,7 @@ el('prepareFastFormat').onclick=()=>void command(async()=>{
 el('browseTeX').onclick=()=>void command(async()=>{const report=await api.call('toolchainBrowse',el<HTMLSelectElement>('engine').value,el<HTMLInputElement>('latexmk').value);if(report){el<HTMLInputElement>('texBin').value=report.selected??report.requested??'';renderToolchain(report);}});
 el('toolchainNoticeSettings').onclick=()=>el('settings').click();
 const continuousView=new ContinuousView(el('pages'),el('pdfViewport'));
+el('pdfViewport').addEventListener('scroll',()=>renderRecoveryNotice(),{passive:true});
 let continuousSetup:Promise<void>=Promise.resolve();
 let zoomChoice:number|'fit-width'=1,zoomChange=0,fitTimer=0,fitWidthSeen=0;
 function zoomLabel(){toolbarSelect('zoom','zoom',zoomChoice==='fit-width'?`Fit width: ${Math.round(scale*100)}%`:`Preview zoom: ${Math.round(scale*100)}%`);document.body.dataset.previewScale=String(scale);}
@@ -584,8 +607,8 @@ async function locateContinuous(explicit:boolean){
   await continuousSetup;
   const valid=()=>token===navigationToken&&model.continuousPreview&&active===file&&view?.state.doc.toString()===text&&view.state.selection.main.head===at;
   if(!valid())return;
-  const line=view!.state.doc.lineAt(at).number;if(!sourceLineHasOutput(view!.state.doc.line(line).text)){if(explicit)el('navState').textContent='This source line produces no visible output.';return;}const flow=liveFlow?.canvas.isConnected?liveFlow:undefined,basis=continuousBasis;
-  const status=(ok:boolean)=>{if(ok)el('navState').textContent=`${file.split(/[\\/]/).at(-1)} · line ${line}`;else if(explicit)explainNavigation('This location has no current mapping. See the reported error.');};
+  const line=view!.state.doc.lineAt(at).number;if(!sourceLineHasOutput(view!.state.doc.line(line).text)){if(explicit)el('navState').textContent='This source line produces no visible output.';renderRecoveryNotice();return;}const flow=liveFlow?.canvas.isConnected?liveFlow:undefined,basis=continuousBasis;
+  const status=(ok:boolean)=>{if(ok){el('navState').textContent=`${file.split(/[\\/]/).at(-1)} · line ${line}`;renderRecoveryNotice();}else if(explicit)explainNavigation('This source location has no current preview mapping.');};
   if(neutralIds.size){const context=retainedContext(),found=context&&retainedNavigation.forward(context,at,continuousView.retainedProjection);if(found&&valid()){const marked=continuousView.mark(found.page,found.glyph,false,explicit);if(marked)pageNumber=found.page;status(marked);}else status(false);return;}
   const pages=currentLivePages();
   if(pages){
@@ -1032,7 +1055,7 @@ api.on(async message=>{
     }catch(error){console.debug('Local page output rejected',String(error));ok=false;}finally{flowImage?.close();if(!keepTask)await task?.destroy();if(ok&&localCanvas?.dataset.localEditId===message.editId&&message.editId===latestEdit?.id)renderRecoveryNotice();await api.call('localAck',message.token,ok);}
     return;
   }
-  if(message.type==='backupStatus'){el('backupStatus').textContent=message.text;el('backupWarning').hidden=!message.error;el('backupWarning').querySelector('span')!.textContent=message.text;return;}
+  if(message.type==='backupStatus'){el('backupStatus').textContent=message.text;el('backupWarning').hidden=true;el('backupWarning').querySelector('span')!.textContent=message.text;backupIssue=message.error?message.text:undefined;renderRecoveryNotice();return;}
   if(message.type==='menuAction'){const {action,value}=message;if(action==='copyPerformanceReport'){void command(()=>api.call('copyPerformanceReport'));return;}if(action==='browseBackups'){void command(showBackups);return;}if(action==='backupNow'){void command(backupNow);return;}if(action==='automaticBackups'){void command(async()=>{model.backups=await api.call('automaticBackups',model.backups===false);el<HTMLInputElement>('automaticBackups').checked=model.backups;});return;}if(action==='pasteImage'){void command(()=>pasteImage());return;}if(['zoom','panelLayout','layoutMode','previewMode'].includes(action)){const select=el<HTMLSelectElement>(action);if(select.value===value)return;select.value=value;select.dispatchEvent(new Event('change',{bubbles:true}));}else if(action.startsWith('math-'))document.querySelector<HTMLButtonElement>(`[data-math="${action.slice(5)}"]`)?.click();else document.getElementById(action)?.click();return;}
   if(message.type==='cacheCleanup')el('cacheStatus').textContent=message.text;
   if(message.type==='root'){model.root=message.root;renderTabs();}
@@ -1044,15 +1067,16 @@ api.on(async message=>{
   if(message.type==='status'){
     sourceWarning=message.conflict?` ${message.conflict} changed outside the app; its draft is preserved. Use Save copy or Reload disk.`:'';
     const updated=message.text.startsWith('Preview updated'),failed=/^Build failed:|snapshot exceeds|not found/i.test(message.text);
-    if(updated){previewUpdating=true;refreshPreviewStatus();}
+    if(updated){operationIssue=undefined;previewUpdating=true;refreshPreviewStatus();}
     else{
       el('status').textContent=message.text;
-      if(failed){previewUpdating=false;previewKnownCurrent=false;el('previewState').textContent=current?'Preview behind source — build failed':'No successful preview yet';}
+      if(failed){operationIssue=message.text;previewUpdating=false;previewKnownCurrent=false;el('previewState').textContent=current?'Preview behind source — build failed':'No successful preview yet';}
       else if(/Saving edits|Updating preview/.test(message.text)){previewUpdating=true;refreshPreviewStatus();}
       else if(/Build cancelled/.test(message.text)){previewUpdating=false;renderIssue();el('previewState').textContent=current?'Previous preview retained':'No successful preview yet';}
       else if(/Source saved|Restored last/.test(message.text))el('previewState').textContent='Preview has pending changes';
       else previewUpdating=false;
     }
+    renderRecoveryNotice();
   }
   if(message.type==='problems'){if(message.root!==model.root||message.editId!==latestEdit?.id)return;projectProblems=message.issues;if(!message.issues.some((i:any)=>i.severity!=='warning'))compileIssue=undefined;renderProblems();renderRecoveryNotice();}
   if(message.type==='diagnostic'){

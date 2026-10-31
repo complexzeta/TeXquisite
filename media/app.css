@@ -61,4 +61,14 @@ body[data-preview-mode=lecture] #previewMode{background-color:#d8e9dc;border-col
 
 @keyframes navigation-flash{0%,30%{opacity:1}100%{opacity:0}}
 
-#previewPane{position:relative}#previewNotice{position:absolute;bottom:10px;right:16px;left:16px;max-width:640px;z-index:12;padding:10px 12px;border:1px solid #d7bd77;border-radius:6px;background:#fff8e8;color:#57421e;box-shadow:0 2px 8px #0002;font-size:12px}#previewNotice[hidden]{display:none}#previewNotice strong,#previewNoticeText{display:block;line-height:1.4}#previewNoticeText{margin-top:3px}.preview-notice-actions{display:flex;gap:7px;margin-top:7px}.preview-notice-actions button{font-size:11px;padding:4px 8px}.problem-copy{flex:1;min-width:0}.problem-advice{display:block;color:#63573d;margin-top:4px;line-height:1.4}
+#previewPane{position:relative}.problem-copy{flex:1;min-width:0}.problem-advice{display:block;color:#63573d;margin-top:4px;line-height:1.4}
+#statusBar{height:28px;min-height:28px;max-height:28px;gap:8px;box-sizing:border-box;overflow:hidden}
+#statusBar[hidden]{display:flex}#statusDetails{display:flex;align-items:center;gap:12px;flex:1;min-width:0}#statusDetails[hidden]{display:none}
+#errorCount{flex:none;padding:2px 7px;min-height:22px;font-size:11px;font-weight:600;white-space:nowrap;border:1px solid #cbd8c7;background:#f5f8f3;color:#42644c;border-radius:4px}
+#statusBar[data-severity="error"] #errorCount{background:#b42318;border-color:#b42318;color:white}
+#statusBar[data-severity="warning"] #errorCount{background:#fff0bf;border-color:#c6a953;color:#68450c}
+#previewNotice{position:static;display:flex;align-items:center;gap:8px;flex:2;min-width:0;max-width:none;margin:0;padding:0;border:0;border-radius:0;box-shadow:none;background:transparent;color:#57421e;font-size:11px;overflow:hidden}
+#previewNotice[hidden]{display:none}#previewNotice>div:first-child{flex:1;min-width:0}#previewNoticeTitle{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;line-height:22px;font-size:11px;font-weight:500}
+#statusBar[data-severity="error"] #previewNoticeTitle{color:#9b241a}#previewNoticeText{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip-path:inset(50%);white-space:nowrap;border:0}
+.preview-notice-actions{display:flex;flex:none;gap:5px;margin:0}.preview-notice-actions button{font-size:10px;padding:2px 5px;min-height:22px;white-space:nowrap}
+@media(max-width:1000px){#statusBar:has(#previewNotice:not([hidden])) #statusDetails{display:none}}
