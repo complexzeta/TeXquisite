@@ -763,7 +763,12 @@ async function localCorrection(message:any,base:any,fragment:any){
   const slices=message.calibration?.slices as {from:number;to:number;dy:number}[]|undefined;
   const vertical=(y:number)=>slices?.find(s=>y>=s.from&&y<s.to)?.dy??message.calibration.y;
   for(const a of message.calibration?.anchors??[]){const full=fullLookup.nearest(a.code,a.full),local=fragmentLookup.nearest(a.code,a.fragment);if(full&&local)offsets.push({x:full[1]-local[1],y:full[2]-local[2]-vertical(local[2])+message.calibration.y,full,fragment:local});}
-  const correction=placementCorrection(offsets,message.calibration,true);if(!correction)return false;
+  const proposal=placementCorrection(offsets,message.calibration,true);
+  if(!message.calibration||![message.calibration.x,message.calibration.y].every(Number.isFinite))return false;
+  // Translation requires an anchor consensus. Independently matched vector
+  // glyphs at the unchanged native origin can still witness coverage when
+  // PDF text metrics do not supply that consensus; they cannot move the patch.
+  const correction=proposal||{dx:0,dy:0};
   // An already aligned origin still needs independently matched glyph boxes
   // for bounded antialiasing coverage. Do not repeat an identical proposal
   // after those boxes have already failed their raster check.
@@ -773,7 +778,9 @@ async function localCorrection(message:any,base:any,fragment:any){
     const gy=vertical(g[2])+correction.dy,full=fullLookup.nearest(g[0],[g[1]+x,g[2]+gy,g[3],g[4]]);if(!full)continue;
     if(Math.abs(full[1]-g[1]-x)<=.02&&Math.abs(full[2]-g[2]-gy)<=.02&&Math.abs(full[3]-g[3])<=.02&&Math.abs(full[4]-g[4])<=.02){const outline=fullOutlines.get(full);calibratedGlyphs.push({x:full[1],y:full[2],width:full[3],height:full[4],outline:typeof outline==='string'&&outline.length===64&&outline===fragmentOutlines.get(g)});}
   }
-  console.debug('Local glyph calibration',JSON.stringify({glyphs:calibratedGlyphs.length,outlines:calibratedGlyphs.filter(g=>g.outline).length,dx:correction.dx,dy:correction.dy}));
+  const outlines=calibratedGlyphs.filter(g=>g.outline).length;
+  if(!proposal&&outlines<3)return false;
+  console.debug('Local glyph calibration',JSON.stringify({glyphs:calibratedGlyphs.length,outlines,translationConsensus:!!proposal,dx:correction.dx,dy:correction.dy}));
   return {...correction,calibratedGlyphs};
 }
 api.on(async message=>{
