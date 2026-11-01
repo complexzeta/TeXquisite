@@ -29,6 +29,11 @@ try {
  Invoke-MiKTeX initexmf @('--report')
  Invoke-MiKTeX initexmf @('--set-config-value=[MPM]AutoInstall=0')
  Invoke-MiKTeX miktex @('links','install','--force')
+ $repositories=& "$bin/mpm.exe" --pick-repository-url
+ if($LASTEXITCODE -ne 0){throw 'MiKTeX could not select a registered package mirror'}
+ $repo=@($repositories | Where-Object {$_ -match '^https://'}) | Select-Object -First 1
+ if(-not $repo){throw 'MiKTeX did not return an HTTPS package mirror'}
+ $repo=$repo.Trim()
  Invoke-MiKTeX mpm @("--set-repository=$repo")
  Invoke-MiKTeX miktex @('packages','update-package-database','--repository',$repo)
  Invoke-MiKTeX miktex @('packages','update','--repository',$repo)
