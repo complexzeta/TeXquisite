@@ -53,6 +53,8 @@ jobs:
           if($LASTEXITCODE -ne 0){exit $LASTEXITCODE}
           node --test test/miktex-lookup-probe.test.cjs
           if($LASTEXITCODE -ne 0){exit $LASTEXITCODE}
+          node --test test/format-cache.test.cjs
+          if($LASTEXITCODE -ne 0){exit $LASTEXITCODE}
           node --test --test-name-pattern='MiKTeX final|TeX diagnostics resolve|Native file-line|Cancelling a captured|PSTricks format|Converter and bibliography' test/diagnostics.test.cjs
           exit $LASTEXITCODE
       - name: Install isolated basic MiKTeX and required test packages
@@ -89,6 +91,7 @@ jobs:
           name: miktex-${{ matrix.os }}
           retention-days: 7
           if-no-files-found: warn
+          overwrite: true
           path: |
             ${{ env.PERSISTENT_TEX_TEST_ARTIFACTS }}/**/result.json
             ${{ env.PERSISTENT_TEX_TEST_ARTIFACTS }}/**/failure.log

@@ -7,7 +7,11 @@ New-Item -ItemType Directory -Path $root -Force | Out-Null
 $result=[ordered]@{passed=$false;installer='basic-miktex-25.12-x64.exe';installerSha256='14b42dd9f4b4a7813a8bfd69c8f99316c2888cc4ee26f631f397e163d85d6c62';cloudOnly=$true}
 try {
  $installer=Join-Path $root $result.installer
- Invoke-WebRequest -Uri 'https://miktex.org/download/ctan/systems/win32/miktex/setup/windows-x64/basic-miktex-25.12-x64.exe' -OutFile $installer -TimeoutSec 300 -MaximumRetryCount 3 -RetryIntervalSec 2
+ # PowerShell's HTTP retry does not cover every connection exception.
+ for($attempt=1;$attempt -le 3;$attempt++){
+  try{Invoke-WebRequest -Uri 'https://miktex.org/download/ctan/systems/win32/miktex/setup/windows-x64/basic-miktex-25.12-x64.exe' -OutFile $installer -TimeoutSec 300;break}
+  catch{if($attempt -eq 3){throw};Write-Host "Installer connection failed on attempt $attempt; retrying.";Start-Sleep -Seconds 2}
+ }
  if((Get-FileHash -LiteralPath $installer -Algorithm SHA256).Hash.ToLowerInvariant() -ne $result.installerSha256){throw 'Official installer checksum mismatch'}
  $install=Join-Path $root 'MiKTeX with spaces';$config=Join-Path $root 'config';$data=Join-Path $root 'data'
  $installerArguments=@('--unattended','--private','--no-additional-roots',('--user-install="'+$install+'"'),('--user-config="'+$config+'"'),('--user-data="'+$data+'"'))
