@@ -37,7 +37,11 @@ try {
  Invoke-MiKTeX mpm @("--set-repository=$repo")
  Invoke-MiKTeX miktex @('packages','update-package-database','--repository',$repo)
  Invoke-MiKTeX miktex @('packages','update','--repository',$repo)
- Invoke-MiKTeX miktex @('packages','install','--repository',$repo,'latexmk','amsmath','graphics','pgf','hyperref','geometry')
+ foreach($package in @('latexmk','amsmath','graphics','pgf','hyperref','geometry')){
+  $present=& "$bin/miktex.exe" packages info --template '{isInstalled}' $package
+  if($LASTEXITCODE -ne 0){throw "Cannot check package $package"}
+  if(($present | Out-String).Trim() -notmatch '^(?i:true|yes|1)$'){Invoke-MiKTeX miktex @('packages','install','--repository',$repo,$package)}
+ }
  Invoke-MiKTeX miktex @('links','install','--force')
  if(-not (Test-Path -LiteralPath "$bin/pdflatex.exe")){throw 'Command links were not created in the installed binary folder; see setup.log'}
  Invoke-MiKTeX initexmf @('--update-fndb')
