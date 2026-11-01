@@ -10,8 +10,8 @@ try {
  Invoke-WebRequest -Uri 'https://miktex.org/download/ctan/systems/win32/miktex/setup/windows-x64/basic-miktex-25.12-x64.exe' -OutFile $installer -TimeoutSec 300
  if((Get-FileHash -LiteralPath $installer -Algorithm SHA256).Hash.ToLowerInvariant() -ne $result.installerSha256){throw 'Official installer checksum mismatch'}
  $install=Join-Path $root 'MiKTeX with spaces';$config=Join-Path $root 'config';$data=Join-Path $root 'data'
- $args=@('--unattended','--private','--no-registry','--no-additional-roots',('--user-install="'+$install+'"'),('--user-config="'+$config+'"'),('--user-data="'+$data+'"'))
- $process=Start-Process -FilePath $installer -ArgumentList $args -WindowStyle Hidden -PassThru
+ $installerArguments=@('--unattended','--private','--no-registry','--no-additional-roots',('--user-install="'+$install+'"'),('--user-config="'+$config+'"'),('--user-data="'+$data+'"'))
+ $process=Start-Process -FilePath $installer -ArgumentList $installerArguments -WindowStyle Hidden -PassThru -RedirectStandardOutput "$root/installer-stdout.log" -RedirectStandardError "$root/installer-stderr.log"
  if(-not $process.WaitForExit(600000)){Stop-Process -Id $process.Id;throw 'Cloud MiKTeX installer exceeded ten minutes'}
  if($process.ExitCode -ne 0){throw "MiKTeX installer exit $($process.ExitCode)"}
  $bin=Join-Path $install 'miktex/bin/x64';if(-not (Test-Path -LiteralPath "$bin/pdflatex.exe")){throw 'MiKTeX executables were not installed at the selected root'}
@@ -40,4 +40,4 @@ try {
  "TEXQUISITE_TEST_MIKTEX_REPOSITORY=$repo" >> $env:GITHUB_ENV
  "$bin" >> $env:GITHUB_PATH
  "$perlBin" >> $env:GITHUB_PATH
-}catch{$result.error=String($_);throw}finally{$result | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath "$root/installation.json" -Encoding utf8}
+}catch{$result.error=$_.ToString();$result.stack=$_.ScriptStackTrace;throw}finally{$result | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath "$root/installation.json" -Encoding utf8}

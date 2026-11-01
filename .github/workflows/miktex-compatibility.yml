@@ -70,5 +70,5 @@ jobs:
             ${{ env.PERSISTENT_TEX_TEST_ARTIFACTS }}/**/result.json
             ${{ env.PERSISTENT_TEX_TEST_ARTIFACTS }}/**/failure.log
             ${{ env.MIKTEX_TEST_ROOT }}/installation/installation.json
-            ${{ env.MIKTEX_TEST_ROOT }}/installation/setup.log
+            ${{ env.MIKTEX_TEST_ROOT }}/installation/*.log
             ${{ env.MIKTEX_TEST_ROOT }}/published-package/portable-package.json
