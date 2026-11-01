@@ -18,16 +18,17 @@ const digest=b=>createHash('sha256').update(b).digest('hex');
   for(const name of ['tex','fonts','web2c'])if(fs.existsSync(path.join(root,name)))walk(name);fs.writeFileSync(indexFile,lines.join('\n'),{flag:'wx'});result.indexEntries=entries;result.stage='format';
   // Experiment in disposable compiled copies only. MiKTeX lookup behavior is
   // not Kpathsea's batch/exit-code contract. Never relax the production guards.
-  const compiled=path.join(directory,'experimental-dist');fs.cpSync(path.resolve('dist'),compiled,{recursive:true});
+  const compiled=path.join(directory,'experimental-dist');fs.cpSync(path.resolve('dist'),compiled,{recursive:true});fs.cpSync(path.resolve('engine/resident'),path.join(directory,'engine/resident'),{recursive:true});
+  env.TEXQUISITE_MIKTEX_PROBE_TRACE=process.env.TEXQUISITE_MIKTEX_PROBE_TRACE=path.join(directory,'lookup.jsonl');
   const shim=`(()=>{const cp=require('node:child_process'),fs=require('node:fs'),path=require('node:path');const original=cp.execFileSync;
 cp.execFileSync=function(exe,args,options){
  if(path.basename(String(exe)).toLowerCase()!=='kpsewhich.exe'||!Array.isArray(args)||args.some(n=>!n||n.startsWith('-')||/[\\\\/\\0:\\r\\n]/.test(n)))return original.apply(this,arguments);
- const found=[];let missing=0;
+ const found=[],missing=[];
  for(const name of args){let file='';for(const query of [[name],['--format=tex',name]]){try{file=String(original(exe,query,options)).trim();}catch(e){if(e.status!==1||String(e.stdout??'').trim()||String(e.stderr??'').split(/\\r?\\n/).filter(Boolean).some(l=>!/^kpsewhich: (security risk: running with elevated privileges|major issue: So far, you have not checked for MiKTeX updates\\.)$/.test(l)))throw e;}
  if(file){if(/[\\r\\n]/.test(file)||!path.isAbsolute(file)||!fs.statSync(file).isFile())throw Error('Invalid MiKTeX lookup result');break;}}
- if(file)found.push(file);else missing++;
+ fs.appendFileSync(process.env.TEXQUISITE_MIKTEX_PROBE_TRACE,JSON.stringify({name,found:!!file})+'\\n');if(file)found.push(file);else missing.push(name);
  }
- if(missing){const error=Error('MiKTeX lookup: '+missing+' absent input(s)');error.status=missing%256;error.stdout=found.join('\\n');error.stderr='';throw error;}return found.join('\\n');
+ if(missing.length){const error=Error('MiKTeX lookup: absent inputs '+missing.join(', '));error.status=missing.length%256;error.stdout=found.join('\\n');error.stderr='';throw error;}return found.join('\\n');
 };})();\n`;
   for(const name of ['format-cache.js','format-worker.js','resident-worker.js']){const file=path.join(compiled,name);fs.writeFileSync(file,shim+fs.readFileSync(file,'utf8'));}
   const {generateInstalledFormat}=require(path.join(compiled,'format-cache.js')),{ResidentCompiler}=require(path.join(compiled,'resident.js'));result.experimentalLookupAdapter=true;
