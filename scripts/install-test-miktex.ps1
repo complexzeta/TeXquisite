@@ -10,7 +10,7 @@ try {
  Invoke-WebRequest -Uri 'https://miktex.org/download/ctan/systems/win32/miktex/setup/windows-x64/basic-miktex-25.12-x64.exe' -OutFile $installer -TimeoutSec 300 -MaximumRetryCount 3 -RetryIntervalSec 2
  if((Get-FileHash -LiteralPath $installer -Algorithm SHA256).Hash.ToLowerInvariant() -ne $result.installerSha256){throw 'Official installer checksum mismatch'}
  $install=Join-Path $root 'MiKTeX with spaces';$config=Join-Path $root 'config';$data=Join-Path $root 'data'
- $installerArguments=@('--unattended','--private','--no-registry','--no-additional-roots',('--user-install="'+$install+'"'),('--user-config="'+$config+'"'),('--user-data="'+$data+'"'))
+ $installerArguments=@('--unattended','--private','--no-additional-roots',('--user-install="'+$install+'"'),('--user-config="'+$config+'"'),('--user-data="'+$data+'"'))
  $process=Start-Process -FilePath $installer -ArgumentList $installerArguments -WindowStyle Hidden -Wait -PassThru -RedirectStandardOutput "$root/installer-stdout.log" -RedirectStandardError "$root/installer-stderr.log"
  # Start-Process -Wait follows the bootstrap installer and its children.
  if($process.ExitCode -ne 0){throw "MiKTeX installer exit $($process.ExitCode)"}
