@@ -49,7 +49,7 @@ try {
  $warm=Join-Path $root 'warmup';New-Item -ItemType Directory -Path $warm | Out-Null
  '\documentclass{article}\usepackage{amsmath,graphicx,tikz,hyperref}\begin{document}Warmup $\sqrt\pi$.\begin{tikzpicture}\draw(0,0)--(1,1);\end{tikzpicture}\end{document}' | Set-Content -LiteralPath "$warm/main.tex" -Encoding ascii
  Push-Location $warm
- try{Invoke-MiKTeX pdflatex @('--disable-installer','-interaction=nonstopmode','-halt-on-error','main.tex')}finally{Pop-Location}
+ try{Invoke-MiKTeX pdflatex @('--enable-installer','-interaction=nonstopmode','-halt-on-error','main.tex')}finally{Pop-Location}
  $result.bin=$bin;$result.installRoot=$install;$result.perl=$perl;$result.repository=$repo;$result.version=(& "$bin/pdflatex.exe" --version | Select-Object -First 1);$result.passed=$true
  "TEXQUISITE_TEST_TEX_BIN=$bin" >> $env:GITHUB_ENV
  "TEXQUISITE_TEST_MIKTEX_ROOT=$install" >> $env:GITHUB_ENV

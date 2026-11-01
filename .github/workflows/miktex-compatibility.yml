@@ -43,6 +43,7 @@ jobs:
           node --test --test-concurrency=1 test/toolchain.test.cjs test/footer-navigation.test.cjs
           exit $LASTEXITCODE
       - name: Install isolated basic MiKTeX and required test packages
+        id: install
         timeout-minutes: 15
         shell: pwsh
         run: |
@@ -51,14 +52,18 @@ jobs:
       - name: Check native compilation, packages and two-way navigation
         run: node scripts/miktex-compatibility-test.cjs
       - name: Check source app editing, errors, export and restart
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
         run: node scripts/miktex-ui-test.cjs
       - name: Verify and extract the public 0.122 portable
+        id: portable
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
         shell: pwsh
         run: |
           $exe=& scripts/prepare-portable-test.ps1 -WorkRoot "$env:MIKTEX_TEST_ROOT/published-package"
           if($LASTEXITCODE -ne 0){exit $LASTEXITCODE}
           "PERSISTENT_TEX_EXECUTABLE=$exe" >> $env:GITHUB_ENV
       - name: Check the published portable with MiKTeX
+        if: ${{ !cancelled() && steps.portable.outcome == 'success' }}
         run: node scripts/miktex-ui-test.cjs
       - name: Upload bounded compatibility evidence
         if: ${{ always() }}
