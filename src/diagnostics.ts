@@ -25,7 +25,10 @@ export function parseDiagnostic(text:string,inputs:DiagnosticInput[]=[]):Pick<Bu
   if(postscript&&/Ghostscript[^\n]*(?:Unrecoverable error|exit code)/i.test(text))return {kind:'build',message:compact('PostScript conversion failed: '+postscript[1])};
   const bibliography=/I couldn't open (?:style|database) file (.+)/.exec(text);
   if(bibliography)return {kind:'build',message:compact('Bibliography file not found: '+bibliography[1])};
-  const messageFor=(message:string)=>compact(/Undefined control sequence/.test(message)&&/\\PSTricks\b[\s\S]{0,100}_Not_Configured_For_This_Format/.test(text)?'PSTricks is not configured for the selected TeX engine.':message);
+  const firstError=/^!\s+(?!==>)(.+)$/m.exec(text);
+  // MiKTeX can print an unlocated, useful LaTeX error before a located generic
+  // Emergency stop. Keep the captured location, but explain the first cause.
+  const messageFor=(message:string)=>compact(/Undefined control sequence/.test(message)&&/\\PSTricks\b[\s\S]{0,100}_Not_Configured_For_This_Format/.test(text)?'PSTricks is not configured for the selected TeX engine.':/^(?:Emergency stop|Fatal error)/i.test(message)&&firstError&&!/^(?:Emergency stop|Fatal error)/i.test(firstError[1])?firstError[1]:message);
   const normalize=(name:string)=>{name=name.replace(/^"|"$/g,'').replace(/\\/g,'/').replace(/^\.\//,'');return process.platform==='win32'?name.toLowerCase():name;};
   const aliases=new Map<string,string>();
   for(const input of inputs)for(const alias of input.aliases)aliases.set(normalize(alias),input.file);
@@ -34,7 +37,7 @@ export function parseDiagnostic(text:string,inputs:DiagnosticInput[]=[]):Pick<Bu
     const file=resolve(match[1]);if(file)return {kind:'tex',message:messageFor(match[3]),file,line:Number(match[2])};
     if(/\.(tex|sty|cls|ltx|def|cfg|clo|fd|bib|bst|aux|nav|snm|toc|out|bbl|vrb)["']?$/.test(match[1]))return {kind:'tex',message:messageFor(match[3])};
   }
-  const error=/^!\s+(?!==>)(.+)$/m.exec(text);
+  const error=firstError;
   if(error){
     const after=text.slice(error.index+error[0].length),line=/^l\.(\d+)\s/m.exec(after);
     let file:string|undefined,unknownFile=false;

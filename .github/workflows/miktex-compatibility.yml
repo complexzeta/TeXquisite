@@ -40,7 +40,7 @@ jobs:
         run: |
           npm run build
           if($LASTEXITCODE -ne 0){exit $LASTEXITCODE}
-          node --test --test-concurrency=1 test/toolchain.test.cjs test/footer-navigation.test.cjs
+          node --test --test-concurrency=1 test/toolchain.test.cjs test/footer-navigation.test.cjs test/diagnostics.test.cjs
           exit $LASTEXITCODE
       - name: Install isolated basic MiKTeX and required test packages
         id: install

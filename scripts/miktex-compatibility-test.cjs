@@ -8,7 +8,7 @@ const {inspectToolchain,discoverInstallations}=require('../dist/toolchain'),{Art
  const env={...process.env};for(const key of Object.keys(env))if(/^(?:TEX|BIB|BST)/i.test(key)||key.toLowerCase()==='path')delete env[key];
  env.PATH=[bin,perl,path.join(process.env.SystemRoot,'System32'),process.env.SystemRoot,path.dirname(process.execPath)].join(path.delimiter);
  const run=(name,args,allowFailure=false)=>{const r=cp.spawnSync(path.join(bin,name+'.exe'),args,{cwd:directory,env,encoding:'utf8',windowsHide:true,timeout:180000,maxBuffer:4*1024*1024});logs.push((r.stdout??'')+(r.stderr??''));if(!allowFailure)assert.equal(r.status,0,name+' '+args.join(' ')+' '+(r.stderr??''));return r;};
- const prior={...process.env};Object.assign(process.env,env);for(const key of Object.keys(process.env))if(!(key in env))delete process.env[key];
+ const prior={...process.env};for(const key of Object.keys(process.env))if(!(key in env))delete process.env[key];Object.assign(process.env,env);
  let controller;
  try{
   const found=await discoverInstallations(undefined,env,[]);assert.equal(found.length,1);assert.equal(found[0].bin.toLowerCase(),bin.toLowerCase());result.pathDetection=true;
