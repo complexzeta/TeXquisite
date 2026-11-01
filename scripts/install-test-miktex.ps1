@@ -14,7 +14,11 @@ try {
  $process=Start-Process -FilePath $installer -ArgumentList $installerArguments -WindowStyle Hidden -Wait -PassThru -RedirectStandardOutput "$root/installer-stdout.log" -RedirectStandardError "$root/installer-stderr.log"
  # Start-Process -Wait follows the bootstrap installer and its children.
  if($process.ExitCode -ne 0){throw "MiKTeX installer exit $($process.ExitCode)"}
- $bin=Join-Path $install 'miktex/bin/x64';if(-not (Test-Path -LiteralPath "$bin/pdflatex.exe")){throw 'MiKTeX executables were not installed at the selected root'}
+ $executables=@(Get-ChildItem -LiteralPath $install -Recurse -File -Filter '*.exe')
+ $result.executableSample=@($executables | Select-Object -First 20 | ForEach-Object {[IO.Path]::GetRelativePath($install,$_.FullName)})
+ $pdf=@($executables | Where-Object Name -eq 'pdflatex.exe')
+ if($pdf.Count -ne 1){throw "Expected one installed pdflatex; found $($pdf.Count). See executableSample."}
+ $bin=$pdf[0].DirectoryName
  $perl=(Get-Command perl -ErrorAction Stop).Source;$perlBin=Split-Path -Parent $perl
  $env:PATH="$bin;$perlBin;$env:SystemRoot/System32;$env:SystemRoot;$(Split-Path -Parent (Get-Command node).Source)"
  $repo='https://mirror.ctan.org/systems/win32/miktex/tm/packages/'
