@@ -11,8 +11,8 @@ try {
  if((Get-FileHash -LiteralPath $installer -Algorithm SHA256).Hash.ToLowerInvariant() -ne $result.installerSha256){throw 'Official installer checksum mismatch'}
  $install=Join-Path $root 'MiKTeX with spaces';$config=Join-Path $root 'config';$data=Join-Path $root 'data'
  $installerArguments=@('--unattended','--private','--no-registry','--no-additional-roots',('--user-install="'+$install+'"'),('--user-config="'+$config+'"'),('--user-data="'+$data+'"'))
- $process=Start-Process -FilePath $installer -ArgumentList $installerArguments -WindowStyle Hidden -PassThru -RedirectStandardOutput "$root/installer-stdout.log" -RedirectStandardError "$root/installer-stderr.log"
- if(-not $process.WaitForExit(600000)){Stop-Process -Id $process.Id;throw 'Cloud MiKTeX installer exceeded ten minutes'}
+ $process=Start-Process -FilePath $installer -ArgumentList $installerArguments -WindowStyle Hidden -Wait -PassThru -RedirectStandardOutput "$root/installer-stdout.log" -RedirectStandardError "$root/installer-stderr.log"
+ # Start-Process -Wait follows the bootstrap installer and its children.
  if($process.ExitCode -ne 0){throw "MiKTeX installer exit $($process.ExitCode)"}
  $bin=Join-Path $install 'miktex/bin/x64';if(-not (Test-Path -LiteralPath "$bin/pdflatex.exe")){throw 'MiKTeX executables were not installed at the selected root'}
  $perl=(Get-Command perl -ErrorAction Stop).Source;$perlBin=Split-Path -Parent $perl
@@ -40,4 +40,4 @@ try {
  "TEXQUISITE_TEST_MIKTEX_REPOSITORY=$repo" >> $env:GITHUB_ENV
  "$bin" >> $env:GITHUB_PATH
  "$perlBin" >> $env:GITHUB_PATH
-}catch{$result.error=$_.ToString();$result.stack=$_.ScriptStackTrace;throw}finally{$result | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath "$root/installation.json" -Encoding utf8}
+}catch{$result.error=$_.ToString();$result.stack=$_.ScriptStackTrace;throw}finally{$result.installDirectories=@(Get-ChildItem -LiteralPath $root -Directory | Select-Object -ExpandProperty Name);$traces=@(Get-ChildItem -LiteralPath $env:TEMP -File -Recurse -Filter '*.log' -ErrorAction SilentlyContinue | Select-Object -First 8);foreach($trace in $traces){("Trace: "+$trace.Name) | Out-File -LiteralPath "$root/bootstrap-trace.log" -Append;Get-Content -LiteralPath $trace.FullName -Tail 100 | Out-File -LiteralPath "$root/bootstrap-trace.log" -Append};$result | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath "$root/installation.json" -Encoding utf8}

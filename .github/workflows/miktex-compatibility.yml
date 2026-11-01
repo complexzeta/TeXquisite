@@ -43,6 +43,7 @@ jobs:
           node --test --test-concurrency=1 test/toolchain.test.cjs test/footer-navigation.test.cjs
           exit $LASTEXITCODE
       - name: Install isolated basic MiKTeX and required test packages
+        timeout-minutes: 15
         shell: pwsh
         run: |
           & scripts/install-test-miktex.ps1 -WorkRoot "$env:MIKTEX_TEST_ROOT/installation"
