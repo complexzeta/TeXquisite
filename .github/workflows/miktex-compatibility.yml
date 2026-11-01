@@ -1,6 +1,7 @@
 name: MiKTeX compatibility
 on:
   workflow_dispatch:
+  workflow_call:
 permissions:
   contents: read
 concurrency:
@@ -39,7 +40,7 @@ jobs:
         run: |
           npm run build
           if($LASTEXITCODE -ne 0){exit $LASTEXITCODE}
-          node --test --test-concurrency=1 test/toolchain.test.cjs test/navigation.test.cjs
+          node --test --test-concurrency=1 test/toolchain.test.cjs test/footer-navigation.test.cjs
           exit $LASTEXITCODE
       - name: Install isolated basic MiKTeX and required test packages
         shell: pwsh

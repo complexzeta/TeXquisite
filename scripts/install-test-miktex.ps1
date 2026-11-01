@@ -23,6 +23,7 @@ try {
   if($LASTEXITCODE -ne 0){throw "$Name failed with exit $LASTEXITCODE"}
  }
  Invoke-MiKTeX initexmf @('--set-config-value=[MPM]AutoInstall=0')
+ Invoke-MiKTeX mpm @("--set-repository=$repo")
  Invoke-MiKTeX miktex @('packages','update-package-database','--repository',$repo)
  Invoke-MiKTeX miktex @('packages','update','--repository',$repo)
  Invoke-MiKTeX miktex @('packages','install','--repository',$repo,'latexmk','amsmath','graphics','pgf','hyperref','geometry')
