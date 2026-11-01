@@ -1,7 +1,7 @@
 // Feasibility experiment ONLY: writes an ls-R adapter inside the disposable
 // runner's MiKTeX tree. No production worker, TeX Live path or user tree changes.
 const fs=require('node:fs'),path=require('node:path'),cp=require('node:child_process'),assert=require('node:assert/strict'),{createHash}=require('node:crypto');
-const {fingerprintFiles,generateInstalledFormat}=require('../dist/format-cache'),{formatFingerprint,FORMAT_FINGERPRINT_POLICY}=require('../dist/format-fingerprint'),{ResidentCompiler}=require('../dist/resident');
+const {fingerprintFiles}=require('../dist/format-cache'),{formatFingerprint,FORMAT_FINGERPRINT_POLICY}=require('../dist/format-fingerprint');
 const digest=b=>createHash('sha256').update(b).digest('hex');
 (async()=>{
  assert.equal(process.env.CI,'true');const root=process.env.TEXQUISITE_TEST_MIKTEX_ROOT,bin=process.env.TEXQUISITE_TEST_TEX_BIN,repo=process.env.TEXQUISITE_TEST_MIKTEX_REPOSITORY;assert.ok(root&&bin);assert.ok(path.resolve(root).toLowerCase().startsWith(path.resolve(process.env.RUNNER_TEMP).toLowerCase()+path.sep));
@@ -16,7 +16,22 @@ const digest=b=>createHash('sha256').update(b).digest('hex');
   const before=Object.fromEntries(Object.entries(files).map(([n,p])=>[n,digest(fs.readFileSync(p))])),lines=['% Disposable MiKTeX fast-preview index experiment'];let entries=0;
   const walk=relative=>{const folder=path.join(root,relative),items=fs.readdirSync(folder,{withFileTypes:true});lines.push('./'+relative.replaceAll('\\','/')+':');for(const e of items.filter(e=>e.isFile())){lines.push(e.name);entries++;}lines.push('');for(const e of items.filter(e=>e.isDirectory()&&!e.isSymbolicLink()))walk(path.join(relative,e.name));};
   for(const name of ['tex','fonts','web2c'])if(fs.existsSync(path.join(root,name)))walk(name);fs.writeFileSync(indexFile,lines.join('\n'),{flag:'wx'});result.indexEntries=entries;result.stage='format';
-  const assets=path.resolve('engine/resident'),started=Date.now(),manifest=await generateInstalledFormat({assets,cache:path.join(directory,'formats'),installation:bin,root,files,fingerprints,env,timeoutMs:120000});result.preparationMs=Date.now()-started;result.preparedFormat=true;result.stage='resident';
+  // Experiment in disposable compiled copies only. MiKTeX lookup behavior is
+  // not Kpathsea's batch/exit-code contract. Never relax the production guards.
+  const compiled=path.join(directory,'experimental-dist');fs.cpSync(path.resolve('dist'),compiled,{recursive:true});
+  const shim=`(()=>{const cp=require('node:child_process'),fs=require('node:fs'),path=require('node:path');const original=cp.execFileSync;
+cp.execFileSync=function(exe,args,options){
+ if(path.basename(String(exe)).toLowerCase()!=='kpsewhich.exe'||!Array.isArray(args)||args.some(n=>!n||n.startsWith('-')||/[\\\\/\\0:\\r\\n]/.test(n)))return original.apply(this,arguments);
+ const found=[];let missing=0;
+ for(const name of args){let file='';for(const query of [[name],['--format=tex',name]]){try{file=String(original(exe,query,options)).trim();}catch(e){if(e.status!==1||String(e.stdout??'').trim()||String(e.stderr??'').split(/\\r?\\n/).filter(Boolean).some(l=>!/^kpsewhich: (security risk: running with elevated privileges|major issue: So far, you have not checked for MiKTeX updates\\.)$/.test(l)))throw e;}
+ if(file){if(/[\\r\\n]/.test(file)||!path.isAbsolute(file)||!fs.statSync(file).isFile())throw Error('Invalid MiKTeX lookup result');break;}}
+ if(file)found.push(file);else missing++;
+ }
+ if(missing){const error=Error('MiKTeX lookup: '+missing+' absent input(s)');error.status=missing%256;error.stdout=found.join('\\n');error.stderr='';throw error;}return found.join('\\n');
+};})();\n`;
+  for(const name of ['format-cache.js','format-worker.js','resident-worker.js']){const file=path.join(compiled,name);fs.writeFileSync(file,shim+fs.readFileSync(file,'utf8'));}
+  const {generateInstalledFormat}=require(path.join(compiled,'format-cache.js')),{ResidentCompiler}=require(path.join(compiled,'resident.js'));result.experimentalLookupAdapter=true;
+  const assets=path.resolve('engine/resident'),started=Date.now(),manifest=await generateInstalledFormat({assets,cache:path.join(directory,'formats'),installation:bin,root,files,fingerprints,env,timeoutMs:180000});result.preparationMs=Date.now()-started;result.preparedFormat=true;result.stage='resident';
   const resources={root,files,formatManifest:manifest};compiler=new ResidentCompiler(resources);let source='\\documentclass{article}\n\\usepackage{amsmath,tikz}\n\\begin{document}\n\nTargetSentinel ordinary text with $\\sqrt{\\pi}+\\frac12$. More ordinary words.\n\nTailSentinel unchanged.\n\\end{document}\n';
   await compiler.compile(source,new AbortController().signal,120000,s=>logs.push(s),{characterMapping:true});result.residentDocument=true;
   let from=source.indexOf('TargetSentinel'),to=source.indexOf('\n\n',from)+2;await compiler.prepareRegion(source,{from,to},new AbortController().signal,30000,s=>logs.push(s),{characterMapping:true},from+8);
