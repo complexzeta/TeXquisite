@@ -17,19 +17,20 @@ function lookup(names,run,isFile){
   if(absent<0||r.status!==(absent>255?1:absent))throw Error('Unexpected MiKTeX lookup exit status: '+r.status);
   return files;
  };
- const singles=(group,tex)=>group.map(name=>invoke([name],tex)[0]??'');
  const batch=(group,tex)=>{
-  if(group.length===1)return singles(group,tex);
-  const files=invoke(group,tex),positions=new Map();
-  for(let i=0;i<group.length;i++){const k=key(group[i]);if(positions.has(k))return singles(group,tex);positions.set(k,i);}
-  const result=group.map(()=>''),seen=new Set();let previous=-1;
-  for(const file of files){const at=positions.get(key(path.basename(file)));
-   // Aliases and extensionless names can resolve to another basename.
-   // Re-query individually rather than guessing which request they answer.
-   if(at===undefined||at<=previous||seen.has(at))return singles(group,tex);
-   previous=at;seen.add(at);result[at]=file;
+  const files=invoke(group,tex);
+  if(!files.length)return group.map(()=>'');
+  if(files.length===group.length){
+   // Native lookup emits one ordered result per found request. For a full
+   // response, positions are unambiguous even when a name is an alias.
+   // Independently verify only unexpected basenames (also catches reordering).
+   return files.map((file,i)=>group.length===1||key(path.basename(file))===key(group[i])?file:invoke([group[i]],tex)[0]??'');
   }
-  return result;
+  // A sparse response cannot safely be aligned just by basename: an alias
+  // might resolve to the basename of another, missing request. Subdivide it
+  // until the positions are established by full or empty native responses.
+  const middle=Math.floor(group.length/2);
+  return [...batch(group.slice(0,middle),tex),...batch(group.slice(middle),tex)];
  };
  const result=[];
  for(let at=0;at<names.length;at+=80){const group=names.slice(at,at+80),files=batch(group,false),unfound=[];
