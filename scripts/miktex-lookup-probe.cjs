@@ -29,7 +29,9 @@ function lookup(names,run,isFile,markers){
    const same=(i,m)=>i<files.length&&key(files[i])===key(markers[m].file);let cursor=0;
    for(const name of group){if(same(cursor,0)&&same(cursor+1,1)){result.push('');cursor+=2;}else if(same(cursor+1,0)&&same(cursor+2,1)){result.push(files[cursor]);cursor+=3;}else throw Error('MiKTeX lookup framing changed; check the installation again');}
    if(cursor!==files.length)throw Error('Unexpected MiKTeX lookup framing output');
-   return confirm(result,group,tex);
+   // Framing establishes the request for every native result, including
+   // aliases. Repeating those same native lookups would add no evidence.
+   return result;
   }
   const files=invoke(group,tex);
   if(!files.length)return group.map(()=>'');
