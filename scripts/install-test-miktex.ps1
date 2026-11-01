@@ -7,7 +7,7 @@ New-Item -ItemType Directory -Path $root -Force | Out-Null
 $result=[ordered]@{passed=$false;installer='basic-miktex-25.12-x64.exe';installerSha256='14b42dd9f4b4a7813a8bfd69c8f99316c2888cc4ee26f631f397e163d85d6c62';cloudOnly=$true}
 try {
  $installer=Join-Path $root $result.installer
- Invoke-WebRequest -Uri 'https://miktex.org/download/ctan/systems/win32/miktex/setup/windows-x64/basic-miktex-25.12-x64.exe' -OutFile $installer -TimeoutSec 300
+ Invoke-WebRequest -Uri 'https://miktex.org/download/ctan/systems/win32/miktex/setup/windows-x64/basic-miktex-25.12-x64.exe' -OutFile $installer -TimeoutSec 300 -MaximumRetryCount 3 -RetryIntervalSec 2
  if((Get-FileHash -LiteralPath $installer -Algorithm SHA256).Hash.ToLowerInvariant() -ne $result.installerSha256){throw 'Official installer checksum mismatch'}
  $install=Join-Path $root 'MiKTeX with spaces';$config=Join-Path $root 'config';$data=Join-Path $root 'data'
  $installerArguments=@('--unattended','--private','--no-registry','--no-additional-roots',('--user-install="'+$install+'"'),('--user-config="'+$config+'"'),('--user-data="'+$data+'"'))
@@ -16,8 +16,8 @@ try {
  if($process.ExitCode -ne 0){throw "MiKTeX installer exit $($process.ExitCode)"}
  $executables=@(Get-ChildItem -LiteralPath $install -Recurse -File -Filter '*.exe')
  $result.executableSample=@($executables | Select-Object -First 20 | ForEach-Object {[IO.Path]::GetRelativePath($install,$_.FullName)})
- $pdf=@($executables | Where-Object Name -eq 'pdflatex.exe')
- if($pdf.Count -ne 1){throw "Expected one installed pdflatex; found $($pdf.Count). See executableSample."}
+ $pdf=@($executables | Where-Object Name -eq 'initexmf.exe')
+ if($pdf.Count -ne 1){throw "Expected one installed configuration utility; found $($pdf.Count). See executableSample."}
  $bin=$pdf[0].DirectoryName
  $perl=(Get-Command perl -ErrorAction Stop).Source;$perlBin=Split-Path -Parent $perl
  $env:PATH="$bin;$perlBin;$env:SystemRoot/System32;$env:SystemRoot;$(Split-Path -Parent (Get-Command node).Source)"
@@ -26,11 +26,15 @@ try {
   & "$bin/$Name.exe" @Arguments 2>&1 | Tee-Object -FilePath "$root/setup.log" -Append | Write-Output
   if($LASTEXITCODE -ne 0){throw "$Name failed with exit $LASTEXITCODE"}
  }
+ Invoke-MiKTeX initexmf @('--report')
  Invoke-MiKTeX initexmf @('--set-config-value=[MPM]AutoInstall=0')
+ Invoke-MiKTeX miktex @('links','install','--force')
  Invoke-MiKTeX mpm @("--set-repository=$repo")
  Invoke-MiKTeX miktex @('packages','update-package-database','--repository',$repo)
  Invoke-MiKTeX miktex @('packages','update','--repository',$repo)
  Invoke-MiKTeX miktex @('packages','install','--repository',$repo,'latexmk','amsmath','graphics','pgf','hyperref','geometry')
+ Invoke-MiKTeX miktex @('links','install','--force')
+ if(-not (Test-Path -LiteralPath "$bin/pdflatex.exe")){throw 'Command links were not created in the installed binary folder; see setup.log'}
  Invoke-MiKTeX initexmf @('--update-fndb')
  Invoke-MiKTeX initexmf @('--mkmaps')
  $warm=Join-Path $root 'warmup';New-Item -ItemType Directory -Path $warm | Out-Null
