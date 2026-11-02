@@ -12,7 +12,10 @@ const hash=b=>createHash('sha256').update(b).digest('hex');
  for(const name of ['TEXMFHOME','TEXMFCONFIG','TEXMFVAR']){env[name]=path.join(directory,name.toLowerCase());await fs.mkdir(env[name]);}
  const options={...(process.env.PERSISTENT_TEX_EXECUTABLE?{executablePath:process.env.PERSISTENT_TEX_EXECUTABLE,args:[]}:{args:['.']}),env,timeout:120000};
  const result={passed:false,platform:process.platform,arch:process.arch,packaged:!!process.env.PERSISTENT_TEX_EXECUTABLE},errors=[];let app,page;
- const launch=async()=>{app=await electron.launch(options);page=await app.firstWindow();page.on('pageerror',e=>errors.push(String(e)));};
+ const launch=async()=>{app=await electron.launch(options);page=await app.firstWindow();page.on('pageerror',e=>errors.push(String(e)));
+  const sandbox=await app.evaluate(({app,BrowserWindow})=>{const w=BrowserWindow.getAllWindows()[0],p=w.webContents.getLastWebPreferences();return {enabled:p.sandbox,noSandbox:app.commandLine.hasSwitch('no-sandbox'),pid:w.webContents.getOSProcessId()};});assert.equal(sandbox.enabled,true);assert.equal(sandbox.noSandbox,false);
+  if(process.platform==='linux'){const status=await fs.readFile('/proc/'+sandbox.pid+'/status','utf8');assert.match(status,/^Seccomp:\s+2$/m);assert.match(status,/^NoNewPrivs:\s+1$/m);result.kernelSandboxVerified=true;}result.rendererSandboxEnabled=true;
+ };
  const close=async()=>{await app.evaluate(({app})=>app.quit());await app.close().catch(()=>{});app=undefined;};
  const ready=()=>page.waitForFunction(h=>[...document.querySelectorAll('#pages canvas')].some(c=>c.width>0&&(c.dataset.sourceHash===h||c.dataset.localSourceHash===h)),hash(source),{timeout:120000});
  const replace=async text=>{source=text;await page.locator('.cm-content').evaluate((e,text)=>{const v=e.cmTile.root.view;v.dispatch({changes:{from:0,to:v.state.doc.length,insert:text}});},text);};

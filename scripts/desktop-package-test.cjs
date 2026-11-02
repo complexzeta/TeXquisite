@@ -12,7 +12,7 @@ const fs=require('node:fs'),path=require('node:path'),cp=require('node:child_pro
   }else{
    run('sudo',['apt-get','install','-y',path.join(release,files.find(n=>n.endsWith('.deb')))]);
    const installed=cp.execFileSync('dpkg',['-L','texquisite'],{encoding:'utf8'}).split('\n');executable=installed.find(n=>n.startsWith('/opt/')&&path.basename(n)==='texquisite');assert.ok(executable);
-   const helper=installed.find(n=>path.basename(n)==='chrome-sandbox'),stat=fs.statSync(helper);assert.equal(stat.uid,0);assert.ok(stat.mode&0o4000,'Installed Chromium sandbox must have its required permissions');result.installedDeb=true;result.sandboxConfigured=true;
+   const helper=installed.find(n=>path.basename(n)==='chrome-sandbox'),stat=fs.statSync(helper);assert.equal(stat.uid,0);assert.ok([0o755,0o4755].includes(stat.mode&0o7777),'Unexpected Chromium sandbox permissions');result.installedDeb=true;result.sandboxHelper={uid:stat.uid,mode:(stat.mode&0o7777).toString(8)};
   }
   assert.ok(fs.existsSync(executable));run(process.execPath,['scripts/desktop-smoke-test.cjs'],{env:{...process.env,PERSISTENT_TEX_EXECUTABLE:executable}});result.packagedSmokePassed=true;result.passed=true;
  }catch(error){result.error=String(error);throw error;}
