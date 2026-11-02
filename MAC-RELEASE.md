@@ -37,3 +37,11 @@ Production uses hardened runtime and the JIT entitlement needed by Electron/V8. 
 Ad-hoc hardened rehearsals require a separate library-validation exception because their signatures have no Team ID. This exception exists only in `entitlements.mac-rehearsal.plist`. Tests ensure production selects the separate release entitlement file. A successful rehearsal therefore proves the hardened JIT/rendering path, not the certificate-dependent production library-validation policy.
 
 Release verification checks the actual runtime signature and entitlements. The production path additionally checks the Developer ID authority, Apple acceptance of the DMG submission, stapled tickets and Gatekeeper assessments. Asset SHA-256 checksums are calculated after stapling, so they identify the final candidate bytes. Candidate downloads still need the fresh-run installation checks documented in [DESKTOP-PORTABILITY.md](DESKTOP-PORTABILITY.md) before publication.
+
+## Recorded rehearsal
+
+The [hardened-runtime rehearsal](https://github.com/complexzeta/TeXquisite/actions/runs/41461933301) passed at commit `3e871988559b8a645307365ac7b8a6798f924c38`. Seven signing-policy tests passed, including missing-credential rejection, separation of rehearsal/release entitlements, unchanged Windows/Linux configuration and redaction of saved errors.
+
+Both macOS 15 targets (Apple Silicon and Intel) built hardened-runtime DMG/ZIP assets. Signature inspection confirmed the runtime flag and JIT entitlement. Each mounted DMG then passed TeX discovery, matching-format preparation, prose/math/TikZ preview, automatic save/build, Save shortcut, menus, source navigation, verified export, erroneous-export protection, automatic recovery and restart/cache reuse. All six build/package/functional records passed, and independently calculated asset hashes agreed.
+
+Only small test reports were retained; rehearsal binaries were not uploaded as user downloads. The normal preview index and installed Windows program were not changed. This result does not verify Developer ID certificate import, production library validation, Apple notarization or Gatekeeper acceptance. Those remain explicitly untested until membership and credentials are supplied.
