@@ -1,0 +1,105 @@
+name: Desktop portability
+on:
+  workflow_dispatch:
+  workflow_call:
+permissions:
+  contents: read
+concurrency:
+  group: desktop-portability-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  desktop:
+    name: ${{ matrix.id }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      max-parallel: 4
+      matrix:
+        include:
+          - {id: macOS-arm64, os: macos-15, arch: arm64, target: mac}
+          - {id: macOS-x64, os: macos-15-intel, arch: x64, target: mac}
+          - {id: Linux-x64, os: ubuntu-24.04, arch: x64, target: linux}
+          - {id: Linux-arm64, os: ubuntu-24.04-arm, arch: arm64, target: linux}
+    env:
+      CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+      USE_SYSTEM_FPM: 'true'
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '24'
+      - name: Choose disposable cloud storage
+        shell: bash
+        run: |
+          mkdir -p "$RUNNER_TEMP/texquisite-artifacts"
+          echo "PERSISTENT_TEX_TEST_ARTIFACTS=$RUNNER_TEMP/texquisite-artifacts" >> "$GITHUB_ENV"
+          echo "npm_config_cache=$RUNNER_TEMP/texquisite-npm" >> "$GITHUB_ENV"
+      - name: Linux desktop dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y xvfb libgtk-3-0 libnss3 libasound2t64 libgbm1 libxss1 libxtst6 libatk-bridge2.0-0 libfuse2t64 ruby ruby-dev build-essential
+          sudo gem install fpm --no-document
+      - run: npm ci --no-audit --no-fund
+      - name: Install the native Electron runtime explicitly
+        run: node node_modules/electron/install.js
+      - name: Build and platform guards
+        run: |
+          npm run build
+          node --test test/toolchain.test.cjs test/theme-icon.test.cjs test/format-cache.test.cjs test/saving.test.cjs test/tex-completion.test.cjs
+      - name: Install native TeX Live or BasicTeX
+        timeout-minutes: 25
+        run: bash scripts/install-test-unix.sh
+      - name: Configure source Electron sandbox on Linux
+        if: runner.os == 'Linux'
+        run: |
+          sudo chown root:root node_modules/electron/dist/chrome-sandbox
+          sudo chmod 4755 node_modules/electron/dist/chrome-sandbox
+      - name: Source app functional test
+        shell: bash
+        run: |
+          if [[ "$RUNNER_OS" == Linux ]]; then xvfb-run -a node scripts/desktop-smoke-test.cjs; else node scripts/desktop-smoke-test.cjs; fi
+      - name: Build native packages
+        run: node node_modules/electron-builder/cli.js --${{ matrix.target }} --${{ matrix.arch }} --publish never
+      - name: Verify installed or mounted package
+        shell: bash
+        run: |
+          if [[ "$RUNNER_OS" == Linux ]]; then xvfb-run -a node scripts/desktop-package-test.cjs; else node scripts/desktop-package-test.cjs; fi
+      - name: Upload bounded functional reports
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: desktop-report-${{ matrix.id }}
+          retention-days: 7
+          path: |
+            ${{ env.PERSISTENT_TEX_TEST_ARTIFACTS }}/**/result.json
+            ${{ env.PERSISTENT_TEX_TEST_ARTIFACTS }}/**/failure.log
+      - name: Upload tested preview packages
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: desktop-build-${{ matrix.id }}
+          retention-days: 7
+          compression-level: 0
+          path: |
+            release/*.dmg
+            release/*.zip
+            release/*.deb
+            release/SHA256SUMS.txt
+  windows-guards:
+    runs-on: windows-2022
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '24'
+      - shell: pwsh
+        run: |
+          "PERSISTENT_TEX_TEST_ARTIFACTS=$env:RUNNER_TEMP/texquisite-guards" >> $env:GITHUB_ENV
+      - run: npm ci --no-audit --no-fund
+      - run: npm run build
+      - run: node --test test/toolchain.test.cjs test/theme-icon.test.cjs test/format-cache.test.cjs

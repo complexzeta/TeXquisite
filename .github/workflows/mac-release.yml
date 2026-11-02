@@ -1,0 +1,116 @@
+name: Mac release preparation
+on:
+  workflow_dispatch:
+    inputs:
+      production:
+        description: Require Developer ID signing and Apple notarization
+        type: boolean
+        default: false
+  workflow_call:
+    inputs:
+      production:
+        type: boolean
+        default: false
+    secrets:
+      MAC_CERTIFICATE_P12_BASE64:
+        required: false
+      MAC_CERTIFICATE_PASSWORD:
+        required: false
+      MAC_SIGNING_IDENTITY:
+        required: false
+      MAC_NOTARY_KEY_BASE64:
+        required: false
+      MAC_NOTARY_KEY_ID:
+        required: false
+      MAC_NOTARY_ISSUER:
+        required: false
+permissions:
+  contents: read
+concurrency:
+  group: mac-release-${{ github.ref }}-${{ inputs.production }}
+  cancel-in-progress: false
+jobs:
+  preflight:
+    runs-on: ubuntu-24.04
+    environment: ${{ inputs.production && 'mac-release' || 'mac-rehearsal' }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '24'
+      - name: Signing policy guards
+        run: node --test test/mac-release.test.cjs
+      - name: Check production signing prerequisites before starting Mac runners
+        if: inputs.production
+        env:
+          MAC_CERTIFICATE_P12_BASE64: ${{ secrets.MAC_CERTIFICATE_P12_BASE64 }}
+          MAC_CERTIFICATE_PASSWORD: ${{ secrets.MAC_CERTIFICATE_PASSWORD }}
+          MAC_SIGNING_IDENTITY: ${{ secrets.MAC_SIGNING_IDENTITY }}
+          MAC_NOTARY_KEY_BASE64: ${{ secrets.MAC_NOTARY_KEY_BASE64 }}
+          MAC_NOTARY_KEY_ID: ${{ secrets.MAC_NOTARY_KEY_ID }}
+          MAC_NOTARY_ISSUER: ${{ secrets.MAC_NOTARY_ISSUER }}
+        run: node scripts/mac-release.cjs --production --preflight
+  mac:
+    needs: preflight
+    name: ${{ matrix.arch }} / ${{ inputs.production && 'signed candidate' || 'hardened rehearsal' }}
+    runs-on: ${{ matrix.os }}
+    environment: ${{ inputs.production && 'mac-release' || 'mac-rehearsal' }}
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - {os: macos-15, arch: arm64}
+          - {os: macos-15-intel, arch: x64}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '24'
+      - name: Choose disposable cloud storage
+        run: |
+          echo "PERSISTENT_TEX_TEST_ARTIFACTS=$RUNNER_TEMP/mac-release-reports" >> "$GITHUB_ENV"
+          echo "npm_config_cache=$RUNNER_TEMP/npm" >> "$GITHUB_ENV"
+      - run: npm ci --no-audit --no-fund
+      - run: node node_modules/electron/install.js
+      - run: npm run build
+      - name: Build hardened ad-hoc rehearsal without Apple credentials
+        if: ${{ !inputs.production }}
+        run: node scripts/mac-release.cjs --rehearsal --arch ${{ matrix.arch }}
+      - name: Sign and notarize release candidate
+        if: inputs.production
+        env:
+          MAC_CERTIFICATE_P12_BASE64: ${{ secrets.MAC_CERTIFICATE_P12_BASE64 }}
+          MAC_CERTIFICATE_PASSWORD: ${{ secrets.MAC_CERTIFICATE_PASSWORD }}
+          MAC_SIGNING_IDENTITY: ${{ secrets.MAC_SIGNING_IDENTITY }}
+          MAC_NOTARY_KEY_BASE64: ${{ secrets.MAC_NOTARY_KEY_BASE64 }}
+          MAC_NOTARY_KEY_ID: ${{ secrets.MAC_NOTARY_KEY_ID }}
+          MAC_NOTARY_ISSUER: ${{ secrets.MAC_NOTARY_ISSUER }}
+        run: node scripts/mac-release.cjs --production --arch ${{ matrix.arch }}
+      - run: bash scripts/install-test-unix.sh
+      - name: Test the hardened packaged app
+        run: node scripts/desktop-package-test.cjs
+      - name: Save bounded rehearsal or candidate reports
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: mac-release-report-${{ matrix.arch }}
+          retention-days: 7
+          path: |
+            ${{ env.PERSISTENT_TEX_TEST_ARTIFACTS }}/**/result.json
+            ${{ env.PERSISTENT_TEX_TEST_ARTIFACTS }}/**/failure.log
+      - name: Save only fully verified production candidates
+        if: inputs.production
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: mac-release-candidate-${{ matrix.arch }}
+          retention-days: 7
+          compression-level: 0
+          path: |
+            release/*.dmg
+            release/*.zip
+            release/SHA256SUMS.txt
