@@ -679,6 +679,12 @@ export class LocalPreview{
       }
     }
   }
+  private matchesDraft(slot:Slot,request:Request){
+    if(slot.input||!slot.compiledRange)return false;
+    const text=this.regionText(slot,request.source);if(text===undefined)return false;
+    const compiled=slot.basis.compilerSource,draft=request.fullSource??request.source;
+    return compiled.slice(0,slot.compiledRange.from)+text+compiled.slice(slot.compiledRange.to)===(slot.basis.compilerInput?.(draft)??draft);
+  }
   private async drain(){
     this.running=true;
     try{while(this.pending||this.prefetched){
@@ -726,8 +732,7 @@ export class LocalPreview{
         // input equals the complete editor draft. A remote skip prevents
         // equality; state convergence remains a separate flow-only proof.
         if(!slot.input&&!result.recovery&&(result.kind==='flow'||result.kind==='page'||result.kind==='paragraph')&&slot.compiledRange){
-          const compiled=slot.basis.compilerSource;
-          candidate.sourceMatchesDraft=compiled.slice(0,slot.compiledRange.from)+text+compiled.slice(slot.compiledRange.to)===(request.fullSource??request.source);
+          candidate.sourceMatchesDraft=this.matchesDraft(slot,request);
           candidate.sourceHealthy=candidate.sourceMatchesDraft&&result.kind==='flow'&&!result.flow.stateChanged;
           if(candidate.sourceMatchesDraft){candidate.recoveryCleared=!!slot.basis.bundle.recovered;candidate.recoveredBasis=false;}
         }

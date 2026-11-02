@@ -21,7 +21,7 @@ import {recoveryNavigation} from './recovery-navigation';
 export const hash = (bytes: Uint8Array | string) => createHash('sha256').update(bytes).digest('hex');
 const legacyTkzLoader=/^[\t ]*\\usetkzobj\{all\}[\t ]*(?:%[^\r\n]*)?\r?$/m;
 const hasEuclide=(source:string)=>/\\usepackage(?:\[[^\]]*\])?\{tkz-euclide\}/.test(source);
-const withoutLegacyTkz=(source:string)=>hasEuclide(source)?source.replace(legacyTkzLoader,'% Compatibility: obsolete tkz object loader omitted.'):source;
+export const withoutLegacyTkz=(source:string)=>hasEuclide(source)?source.replace(legacyTkzLoader,'% Compatibility: obsolete tkz object loader omitted.'):source;
 export interface Bundle {
   schema: 1; id: string; revision: number; root: string; engine: string;
   completed: string; pdfHash: string; pages: number; synctex: boolean;
@@ -129,7 +129,7 @@ export class ArtifactStore {
 
 export interface BuildOptions { focus?:{line:number;column:number}; root: string; engine: string; executable: string; timeoutMs: number; sourceRevision?:number; sourceText?:string; characterMapping?:boolean; sourceFiles?:Record<string,string>; supportFolders?:string[]; editId?:string; automatic?:boolean; }
 export interface DisplayTiming {editId?:string;backend:string;requestToCommitMs:number;recovered?:boolean;}
-export interface LocalBasis {bundle:Bundle;options:BuildOptions;source:string;originalSource?:string;recoveryIssues?:BuildDiagnostic[];compilerSource:string;project:ResidentContext;pdf:Uint8Array;canBuildAlongside?:()=>boolean;takeCompiler?:()=>ResidentCompiler|undefined;replaceCompiler?:(previous:ResidentCompiler)=>ResidentCompiler|undefined;returnCompiler?:(compiler:ResidentCompiler)=>boolean;claimAutomatic?:(editId:string,source:string,previous?:ResidentCompiler)=>ResidentCompiler|undefined;}
+export interface LocalBasis {bundle:Bundle;options:BuildOptions;source:string;originalSource?:string;recoveryIssues?:BuildDiagnostic[];compilerSource:string;compilerInput?:(source:string)=>string;project:ResidentContext;pdf:Uint8Array;canBuildAlongside?:()=>boolean;takeCompiler?:()=>ResidentCompiler|undefined;replaceCompiler?:(previous:ResidentCompiler)=>ResidentCompiler|undefined;returnCompiler?:(compiler:ResidentCompiler)=>boolean;claimAutomatic?:(editId:string,source:string,previous?:ResidentCompiler)=>ResidentCompiler|undefined;}
 export interface Viewer { prepare(bundle: Bundle,pdf?:Uint8Array,navigation?:Navigation,displayFocus?:PreviewFocus): Promise<void>; commit(bundle: Bundle,timing?:DisplayTiming): void; discard(bundle: Bundle): void; diagnostic?(issue:BuildDiagnostic):void; problems?(issues:BuildDiagnostic[],editId?:string):void; localBasis?(basis:LocalBasis):void; performance?(report:Record<string,unknown>):void; }
 export class BuildController {
   private static protectedDirectories=new Set<string>();
@@ -460,8 +460,11 @@ export class BuildController {
       // refuses any changed paragraph, and repeats native/raster proofs.
       if(recoveryIssues.length&&!localRecoveryEligible&&source.split('\n').length===compilerSource.split('\n').length){localSource=source;localRecoveryEligible=true;}
       if(recoveryIssues.length)this.log('Recovered local basis: '+JSON.stringify({eligible:localRecoveryEligible,sourceCharacters:source.length,compiledCharacters:compilerSource.length,sourceLines:source.split('\n').length,compiledLines:compilerSource.split('\n').length})+'\n');
+      // Capture only established compatibility normalization, never temporary
+      // error repairs, for later comparisons with the actual editor draft.
+      const compilerInput=this.legacyTkzCompatible?(text:string)=>emptyDocumentPreview(withoutLegacyTkz(text)):emptyDocumentPreview;
       // Recovered output is never proof of the unmodified editor source.
-      if(backend.startsWith('Preamble')||recoveryIssues.length&&localRecoveryEligible)try{this.viewer.localBasis?.({bundle,options,source:recoveryIssues.length?localSource:source,originalSource:recoveryIssues.length?source:undefined,recoveryIssues:recoveryIssues.length?recoveryIssues:undefined,compilerSource,project,pdf,canBuildAlongside:()=>this.independentLocalOwner,takeCompiler:()=>{
+      if(backend.startsWith('Preamble')||recoveryIssues.length&&localRecoveryEligible)try{this.viewer.localBasis?.({bundle,options,source:recoveryIssues.length?localSource:source,originalSource:recoveryIssues.length?source:undefined,recoveryIssues:recoveryIssues.length?recoveryIssues:undefined,compilerSource,compilerInput,project,pdf,canBuildAlongside:()=>this.independentLocalOwner,takeCompiler:()=>{
         // Transfer ownership only after publication and only while idle. Future
         // full verification gets its own worker; local edits cannot race it.
         // A failed local page proof may stop its transferred worker. That
