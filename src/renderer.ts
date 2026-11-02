@@ -1,3 +1,4 @@
+import {queueEditorEdit} from './editor-dispatch';
 import {decodeNavigation} from './navigation-codec';
 import {matchLocalPatchRaster,proofDensityRetry,LOCAL_INK_BLEED_BP} from './local-raster';
 import {placementCorrection,GlyphLookup} from './local-raster';
@@ -31,7 +32,7 @@ let model:any={docs:[]}, active='',view:EditorView|undefined;
 const states=new Map<string,EditorState>();
 installToolbar();
 const panelLayout=new PanelLayout(el('workspace'),el('panelDivider'),el<HTMLSelectElement>('panelLayout'),value=>{model.panelLayout=value;toolbarSelect('panelLayout','panels','Panel layout: '+el<HTMLSelectElement>('panelLayout').selectedOptions[0]?.textContent);void api.call('panels',value).catch(report);},()=>view?.requestMeasure());
-const lastSent=new Map<string,string>();
+const lastSent=new Map<string,string>(),pendingEdits=new Map<string,{text:string}>();
 const editDetails=new Map<string,{id:string;startedAt:number;text:string;displayed?:boolean}>();
 const localInputs=new Map<string,{file:string;text:string;startedAt:number;sequence:number;displayedLatencyMs?:number}>();
 let displayedSequence=0;
@@ -310,12 +311,10 @@ const report=(e:unknown)=>{operationIssue=String(e).replace(/^Error: Error invok
 async function flush() {
   if(!view||!active)return;
   const file=active,text=view.state.doc.toString();
-  if(lastSent.get(file)===text)return editChain;
   const edit=editDetails.get(file);
   const head=view.state.selection.main.head;
-  editChain=editChain.catch(()=>{}).then(()=>api.call('edit',file,text,edit?.text===text?edit.id:undefined,head));
+  editChain=queueEditorEdit(file,text,lastSent,pendingEdits,editChain,()=>api.call('edit',file,text,edit?.text===text?edit.id:undefined,head));
   await editChain;
-  lastSent.set(file,text);
 }
 const surroundBox=document.createElement('form');surroundBox.id='surroundBox';surroundBox.hidden=true;surroundBox.setAttribute('role','dialog');surroundBox.setAttribute('aria-label','Surround selection');
 surroundBox.innerHTML='<label for="surroundDelimiter">Surround selection</label><input id="surroundDelimiter" aria-describedby="surroundHint" spellcheck="false" autocomplete="off"><span id="surroundHint">Type a delimiter, such as \\{ or \\langle. Esc cancels.</span>';

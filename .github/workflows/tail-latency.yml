@@ -35,6 +35,7 @@ jobs:
           "npm_config_cache=$root/npm" >> $env:GITHUB_ENV
       - run: npm ci --no-audit --no-fund
       - run: npm run build
+      - run: node --test test/editor-dispatch.test.cjs test/local-preview.test.cjs
       - shell: pwsh
         run: |
           & scripts/install-test-texlive.ps1 -Year 2026 -WorkRoot "$env:COMPATIBILITY_ROOT/installation"
