@@ -16,7 +16,10 @@
     "test:close": "node scripts/close-test.cjs",
     "test:conflict": "node scripts/conflict-test.cjs",
     "test:reliability": "npm run build && node scripts/reliability-test.cjs",
-    "package": "npm run build && electron-builder --win portable --publish never && powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/archive-builds.ps1"
+    "package": "node scripts/package.mjs",
+    "package:win": "node scripts/package.mjs --win",
+    "package:mac": "node scripts/package.mjs --mac",
+    "package:linux": "node scripts/package.mjs --linux"
   },
   "dependencies": {
     "pdf-lib": "1.17.1"
@@ -59,6 +62,22 @@
     },
     "portable": {
       "artifactName": "TeXquisite-${version}-Windows.exe"
+    },
+    "mac": {
+      "target": ["dmg", "zip"],
+      "category": "public.app-category.productivity",
+      "icon": "media/texquisite-icon.icns",
+      "identity": "-",
+      "hardenedRuntime": false,
+      "notarize": false,
+      "artifactName": "TeXquisite-${version}-macOS-${arch}.${ext}"
+    },
+    "linux": {
+      "target": ["AppImage", "deb"],
+      "maintainer": "TeXquisite contributors",
+      "category": "Office",
+      "icon": "media/texquisite-icon-light.png",
+      "artifactName": "TeXquisite-${version}-Linux-${arch}.${ext}"
     },
     "electronDist": "node_modules/electron/dist",
     "compression": "normal",

@@ -662,7 +662,7 @@ app.whenReady().then(async()=>{
   });
   session.defaultSession.setPermissionRequestHandler((_wc,_permission,callback)=>callback(false));
   window=new BrowserWindow({autoHideMenuBar:false,width:1440,height:940,minWidth:900,minHeight:600,show:!process.env.PERSISTENT_TEX_TEST_HIDDEN,icon:themeIconPath(nativeTheme,path.join(__dirname,'../media')),title:`TeXquisite ${app.getVersion()} — local paragraph preview`,backgroundColor:'#f5f4f0',webPreferences:{preload:path.join(__dirname,'preload.js'),contextIsolation:true,nodeIntegration:false,sandbox:true,backgroundThrottling:false}});
-  followIconTheme(window,nativeTheme,path.join(__dirname,'../media'));
+  followIconTheme(window,nativeTheme,path.join(__dirname,'../media'),process.platform,icon=>app.dock?.setIcon(icon));
   window.webContents.setWindowOpenHandler(()=>({action:'deny'}));
   window.webContents.on('will-navigate',event=>event.preventDefault());
   window.on('close',event=>{

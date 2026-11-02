@@ -1,6 +1,8 @@
 node_modules/
 dist/
 media/vendor/
+media/texquisite-icon-*.png
+media/texquisite-icon.icns
 .test-output/
 *.vsix
 release/

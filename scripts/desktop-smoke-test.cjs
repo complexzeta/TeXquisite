@@ -1,0 +1,38 @@
+const {_electron:electron}=require('playwright'),fs=require('node:fs/promises'),path=require('node:path'),assert=require('node:assert/strict'),{createHash}=require('node:crypto');
+const hash=b=>createHash('sha256').update(b).digest('hex');
+(async()=>{
+ assert.equal(process.env.CI,'true','Desktop matrix is cloud-only');
+ const directory=require('./test-artifacts.cjs').testDirectory('desktop-'+(process.env.PERSISTENT_TEX_EXECUTABLE?'package':'source')),profile=path.join(directory,'profile'),project=path.join(directory,'project with spaces');await fs.mkdir(profile);await fs.mkdir(project);
+ const root=path.join(project,'main.tex'),exported=path.join(directory,'verified.pdf');
+ let source='\\documentclass{article}\n\\usepackage{amsmath,tikz}\n\\begin{document}\n\nCompatibilitySentinel ordinary prose.\n\n$\\sqrt{\\pi}+\\frac12$\n\n\\begin{tikzpicture}\\draw (0,0) circle (1);\\end{tikzpicture}\n\n\\newpage\nSecondPageSentinel navigation text.\n\n\\end{document}\n';
+ await fs.writeFile(root,source);await fs.writeFile(path.join(profile,'session.json'),JSON.stringify({docs:[{path:root,text:source,diskHash:hash(source),dirty:false,eol:'\n'}],root,active:root,engine:'pdflatex',latexmk:'latexmk',onSave:true,liveVersion:2,continuousPreview:true,autoClose:false,followPreview:false,lastCursor:{file:root,at:source.indexOf('prose')}}));
+ const env={...process.env,PERSISTENT_TEX_TEST_DATA:profile,PERSISTENT_TEX_TEST_HIDDEN:'1'};for(const key of Object.keys(env))if(/^(?:TEXMF|TEXINPUTS|BIBINPUTS|BSTINPUTS)/i.test(key))delete env[key];
+ // Finder supplies a sparse PATH. MacTeX must be discovered independently.
+ if(process.platform==='darwin')env.PATH='/usr/bin:/bin:/usr/sbin:/sbin';
+ for(const name of ['TEXMFHOME','TEXMFCONFIG','TEXMFVAR']){env[name]=path.join(directory,name.toLowerCase());await fs.mkdir(env[name]);}
+ const options={...(process.env.PERSISTENT_TEX_EXECUTABLE?{executablePath:process.env.PERSISTENT_TEX_EXECUTABLE,args:[]}:{args:['.']}),env,timeout:120000};
+ const result={passed:false,platform:process.platform,arch:process.arch,packaged:!!process.env.PERSISTENT_TEX_EXECUTABLE},errors=[];let app,page;
+ const launch=async()=>{app=await electron.launch(options);page=await app.firstWindow();page.on('pageerror',e=>errors.push(String(e)));};
+ const close=async()=>{await app.evaluate(({app})=>app.quit());await app.close().catch(()=>{});app=undefined;};
+ const ready=()=>page.waitForFunction(h=>[...document.querySelectorAll('#pages canvas')].some(c=>c.width>0&&(c.dataset.sourceHash===h||c.dataset.localSourceHash===h)),hash(source),{timeout:120000});
+ const replace=async text=>{source=text;await page.locator('.cm-content').evaluate((e,text)=>{const v=e.cmTile.root.view;v.dispatch({changes:{from:0,to:v.state.doc.length,insert:text}});},text);};
+ try{
+  await launch();await page.waitForFunction(()=>document.querySelector('#toolchainSummary').textContent.includes('Ready for compilation'),null,{timeout:120000});
+  if(!await page.locator('#settingsDialog').evaluate(e=>e.open))await page.locator('#settings').click();
+  const selected=await page.locator('#texBin').inputValue();assert.ok(selected);if(process.platform==='darwin')assert.equal(selected,'/Library/TeX/texbin');result.automaticDiscovery=true;result.selectedBin=selected;
+  if(await page.locator('#prepareFastFormat').isEnabled()){await page.locator('#prepareFastFormat').click();await page.waitForFunction(()=>document.querySelector('#formatPreparation').textContent.startsWith('Prepared.')||document.querySelector('#formatPreparation').textContent.includes('Error:'),null,{timeout:240000});assert.match(await page.locator('#formatPreparation').textContent(),/^Prepared\./);}
+  await page.locator('#onSave').check();await page.locator('#applySettings').click();await ready();await page.waitForFunction(()=>document.querySelector('#previewState').dataset.localState==='ready',null,{timeout:120000});result.fastPreview=true;
+  const menus=await app.evaluate(({Menu})=>({file:!!Menu.getApplicationMenu()?.getMenuItemById('file-menu'),edit:!!Menu.getApplicationMenu()?.getMenuItemById('edit-menu'),app:Menu.getApplicationMenu()?.items[0].label}));assert.ok(menus.file&&menus.edit);if(process.platform==='darwin')assert.equal(menus.app,'TeXquisite');result.nativeMenus=true;
+  const at=source.indexOf('prose')+5;await page.locator('.cm-content').evaluate((e,at)=>{const v=e.cmTile.root.view;v.dispatch({selection:{anchor:at}});v.focus();},at);await page.keyboard.insertText(' edited');source=source.slice(0,at)+' edited'+source.slice(at);await ready();
+  await page.keyboard.press(process.platform==='darwin'?'Meta+s':'Control+s');for(let i=0;i<100&&await fs.readFile(root,'utf8')!==source;i++)await new Promise(r=>setTimeout(r,100));assert.equal(await fs.readFile(root,'utf8'),source);result.automaticSaveAndBuild=true;result.platformSaveShortcut=true;
+  await page.locator('.cm-content').evaluate((e,at)=>{const v=e.cmTile.root.view;v.dispatch({selection:{anchor:at},scrollIntoView:true});v.focus();},source.indexOf('SecondPageSentinel'));await page.locator('#locate').click();await page.waitForFunction(()=>document.querySelector('#pdfViewport').scrollTop>0,null,{timeout:30000});result.sourceToSecondPage=true;
+  await app.evaluate(({dialog},file)=>{dialog.showSaveDialog=async()=>({canceled:false,filePath:file});},exported);await page.evaluate(()=>window.desktop.call('export'));const {PDFDocument}=require('pdf-lib'),pdf=await PDFDocument.load(await fs.readFile(exported));assert.equal(pdf.getPageCount(),2);const goodExport=hash(await fs.readFile(exported));result.verifiedExport=true;
+  const healthy=source;await replace(source.replace('\\sqrt','\\notARealDesktopCommand'));await page.waitForFunction(()=>Number(document.querySelector('#errorCount').dataset.errors)>0,null,{timeout:120000});
+  const refused=await page.evaluate(async()=>{try{await window.desktop.call('export');return false;}catch{return true;}});assert.equal(refused,true);assert.equal(hash(await fs.readFile(exported)),goodExport);result.brokenExportProtected=true;
+  await replace(healthy);await ready();await page.waitForFunction(()=>document.querySelector('#errorCount').dataset.errors==='0'&&document.querySelector('#errorCount').dataset.checking==='0',null,{timeout:120000});result.automaticErrorRecovery=true;
+  const manifestRoot=path.join(profile,'formats'),snapshot=async()=>Promise.all((await fs.readdir(manifestRoot).catch(()=>[])).map(async n=>fs.readFile(path.join(manifestRoot,n,'manifest.json'),'utf8'))),before=await snapshot();await close();await launch();await ready();assert.deepEqual(await snapshot(),before);assert.equal(await page.locator('.cm-content').evaluate(e=>e.cmTile.root.view.state.doc.toString()),source);result.restartAndCacheReuse=true;
+  await page.locator('#settings').click();await page.locator('#texBin').fill(path.join(directory,'missing-installation'));await page.locator('#checkTeX').click();await page.waitForFunction(()=>document.querySelector('#toolchainSummary').textContent.includes('Installation needs attention'));result.invalidSelectionRejected=true;
+  assert.deepEqual(errors,[]);result.passed=true;
+ }catch(error){result.error=String(error);if(page)await fs.writeFile(path.join(directory,'failure.log'),String(error)+'\n'+await page.locator('#log').textContent().catch(()=>''));throw error;}
+ finally{if(app)await close().catch(()=>{});await fs.writeFile(path.join(directory,'result.json'),JSON.stringify(result,null,2));console.log(JSON.stringify({directory,...result}));}
+})().catch(e=>{console.error(String(e));process.exitCode=1;});
