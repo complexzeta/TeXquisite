@@ -10,9 +10,9 @@ const hash=b=>createHash('sha256').update(b).digest('hex');
  // Finder supplies a sparse PATH. MacTeX must be discovered independently.
  if(process.platform==='darwin')env.PATH='/usr/bin:/bin:/usr/sbin:/sbin';
  for(const name of ['TEXMFHOME','TEXMFCONFIG','TEXMFVAR']){env[name]=path.join(directory,name.toLowerCase());await fs.mkdir(env[name]);}
- const options={...(process.env.PERSISTENT_TEX_EXECUTABLE?{executablePath:process.env.PERSISTENT_TEX_EXECUTABLE,args:[]}:{args:['.']}),env,timeout:120000};
+ const options={chromiumSandbox:true,...(process.env.PERSISTENT_TEX_EXECUTABLE?{executablePath:process.env.PERSISTENT_TEX_EXECUTABLE,args:[]}:{args:['.']}),env,timeout:120000};
  const result={passed:false,platform:process.platform,arch:process.arch,packaged:!!process.env.PERSISTENT_TEX_EXECUTABLE},errors=[];let app,page;
- const launch=async()=>{app=await electron.launch(options);page=await app.firstWindow();page.on('pageerror',e=>errors.push(String(e)));
+ const launch=async()=>{app=await electron.launch(options);page=await app.firstWindow();page.on('pageerror',e=>errors.push(String(e)));await page.locator('#toolchainSummary').waitFor({state:'attached',timeout:120000});
   const sandbox=await app.evaluate(({app,BrowserWindow})=>{const w=BrowserWindow.getAllWindows()[0],p=w.webContents.getLastWebPreferences();return {enabled:p.sandbox,noSandbox:app.commandLine.hasSwitch('no-sandbox'),pid:w.webContents.getOSProcessId()};});assert.equal(sandbox.enabled,true);assert.equal(sandbox.noSandbox,false);
   if(process.platform==='linux'){const status=await fs.readFile('/proc/'+sandbox.pid+'/status','utf8');assert.match(status,/^Seccomp:\s+2$/m);assert.match(status,/^NoNewPrivs:\s+1$/m);result.kernelSandboxVerified=true;}result.rendererSandboxEnabled=true;
  };
