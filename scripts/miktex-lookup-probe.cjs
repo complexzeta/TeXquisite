@@ -70,4 +70,9 @@ function validationQuery(names,resolve){
   return output(requested,requested.map(n=>snapshot.get(n)));
  };
 }
-module.exports={lookup,output,validationQuery};
+function indexedInput(name,index){
+ // Exact filenames keep priority. Only TeX's extensionless lookup gets the
+ // .tex candidate; canonical native resolution is still verified afterward.
+ return index.get(name)??(!path.posix.extname(name)?index.get(name+'.tex'):undefined);
+}
+module.exports={lookup,output,validationQuery,indexedInput};

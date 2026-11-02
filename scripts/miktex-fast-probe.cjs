@@ -35,6 +35,7 @@ const digest=b=>createHash('sha256').update(b).digest('hex');
    let source=fs.readFileSync(args.path,'utf8');
    if(args.path===path.resolve('src/format-cache.ts'))source=replaceOnce(source,'for(let at=0;at<m.dependencies.length;at+=80){',"if(!query)query=(globalThis as any).__texquisiteProbeValidation?.(kpse,[...m.dependencies.map(d=>d.name),...m.missing],{encoding:'utf8',windowsHide:true,timeout:10000,env});\n  for(let at=0;at<m.dependencies.length;at+=80){");
    else if(args.path===path.resolve('src/format-worker.ts')){
+    source=replaceOnce(source,'if(index.has(name))return index.get(name)!;',"const indexed=(globalThis as any).__texquisiteProbeIndexed?.(name,index)??index.get(name);if(indexed)return indexed;");
     source=replaceOnce(source,'at<entries.length;at+=80','at<entries.length;at+=240');source=replaceOnce(source,'entries.slice(at,at+80)','entries.slice(at,at+240)');
     source=replaceOnce(source,"let result=receive();context.onmessage({data:{cmd:'compileformat'}});let value=await result;","const formatStarted=Date.now();let result=receive();context.onmessage({data:{cmd:'compileformat'}});let value=await result;(globalThis as any).__texquisiteProbeTiming?.('kernel',Date.now()-formatStarted);");
     source=replaceOnce(source,"result=receive();context.onmessage({data:{cmd:'compilelatex'}});value=await result;","const documentStarted=Date.now();result=receive();context.onmessage({data:{cmd:'compilelatex'}});value=await result;(globalThis as any).__texquisiteProbeTiming?.('document-check',Date.now()-documentStarted);");
@@ -45,11 +46,12 @@ const digest=b=>createHash('sha256').update(b).digest('hex');
   env.TEXQUISITE_MIKTEX_PROBE_ADAPTER=process.env.TEXQUISITE_MIKTEX_PROBE_ADAPTER=path.resolve('scripts/miktex-lookup-probe.cjs');
   env.TEXQUISITE_MIKTEX_PROBE_MARKERS=process.env.TEXQUISITE_MIKTEX_PROBE_MARKERS=JSON.stringify(markers);
   env.TEXQUISITE_MIKTEX_PROBE_PHASE=process.env.TEXQUISITE_MIKTEX_PROBE_PHASE='format';
-  const shim=`(()=>{const cp=require('node:child_process'),fs=require('node:fs'),path=require('node:path'),{lookup,output,validationQuery}=require(process.env.TEXQUISITE_MIKTEX_PROBE_ADAPTER);const original=cp.execFileSync;
+  const shim=`(()=>{const cp=require('node:child_process'),fs=require('node:fs'),path=require('node:path'),{lookup,output,validationQuery,indexedInput}=require(process.env.TEXQUISITE_MIKTEX_PROBE_ADAPTER);const original=cp.execFileSync;
  const trace=record=>fs.appendFileSync(process.env.TEXQUISITE_MIKTEX_PROBE_TRACE,JSON.stringify({phase:process.env.TEXQUISITE_MIKTEX_PROBE_PHASE,...record})+'\\n');
  const resolve=(exe,args,options)=>lookup(args,query=>{const started=Date.now(),requested=query.filter(n=>!n.startsWith('-')),r=cp.spawnSync(exe,query,{...options,encoding:'utf8',stdio:['pipe','pipe','pipe'],windowsHide:true,timeout:10000});trace({kind:'native',names:requested.length,single:requested.length===1?requested[0]:undefined,tex:query[0]==='--format=tex',ms:Date.now()-started,status:r.status});return r;},file=>fs.statSync(file).isFile(),JSON.parse(process.env.TEXQUISITE_MIKTEX_PROBE_MARKERS),240);
  globalThis.__texquisiteProbeValidation=(exe,names,options)=>{trace({kind:'validation-session'});return validationQuery(names,all=>resolve(exe,all,options));};
  globalThis.__texquisiteProbeTiming=(stage,ms)=>trace({kind:'stage',stage,ms});
+ globalThis.__texquisiteProbeIndexed=indexedInput;
 cp.execFileSync=function(exe,args,options){
  if(path.basename(String(exe)).toLowerCase()!=='kpsewhich.exe'||!Array.isArray(args)||args.some(n=>!n||n.startsWith('-')||/[\\\\/\\0:\\r\\n]/.test(n)))return original.apply(this,arguments);
  return output(args,resolve(exe,args,options));
@@ -79,4 +81,3 @@ cp.execFileSync=function(exe,args,options){
   for(const [name,file]of Object.entries(files))assert.equal(digest(fs.readFileSync(file)),before[name]);result.inputsUnchanged=true;result.fastPossible=true;result.stage='complete';
  }catch(error){result.error=String(error);}finally{compiler?.stop();if(fs.existsSync(indexFile))fs.unlinkSync(indexFile);const trace=path.join(directory,'lookup.jsonl');if(fs.existsSync(trace)){const records=fs.readFileSync(trace,'utf8').trim().split('\n').filter(Boolean).map(s=>JSON.parse(s));result.lookupPhases=Object.fromEntries([...new Set(records.map(r=>r.phase))].map(phase=>{const all=records.filter(r=>r.phase===phase),group=all.filter(r=>r.kind==='native');return [phase,{processes:group.length,queries:group.reduce((n,r)=>n+r.names,0),nativeMs:group.reduce((n,r)=>n+r.ms,0),texFallbacks:group.filter(r=>r.tex).length,singleLookups:[...new Set(group.filter(r=>r.single).map(r=>r.single))],stages:all.filter(r=>r.kind==='stage').map(r=>({stage:r.stage,ms:r.ms})),validationSessions:all.filter(r=>r.kind==='validation-session').length}];}));}for(const key of Object.keys(process.env))if(!(key in prior))delete process.env[key];Object.assign(process.env,prior);result.completed=true;fs.writeFileSync(path.join(directory,'failure.log'),logs.join('').slice(-200000));fs.writeFileSync(path.join(directory,'result.json'),JSON.stringify(result,null,2));console.log(JSON.stringify({directory,...result}));}
 })().catch(error=>{console.error(String(error));process.exitCode=1;});
-
