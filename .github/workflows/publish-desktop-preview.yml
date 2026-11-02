@@ -26,7 +26,17 @@ jobs:
           echo "PERSISTENT_TEX_TEST_ARTIFACTS=$RUNNER_TEMP/release-reports" >> "$GITHUB_ENV"
           echo "TEXQUISITE_DOWNLOADED_PACKAGES=$RUNNER_TEMP/release-packages" >> "$GITHUB_ENV"
           node -e 'const fs=require("fs"),p=require("./DESKTOP-PREVIEW.json");if(!Number.isSafeInteger(p.run)||p.run<1)throw Error("Invalid build");fs.appendFileSync(process.env.GITHUB_ENV,"TEXQUISITE_PACKAGE_RUN="+p.run+"\n")'
+      - name: Check whether this version already has permanent downloads
+        id: published
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          node -e 'const fs=require("fs"),p=require("./DESKTOP-PREVIEW.json");fetch("https://api.github.com/repos/complexzeta/TeXquisite/releases/tags/"+p.releaseTag,{headers:{Authorization:"Bearer "+process.env.GITHUB_TOKEN,Accept:"application/vnd.github+json"}}).then(async r=>{if(r.status===404){fs.appendFileSync(process.env.GITHUB_OUTPUT,"exists=false\n");return;}if(!r.ok)throw Error("Release lookup failed "+r.status);const release=await r.json();fs.appendFileSync(process.env.GITHUB_OUTPUT,"exists="+!release.draft+"\n");}).catch(e=>{console.error(String(e));process.exitCode=1;})'
+      - name: Reuse permanent downloads when the version is already published
+        if: steps.published.outputs.exists == 'true'
+        run: node scripts/download-desktop-release.cjs --flat-all
       - name: Download verified package artifacts into disposable cloud storage
+        if: steps.published.outputs.exists != 'true'
         uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0
         with:
           pattern: desktop-build-*
