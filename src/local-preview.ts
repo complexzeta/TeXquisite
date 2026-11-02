@@ -746,7 +746,12 @@ export class LocalPreview{
           candidate.unchangedRecovery=carryRecoveryDiagnostics(outside,slot.basis.options.root,original,request.source,candidate.sourceHash,request.editId);
         }
         const accepted=await this.publish(candidate);
-        if(!accepted)throw new Error('The local page could not be displayed.');
+        if(!accepted){
+          // Rejecting an approximate repair is not a failure of the last good
+          // checkpoint. A corrected next character should still resume it.
+          if(result.recovery)throw new ResidentSourceError('The temporary TeX repair could not be displayed. The last good preview is retained.');
+          throw new Error('The local page could not be displayed.');
+        }
         // Advance only after accepted diagnostic projection. Comparing each
         // ordinary edit with the immutable initial text would include untouched
         // math between two edit locations and unnecessarily force full builds.

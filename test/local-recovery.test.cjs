@@ -7,6 +7,13 @@ const {LocalPreview,ResidentSourceError,ResidentSupersededError}=runtime.exports
 const baseline='Before\n\nTarget ordinary words.\n\nAfter\n',draft=baseline.replace('ordinary','\\broken'),range={from:baseline.indexOf('Target'),to:baseline.indexOf('After')};
 const make=()=>new LocalPreview(async()=>true,async()=>true,()=>{},()=>{},()=>{});
 
+test('Rejected provisional rendering preserves the healthy checkpoint for a correction',async()=>{
+ const local=make();let restored=0,fallback;local.publish=async()=>false;local.fallback=(id,error)=>{fallback={id,error};};
+ const slot={ready:true,basis:{source:baseline,compilerSource:baseline,options:{root:'main.tex'},bundle:{id:'base'}},range,abort:new AbortController(),compiler:{prepareNextRegionEdit(){restored++;}},compositor:{page:1}};
+ local.slot=slot;local.pending={source:draft,editId:'bad-render',at:range.from+3};local.recoverOutput=async()=>({kind:'flow',output:{pdf:Buffer.alloc(0)},flow:{},recovery:{line:3,message:'Temporary repair'},repairedSource:baseline});
+ await local.drain();assert.equal(local.slot,slot);assert.ok(restored);assert.equal(local.verifyingWithOwner,false);assert.equal(fallback.id,'bad-render');assert.match(fallback.error.log,/could not be displayed/);
+});
+
 test('Known preamble compatibility does not hide a healthy math correction or a remote real repair',()=>{
  const {withoutLegacyTkz}=require('../dist/core'),source='\\usepackage{tkz-euclide}\n\\usetkzobj{all}\n\nTarget $a$.\n\nRemote \\bad.\n',compiled=withoutLegacyTkz(source),from=source.indexOf('Target'),to=source.indexOf('Remote'),cfrom=compiled.indexOf('Target'),cto=compiled.indexOf('Remote'),local=make();
  const slot={basis:{source,compilerSource:compiled,compilerInput:withoutLegacyTkz},range:{from,to},compiledRange:{from:cfrom,to:cto}};
