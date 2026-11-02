@@ -36,13 +36,8 @@ jobs:
           echo "TEXQUISITE_DOWNLOADED_PACKAGES=$RUNNER_TEMP/downloaded-packages" >> "$GITHUB_ENV"
           echo "npm_config_cache=$RUNNER_TEMP/npm" >> "$GITHUB_ENV"
           node -e 'const fs=require("fs"),p=require("./DESKTOP-PREVIEW.json");if(!Number.isSafeInteger(p.run)||p.run<1)throw Error("Invalid package source");fs.appendFileSync(process.env.GITHUB_ENV,"TEXQUISITE_PACKAGE_RUN="+p.run+"\n")'
-      - name: Download the previously tested native packages
-        uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0
-        with:
-          name: desktop-build-${{ matrix.id }}
-          run-id: ${{ env.TEXQUISITE_PACKAGE_RUN }}
-          github-token: ${{ github.token }}
-          path: ${{ runner.temp }}/downloaded-packages
+      - name: Download the published packages without expiring Actions links
+        run: node scripts/download-desktop-release.cjs
       - name: Linux desktop dependencies
         if: runner.os == 'Linux'
         run: |

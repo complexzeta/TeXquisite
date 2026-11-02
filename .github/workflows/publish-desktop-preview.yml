@@ -20,7 +20,7 @@ jobs:
         with:
           node-version: '24'
       - name: Validate publication guards
-        run: node --test test/publish-desktop-release.test.cjs
+        run: node --test test/publish-desktop-release.test.cjs test/download-desktop-release.test.cjs
       - name: Read exact tested build metadata
         run: |
           echo "PERSISTENT_TEX_TEST_ARTIFACTS=$RUNNER_TEMP/release-reports" >> "$GITHUB_ENV"
@@ -38,6 +38,10 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ github.token }}
         run: node scripts/publish-desktop-release.cjs
+      - name: Verify permanent download selection for all four platform targets
+        env:
+          TEXQUISITE_DOWNLOADED_PACKAGES: ${{ runner.temp }}/public-download-check
+        run: node scripts/download-desktop-release.cjs --all
       - name: Save bounded publication evidence
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
