@@ -1,0 +1,47 @@
+name: Publish permanent desktop preview
+on:
+  workflow_dispatch:
+  workflow_call:
+permissions:
+  contents: write
+  actions: read
+concurrency:
+  group: publish-desktop-preview
+  cancel-in-progress: false
+jobs:
+  publish:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '24'
+      - name: Validate publication guards
+        run: node --test test/publish-desktop-release.test.cjs
+      - name: Read exact tested build metadata
+        run: |
+          echo "PERSISTENT_TEX_TEST_ARTIFACTS=$RUNNER_TEMP/release-reports" >> "$GITHUB_ENV"
+          echo "TEXQUISITE_DOWNLOADED_PACKAGES=$RUNNER_TEMP/release-packages" >> "$GITHUB_ENV"
+          node -e 'const fs=require("fs"),p=require("./DESKTOP-PREVIEW.json");if(!Number.isSafeInteger(p.run)||p.run<1)throw Error("Invalid build");fs.appendFileSync(process.env.GITHUB_ENV,"TEXQUISITE_PACKAGE_RUN="+p.run+"\n")'
+      - name: Download verified package artifacts into disposable cloud storage
+        uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0
+        with:
+          pattern: desktop-build-*
+          run-id: ${{ env.TEXQUISITE_PACKAGE_RUN }}
+          github-token: ${{ github.token }}
+          merge-multiple: true
+          path: ${{ runner.temp }}/release-packages
+      - name: Verify hashes, publish the prepared draft and verify public downloads
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: node scripts/publish-desktop-release.cjs
+      - name: Save bounded publication evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: permanent-release-report
+          retention-days: 7
+          path: ${{ env.PERSISTENT_TEX_TEST_ARTIFACTS }}/release-result.json

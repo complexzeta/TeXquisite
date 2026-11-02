@@ -6,7 +6,7 @@ on:
         description: Test suite
         type: choice
         default: compatibility
-        options: [compatibility, retained-preview, editing-position, diagnostics, miktex, miktex-fast, desktop-portability, desktop-installation, mac-release-rehearsal, mac-release-candidate]
+        options: [compatibility, retained-preview, editing-position, diagnostics, miktex, miktex-fast, desktop-portability, desktop-installation, mac-release-rehearsal, mac-release-candidate, publish-desktop-preview]
       package_retained:
         description: Build and test a portable after the retained suite passes
         type: boolean
@@ -17,6 +17,12 @@ concurrency:
   group: texlive-compatibility-${{ github.ref }}-${{ inputs.suite }}
   cancel-in-progress: false
 jobs:
+  publish-desktop-preview:
+    if: ${{ inputs.suite == 'publish-desktop-preview' }}
+    permissions:
+      contents: write
+      actions: read
+    uses: ./.github/workflows/publish-desktop-preview.yml
   mac-release:
     if: ${{ inputs.suite == 'mac-release-rehearsal' || inputs.suite == 'mac-release-candidate' }}
     uses: ./.github/workflows/mac-release.yml
