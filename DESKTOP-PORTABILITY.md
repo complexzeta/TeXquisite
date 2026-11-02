@@ -27,6 +27,8 @@ After a successful matrix run, its `desktop-build-<platform>` artifacts contain 
 
 On macOS, open the DMG and copy TeXquisite to Applications, or extract the ZIP and copy its app. Both installation paths have been tested on Apple Silicon and Intel Macs. Preview bundles use an ad-hoc signature and are not notarized. **Gatekeeper rejection is confirmed on both architectures:** the app works in functional tests, but it is not ready for a frictionless downloaded-app launch. Developer ID signing and notarization remain release work. Preview testers who deliberately trust the verified package can consult [Apple's per-app approval instructions](https://support.apple.com/en-us/102445). That approval UI has not been automated by these tests.
 
+The [Mac release workflow and credential guide](MAC-RELEASE.md) separates credential-free hardened-runtime rehearsals from Developer ID/notarized candidates. Production mode fails when signing inputs are absent; it cannot silently upload an ad-hoc build as a release candidate.
+
 On Ubuntu/Debian, install the local `.deb` with `sudo apt install ./<package-name>.deb`. The installer configures Chromium's user-namespace sandbox or its setuid helper as appropriate, including an AppArmor profile on supported Ubuntu systems. The tests do not disable Electron's sandbox.
 
 **AppImage previews have been withdrawn.** Testing the earlier files through their actual FUSE launcher revealed an injected `--no-sandbox` flag on both Linux architectures. New builds produce Debian packages only and assert that no AppImage was generated. Do not use the older AppImage artifacts. Historical test reports are retained to document this failure.

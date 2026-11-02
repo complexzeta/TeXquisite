@@ -10,6 +10,7 @@ function configuration(base,{production,identity}){
 }
 function mode(args){const flags=args.filter(a=>['--production','--rehearsal'].includes(a));if(flags.length!==1)throw Error('Choose exactly one of --production or --rehearsal.');return flags[0]==='--production';}
 function decodeSecret(value,name){const text=String(value||'').replace(/\s/g,'');if(!text||text.length%4||!/^[A-Za-z0-9+/]+={0,2}$/.test(text))throw Error('Invalid base64 encoding for '+name);return Buffer.from(text,'base64');}
+function safeError(error,env){let text=String(error);for(const name of signingInputs){const value=String(env[name]||'');if(value)text=text.split(value).join('[redacted]');}return text.replace(/-----BEGIN [^-]*PRIVATE KEY-----[\s\S]*?-----END [^-]*PRIVATE KEY-----/g,'[redacted private key]');}
 async function main(){
  const production=mode(process.argv.slice(2));if(production)requireSigningInputs(process.env);
  if(process.argv.includes('--preflight')){console.log(JSON.stringify({mode:production?'production':'rehearsal',ready:true}));return;}
@@ -35,8 +36,8 @@ async function main(){
    exec('spctl',['--assess','--type','execute','--verbose=4',bundle]);exec('spctl',['--assess','--type','open','--context','context:primary-signature','--verbose=4',dmg]);report.notarized=true;report.gatekeeperAccepted=true;
   }else{assert.match(signature,/Signature=adhoc/);assert.match(entitlements,/disable-library-validation/);report.adHocRehearsal=true;report.productionLibraryValidationTested=false;}
   const assets=fs.readdirSync(release).filter(n=>/\.(dmg|zip)$/.test(n));assert.equal(assets.length,2);report.assets=[];for(const name of assets){const hash=crypto.createHash('sha256');for await(const part of fs.createReadStream(path.join(release,name)))hash.update(part);report.assets.push({name,sha256:hash.digest('hex')});}fs.writeFileSync(path.join(release,'SHA256SUMS.txt'),report.assets.map(a=>a.sha256+'  '+a.name).join('\n')+'\n');report.passed=true;
- }catch(error){report.error=String(error);throw error;}
+ }catch(error){report.error=safeError(error,process.env);throw Error(report.error);}
  finally{if(credentials)fs.rmSync(credentials,{recursive:true,force:true});fs.writeFileSync(path.join(directory,'result.json'),JSON.stringify(report,null,2));console.log(JSON.stringify(report));}
 }
-module.exports={missingSigningInputs,requireSigningInputs,configuration,mode,decodeSecret};
-if(require.main===module)main().catch(error=>{console.error(String(error));process.exitCode=1;});
+module.exports={missingSigningInputs,requireSigningInputs,configuration,mode,decodeSecret,safeError};
+if(require.main===module)main().catch(error=>{console.error(safeError(error,process.env));process.exitCode=1;});
