@@ -1,0 +1,8 @@
+1a6a7e2ab49a1d5d36f7e35926cb7c444f6a3fa1cf82a1e0bd1a2d8c843b2e9a  TeXquisite-0.123.0-macOS-x64.dmg
+2f126c19aa3217687e33edbd29a11b6032e2839c0059cd766501110146f11c7a  TeXquisite-0.123.0-Linux-arm64.AppImage
+3d06ccc9b472aa793cc5dbffaeddc996736afab73a9656ed165273d2261fcd38  TeXquisite-0.123.0-macOS-arm64.dmg
+573a6ce2417a7a711600ac97ed614c0ac7305da4151ccc00c1cb6afb2b627257  TeXquisite-0.123.0-Linux-amd64.deb
+5b46c342d2536366ce5e36bb27a02bd8a353d3e968ead277036f9aea4509d285  TeXquisite-0.123.0-macOS-x64.zip
+a9ca8319925a54f51a5068cd5167bcbef5049beee9d432bfd3567bfc3b5526a2  TeXquisite-0.123.0-Linux-arm64.deb
+d88d72f8925696d41964cf0ae68af44b624c835db7f084bafe6c5811548f37c1  TeXquisite-0.123.0-Linux-x86_64.AppImage
+ee6a4a02d3ff7b9f6a658dd797787382b26777f3a836b39eeda22cd4ebcac0f2  TeXquisite-0.123.0-macOS-arm64.zip
