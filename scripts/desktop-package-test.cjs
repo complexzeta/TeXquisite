@@ -8,7 +8,7 @@ const fs=require('node:fs'),path=require('node:path'),cp=require('node:child_pro
   fs.writeFileSync(path.join(release,'SHA256SUMS.txt'),result.assets.map(a=>a.sha256+'  '+a.name).join('\n')+'\n');let executable;
   if(process.platform==='darwin'){
    mounted=path.join(directory,'mounted');fs.mkdirSync(mounted);run('hdiutil',['attach',path.join(release,files.find(n=>n.endsWith('.dmg'))),'-readonly','-nobrowse','-mountpoint',mounted]);
-   const bundle=path.join(mounted,'TeXquisite.app');run('codesign',['--verify','--deep','--strict',bundle]);executable=path.join(bundle,'Contents','MacOS','TeXquisite');result.adHocSignatureVerified=true;result.launchedFromDiskImage=true;
+   const bundle=path.join(mounted,'TeXquisite.app');run('codesign',['--verify','--deep','--strict',bundle]);executable=path.join(bundle,'Contents','MacOS','TeXquisite');const signature=cp.spawnSync('codesign',['--display','--verbose=4',bundle],{encoding:'utf8'});assert.equal(signature.status,0);result.signatureVerified=true;result.adHocSignatureVerified=((signature.stdout||'')+(signature.stderr||'')).includes('Signature=adhoc');result.launchedFromDiskImage=true;
   }else{
    run('sudo',['apt-get','install','-y',path.join(release,files.find(n=>n.endsWith('.deb')))]);
    const installed=cp.execFileSync('dpkg',['-L','texquisite'],{encoding:'utf8'}).split('\n');executable=installed.find(n=>n.startsWith('/opt/')&&path.basename(n)==='texquisite');assert.ok(executable);
