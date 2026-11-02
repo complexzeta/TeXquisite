@@ -1,0 +1,67 @@
+name: Downloaded desktop installation
+on:
+  workflow_dispatch:
+  workflow_call:
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: desktop-installation-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  installation:
+    name: ${{ matrix.id }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      max-parallel: 4
+      matrix:
+        include:
+          - {id: macOS-arm64, os: macos-15}
+          - {id: macOS-x64, os: macos-15-intel}
+          - {id: Linux-x64, os: ubuntu-24.04}
+          - {id: Linux-arm64, os: ubuntu-24.04-arm}
+    env:
+      TEXQUISITE_PACKAGE_RUN: '41391886992'
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '24'
+      - name: Choose disposable cloud storage
+        shell: bash
+        run: |
+          echo "PERSISTENT_TEX_TEST_ARTIFACTS=$RUNNER_TEMP/installation-reports" >> "$GITHUB_ENV"
+          echo "TEXQUISITE_DOWNLOADED_PACKAGES=$RUNNER_TEMP/downloaded-packages" >> "$GITHUB_ENV"
+          echo "npm_config_cache=$RUNNER_TEMP/npm" >> "$GITHUB_ENV"
+      - name: Download the previously tested native packages
+        uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0
+        with:
+          name: desktop-build-${{ matrix.id }}
+          run-id: 41391886992
+          github-token: ${{ github.token }}
+          path: ${{ runner.temp }}/downloaded-packages
+      - name: Linux desktop and FUSE dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y xvfb libgtk-3-0 libnss3 libasound2t64 libgbm1 libxss1 libxtst6 libatk-bridge2.0-0 libfuse2t64 fuse
+      - run: npm ci --no-audit --no-fund
+      - name: Install the test document's TeX requirements
+        run: bash scripts/install-test-unix.sh
+      - name: Test the downloaded packages and assess download trust
+        shell: bash
+        run: |
+          if [[ "$RUNNER_OS" == Linux ]]; then xvfb-run -a node scripts/desktop-installation-test.cjs; else node scripts/desktop-installation-test.cjs; fi
+      - name: Upload bounded installation reports
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: installation-report-${{ matrix.id }}
+          retention-days: 7
+          path: |
+            ${{ env.PERSISTENT_TEX_TEST_ARTIFACTS }}/**/result.json
+            ${{ env.PERSISTENT_TEX_TEST_ARTIFACTS }}/**/*.log

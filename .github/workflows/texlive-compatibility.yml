@@ -6,7 +6,7 @@ on:
         description: Test suite
         type: choice
         default: compatibility
-        options: [compatibility, retained-preview, editing-position, diagnostics, miktex, miktex-fast, desktop-portability]
+        options: [compatibility, retained-preview, editing-position, diagnostics, miktex, miktex-fast, desktop-portability, desktop-installation]
       package_retained:
         description: Build and test a portable after the retained suite passes
         type: boolean
@@ -17,6 +17,12 @@ concurrency:
   group: texlive-compatibility-${{ github.ref }}-${{ inputs.suite }}
   cancel-in-progress: false
 jobs:
+  desktop-installation:
+    if: ${{ inputs.suite == 'desktop-installation' }}
+    permissions:
+      contents: read
+      actions: read
+    uses: ./.github/workflows/desktop-installation.yml
   desktop:
     if: ${{ inputs.suite == 'desktop-portability' }}
     uses: ./.github/workflows/desktop-portability.yml
