@@ -331,7 +331,7 @@ async function build(sourceText?:string,automatic=sourceText!==undefined) {
   const focus=lines?{line:lines.length,column:lines.at(-1)!.length}:undefined;
   await controller.request({focus,root:state.root,engine:state.engine,executable:state.latexmk,timeoutMs:120000,sourceText:text,characterMapping:!!(state.previewEditing||state.continuousPreview||state.followPreview),sourceFiles:Object.fromEntries(state.docs.filter(doc=>doc.path!==state.root).map(doc=>[doc.path,doc.text])),supportFolders:state.supportFolders,editId:latestEditId,automatic});
 }
-function updateAppMenu(){Menu.setApplicationMenu(appMenu(state,(action,value)=>send({type:'menuAction',action,value})));if(window&&!window.isDestroyed()){window.setAutoHideMenuBar(false);window.setMenuBarVisibility(true);}}
+function updateAppMenu(){Menu.setApplicationMenu(appMenu(state,(action,value)=>send({type:'menuAction',action,value})));if(process.platform!=='darwin'&&window&&!window.isDestroyed()){window.setAutoHideMenuBar(false);window.setMenuBarVisibility(true);}}
 async function handle(method:string,args:unknown[]) {
   switch(method){
     case 'performanceReport':
@@ -685,7 +685,7 @@ app.whenReady().then(async()=>{
     if(event.sender!==window.webContents||event.senderFrame?.url!=='texapp://local/index.html')throw new Error('Untrusted sender.');
     try{const result=await handle(method,args);if(['initialize','projectSidebar','automaticBackups','statusBar','zoom','panels','autoClose','follow','previewEditing','continuous','previewMode','live','settings'].includes(method))updateAppMenu();return result;}catch(error){if(!['projectSearch','searchLocation','applyProjectReplace','navigateSource','navigateDiagnostic','nativeNavigation','follow'].includes(method))setStatus(error instanceof Error?error.message:String(error));throw error;}
   });
-  updateAppMenu();window.setAutoHideMenuBar(false);window.setMenuBarVisibility(true);
+  updateAppMenu();
   await window.loadURL('texapp://local/index.html');
   const maintain=()=>{if(cleanupIdle()&&(cleanupRequested||Date.now()-lastCleanup>=900000))void cleanupCaches(cleanupRequested).then(result=>{if(!result.deferred){lastCleanup=Date.now();cleanupRequested=false;}const text=`Cache cleanup freed ${(result.freedBytes/1048576).toFixed(1)} MB; active projects and accepted previews retained.`;send({type:'cacheCleanup',text:result.deferred?'Cleanup deferred until typing and builds pause.':text});if(result.removed)appendLog(text+'\n');}).catch(error=>appendLog('Cache cleanup deferred: '+String(error)+'\n'));};
   const cleanupTimer=setInterval(maintain,15000);cleanupTimer.unref();window.once('closed',()=>clearInterval(cleanupTimer));
