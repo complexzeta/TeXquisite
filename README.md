@@ -4,6 +4,8 @@ A standalone LaTeX editor with source and compiled preview side by side. It save
 
 ## Download and try it
 
+**Mac and Linux preview:** [Download TeXquisite 0.123.0](https://github.com/complexzeta/TeXquisite/releases/tag/v0.123.0) for Apple Silicon/Intel Macs and ARM64/x64 Linux. These are permanent release downloads. Mac previews require explicit first-launch approval; Linux uses tested Debian packages. Read the [Mac/Linux setup guide](https://github.com/complexzeta/TeXquisite/releases/download/v0.123.0/FIRST-RUN-MAC-LINUX.md).
+
 **Early Windows x64 test release:** [Download TeXquisite 0.122.0](https://github.com/complexzeta/TeXquisite/releases/download/v0.122.0/TeXquisite-0.122.0-Windows.exe).
 
 1. Install TeX Live separately, including latexmk. TeXquisite does not bundle a full TeX distribution.
@@ -29,7 +31,7 @@ A standalone LaTeX editor with source and compiled preview side by side. It save
 
 ## Current limits
 
-This is a public test build, not a finished replacement for every TeX workflow. Windows with TeX Live is the initial supported setup. MiKTeX native compilation is experimental; macOS and Linux application packages are not provided.
+This is a public test build, not a finished replacement for every TeX workflow. Windows with TeX Live is the initial supported setup. MiKTeX native compilation is experimental; Mac and Linux preview packages are available from the 0.123.0 release linked above.
 
 Fast preview uses either the bundled TeX Live 2025 format or a matching format prepared locally from an indexed TeX Live installation. Settings offers **Prepare matching fast preview** when needed. Preparation is optional, can take a couple of minutes once, and is cached across restarts with compiler/input integrity checks. Unsupported kernels can continue using native compilation with a visible explanation; updates may be slower. First loads, changed preambles, page-layout changes and complicated TikZ diagrams can take longer than small warm edits. No universal per-keystroke latency is promised.
 
