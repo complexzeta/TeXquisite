@@ -1,6 +1,14 @@
 const {test}=require('node:test'),assert=require('node:assert/strict');
 const {parseDiagnostic}=require('../dist/diagnostics');
 const inputs=[{file:'ROOT',aliases:['main.tex','/work/main.tex','C:/mirror/main.tex']},{file:'CHAPTER',aliases:['chapters/one.tex','/work/chapters/one.tex','C:/mirror/chapters/one.tex']},{file:'SPACES',aliases:['parts/two words.tex']}];
+
+test('MiKTeX final emergency stop retains the earlier concrete error and captured location',()=>{
+ const text="! LaTeX Error: File `missing-package.sty' not found.\nEnter file name:\nmain.tex:4: Emergency stop.\nl.4 \\begin{document}\n";
+ assert.deepEqual(parseDiagnostic(text,inputs),{kind:'tex',message:"LaTeX Error: File `missing-package.sty' not found.",file:'ROOT',line:4});
+ assert.equal(parseDiagnostic(text.replace('main.tex:4','untrusted.tex:4'),inputs).file,undefined);
+ assert.equal(parseDiagnostic('main.tex:4: Emergency stop.\n',inputs).message,'Emergency stop.');
+ assert.equal(parseDiagnostic('! Missing $ inserted.\nmain.tex:7: Undefined control sequence.\n',inputs).message,'Undefined control sequence.');
+});
 test('TeX diagnostics resolve current includes, closed include stacks and resumed root errors',()=>{
  assert.deepEqual(parseDiagnostic('(main.tex (chapters/one.tex\n! Undefined control sequence.\nl.4 \\broken\n',inputs),{kind:'tex',message:'Undefined control sequence.',file:'CHAPTER',line:4});
  assert.equal(parseDiagnostic('(main.tex (chapters/one.tex [1])\n! Missing $ inserted.\nl.9 x',inputs).file,'ROOT');

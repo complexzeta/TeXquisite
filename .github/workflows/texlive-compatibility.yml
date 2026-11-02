@@ -6,7 +6,7 @@ on:
         description: Test suite
         type: choice
         default: compatibility
-        options: [compatibility, retained-preview, editing-position, diagnostics]
+        options: [compatibility, retained-preview, editing-position, diagnostics, miktex, miktex-fast]
       package_retained:
         description: Build and test a portable after the retained suite passes
         type: boolean
@@ -14,9 +14,14 @@ on:
 permissions:
   contents: read
 concurrency:
-  group: texlive-compatibility-${{ github.ref }}
+  group: texlive-compatibility-${{ github.ref }}-${{ inputs.suite }}
   cancel-in-progress: false
 jobs:
+  miktex:
+    if: ${{ inputs.suite == 'miktex' || inputs.suite == 'miktex-fast' }}
+    uses: ./.github/workflows/miktex-compatibility.yml
+    with:
+      fast_probe: ${{ inputs.suite == 'miktex-fast' }}
   windows:
     if: ${{ inputs.suite == 'compatibility' }}
     name: ${{ matrix.os }} / TeX Live ${{ matrix.year }}

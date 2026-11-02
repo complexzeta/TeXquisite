@@ -29,7 +29,7 @@ A standalone LaTeX editor with source and compiled preview side by side. It save
 
 ## Current limits
 
-This is a public test build, not a finished replacement for every TeX workflow. Windows with TeX Live is the initial supported setup. MiKTeX native compilation is experimental; macOS and Linux application packages are not provided.
+This is a public test build, not a finished replacement for every TeX workflow. Windows with TeX Live is the initial supported setup. MiKTeX native compilation remains experimental, but passed limited clean Windows Server 2022/2025 checks with the public 0.122 portable; see [MiKTeX results and limits](MIKTEX-COMPATIBILITY-RESULTS.md). MiKTeX needs Perl for latexmk and currently has no persistent local lecture-preview support. macOS and Linux application packages are not provided.
 
 Fast preview uses either the bundled TeX Live 2025 format or a matching format prepared locally from an indexed TeX Live installation. Settings offers **Prepare matching fast preview** when needed. Preparation is optional, can take a couple of minutes once, and is cached across restarts with compiler/input integrity checks. Unsupported kernels can continue using native compilation with a visible explanation; updates may be slower. First loads, changed preambles, page-layout changes and complicated TikZ diagrams can take longer than small warm edits. No universal per-keystroke latency is promised.
 
