@@ -22,6 +22,13 @@ const fs=require('node:fs'),path=require('node:path'),cp=require('node:child_pro
      bundle=path.join('/Applications','TeXquisite-installation-'+extension+'.app');assert.ok(!fs.existsSync(bundle));run('ditto',[source,bundle]);
      run('codesign',['--verify','--deep','--strict',bundle]);variant.copiedToApplications=true;variant.signatureVerified=true;
      executable=path.join(bundle,'Contents','MacOS','TeXquisite');
+     // Assess the freshly installed, quarantined bundle before its first launch.
+     // Only this disposable test bundle is then approved for raw functional tests;
+     // a successful smoke run must never be reported as Gatekeeper acceptance.
+     run('xattr',['-w','com.apple.quarantine','0083;'+Math.floor(Date.now()/1000).toString(16)+';TeXquisiteInstallationTest;',bundle]);
+     variant.quarantineApplied=true;variant.gatekeeperStatus=capture('spctl',['--status']);variant.gatekeeper=capture('spctl',['--assess','--type','execute','--verbose=4',bundle]);
+     variant.stapledTicket=capture('xcrun',['stapler','validate',bundle]);variant.downloadAccepted=variant.gatekeeper.status===0;
+     run('xattr',['-d','com.apple.quarantine',bundle]);variant.quarantineRemovedForFunctionalTest=true;
     }else{
      run('sudo',['apt-get','install','-y',asset]);const installed=cp.execFileSync('dpkg',['-L','texquisite'],{encoding:'utf8'}).split('\n');executable=installed.find(n=>n.startsWith('/opt/')&&path.basename(n)==='texquisite');assert.ok(executable);variant.installedDeb=true;
      const desktop=installed.find(n=>n.endsWith('/texquisite.desktop'));assert.ok(desktop);const text=fs.readFileSync(desktop,'utf8');assert.ok(text.includes(executable));assert.ok(!text.includes('--no-sandbox'));variant.desktopLauncherVerified=true;
@@ -29,13 +36,6 @@ const fs=require('node:fs'),path=require('node:path'),cp=require('node:child_pro
     const log=fs.openSync(path.join(work,'functional.log'),'w');let smoke;
     try{smoke=cp.spawnSync(process.execPath,['scripts/desktop-smoke-test.cjs'],{env:{...process.env,PERSISTENT_TEX_EXECUTABLE:executable,PERSISTENT_TEX_TEST_VARIANT:extension},stdio:['ignore',log,log],timeout:600000});}finally{fs.closeSync(log);}
     variant.functionalExit=smoke.status;assert.equal(smoke.status,0,extension+' functional test failed; see functional.log');variant.functionalPassed=true;
-    if(bundle){
-     // Assess a quarantined copy after functional tests; those raw executable
-     // launches are deliberately not presented as a Gatekeeper acceptance test.
-     run('xattr',['-w','com.apple.quarantine','0083;'+Math.floor(Date.now()/1000).toString(16)+';TeXquisiteInstallationTest;',bundle]);
-     variant.quarantineApplied=true;variant.gatekeeperStatus=capture('spctl',['--status']);variant.gatekeeper=capture('spctl',['--assess','--type','execute','--verbose=4',bundle]);
-     variant.stapledTicket=capture('xcrun',['stapler','validate',bundle]);variant.downloadAccepted=variant.gatekeeper.status===0;
-    }
     variant.passed=true;
    }catch(error){variant.error=String(error);}
    finally{if(mounted)try{run('hdiutil',['detach',mounted]);}catch(error){variant.cleanupError=String(error);variant.passed=false;}}

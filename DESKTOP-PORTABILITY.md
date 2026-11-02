@@ -7,7 +7,7 @@ Native macOS and Linux preview packages passed the cloud checks below in [PR #3]
 | Platform | Architectures | Package formats |
 | --- | --- | --- |
 | macOS | Apple Silicon (arm64), Intel (x64) | DMG, ZIP |
-| Linux | x64, arm64 | Debian package, AppImage |
+| Linux | x64, arm64 | Debian package |
 
 The cloud matrix uses macOS 15 and Ubuntu 24.04. A successful build alone does not establish support for other operating-system versions or distributions. Results below must distinguish source tests from tests of the actual packaged application.
 
@@ -25,9 +25,11 @@ Fast local preview requires an indexed TeX Live package tree and matching LaTeX 
 
 After a successful matrix run, its `desktop-build-<platform>` artifacts contain packages and a `SHA256SUMS.txt` manifest. These are short-lived development artifacts, not a stable public release. Choose the package matching the computer's CPU architecture.
 
-On macOS, open the DMG and copy TeXquisite to Applications. Preview bundles use an ad-hoc signature, not an Apple Developer ID signature, and are not notarized. The cloud signature check cannot establish that a freshly downloaded app will pass Gatekeeper. Developer ID signing, notarization and a real downloaded-app installation check remain release work.
+On macOS, open the DMG and copy TeXquisite to Applications, or extract the ZIP and copy its app. Both installation paths have been tested on Apple Silicon and Intel Macs. Preview bundles use an ad-hoc signature and are not notarized. **Gatekeeper rejection is confirmed on both architectures:** the app works in functional tests, but it is not ready for a frictionless downloaded-app launch. Developer ID signing and notarization remain release work. Preview testers who deliberately trust the verified package can consult [Apple's per-app approval instructions](https://support.apple.com/en-us/102445). That approval UI has not been automated by these tests.
 
-On Ubuntu/Debian, install the local `.deb` with `sudo apt install ./<package-name>.deb`. The installer configures Chromium's user-namespace sandbox or its setuid helper as appropriate, including an AppArmor profile on supported Ubuntu systems. The tests do not disable Electron's sandbox. AppImage is also a build target; producing the file does not establish that launching through FUSE works on every distribution.
+On Ubuntu/Debian, install the local `.deb` with `sudo apt install ./<package-name>.deb`. The installer configures Chromium's user-namespace sandbox or its setuid helper as appropriate, including an AppArmor profile on supported Ubuntu systems. The tests do not disable Electron's sandbox.
+
+**AppImage previews have been withdrawn.** Testing the earlier files through their actual FUSE launcher revealed an injected `--no-sandbox` flag on both Linux architectures. New builds produce Debian packages only and assert that no AppImage was generated. Do not use the older AppImage artifacts. Historical test reports are retained to document this failure.
 
 ## Build from source
 
@@ -47,11 +49,13 @@ The native matrix exercises automatic TeX discovery, format preparation, prose/m
 
 Package reports record SHA-256 checksums. macOS checks the bundle signature; Linux checks the installed sandbox helper's ownership and permissions. Both source and packaged launches require sandboxed renderers, and Linux also verifies the renderer's kernel Seccomp filter and NoNewPrivs status. The macOS source test deliberately removes TeX from PATH to exercise Finder-style discovery. Windows unit and functional regression controls run separately. All tests use synthetic documents and disposable cloud profiles, not a user's documents.
 
-The Unix tests use TeX Live/BasicTeX, not MiKTeX. These checks do not establish latency parity with the Windows build, inverse navigation coverage, accessibility, every package manager, AppImage/FUSE behavior, notarization, or support for arbitrary TeX installations.
+The Unix tests use TeX Live/BasicTeX, not MiKTeX. These checks do not establish latency parity with the Windows build, inverse navigation coverage, accessibility, every package manager, notarization, or support for arbitrary TeX installations.
 
 ## Recorded results
 
-The [native matrix run](https://github.com/complexzeta/TeXquisite/actions/runs/41391886992) passed on 2026-11-02 UTC, at functional/test commit `5feaf13102623ae53ac54b3dae9f4c9e0163cf92`. Later documentation changes do not change the tested application.
+The corrected [supported-package matrix](https://github.com/complexzeta/TeXquisite/actions/runs/41395773737) passed at `58cd4b517a4e5fceff6d2205426365501a315c4b`: all four source apps, both mounted Mac DMGs, both installed Linux DEBs and Windows platform guards. All twelve result records passed. It produced six assets (four Mac files and two DEBs); the Linux checks assert that no AppImage was produced.
+
+The original [native matrix run](https://github.com/complexzeta/TeXquisite/actions/runs/41391886992) passed on 2026-11-02 UTC, at functional/test commit `5feaf13102623ae53ac54b3dae9f4c9e0163cf92`. It launched the mounted DMG and installed DEB; it did not launch AppImage or ZIP. The subsequent download tests below exposed the AppImage problem.
 
 | Cloud target | TeX installation | Source app | Packaged app | Built assets |
 | --- | --- | --- | --- | --- |
@@ -62,8 +66,21 @@ The [native matrix run](https://github.com/complexzeta/TeXquisite/actions/runs/4
 
 All twelve result records passed: source, packaged functional run and package verification for each target. Every functional run prepared a matching format and reused its cache after restart. All four Linux launches verified kernel Seccomp filtering and NoNewPrivs. The installed Debian sandbox helper was root-owned and mode 0755, using the supported user-namespace path rather than requiring a setuid helper.
 
-The eight asset hashes are recorded in [DESKTOP-PREVIEW-SHA256SUMS.txt](DESKTOP-PREVIEW-SHA256SUMS.txt) and in each build artifact. The ZIP and AppImage files were built and hashed; functional launches used the DMG and DEB. Download preview artifacts from the run above while retained; no stable macOS/Linux GitHub release has been published.
+The current supported asset hashes are recorded in [DESKTOP-PREVIEW-SHA256SUMS.txt](DESKTOP-PREVIEW-SHA256SUMS.txt). [DESKTOP-PREVIEW.json](DESKTOP-PREVIEW.json) identifies their exact build run and source commit. No stable macOS/Linux GitHub release has been published.
 
 The [Windows source regression control](https://github.com/complexzeta/TeXquisite/actions/runs/41390733046) passed 81 unit checks, one native preparation check and seven UI scenarios at `124584b8ad8fcb4af260698bf69189416d72b420`. Subsequent changes through the native matrix commit affected only the new desktop test scripts and workflow. Windows platform guards also passed in the final native matrix.
 
 The tests exposed and corrected a disabled preparation button after native fallback, macOS-only window-menu API misuse and an Electron runtime installation ordering problem on Linux. Test-harness fixes wait for the application DOM and explicitly enable Playwright's Chromium sandbox. No sandbox-disabling launch flag or global kernel-security relaxation is used by the final tests.
+
+## Downloaded-package installation tests
+
+The [first download campaign](https://github.com/complexzeta/TeXquisite/actions/runs/41395205020) transferred all eight original assets onto fresh native cloud runners, verified their committed SHA-256 checksums and tested both formats per platform. It intentionally failed overall because the two AppImage paths failed the sandbox assertion; the six supported installation paths passed their functional tests.
+
+| Platform | Downloaded installation paths | Functional result | Download trust result |
+| --- | --- | --- | --- |
+| macOS Apple Silicon | ZIP and DMG copied to Applications | Both pass | Both rejected by enabled Gatekeeper |
+| macOS Intel | ZIP and DMG copied to Applications | Both pass | Both rejected by enabled Gatekeeper |
+| Ubuntu 24.04 x64 | DEB installed with apt | Pass | Sandboxed renderer verified |
+| Ubuntu 24.04 ARM64 | DEB installed with apt | Pass | Sandboxed renderer verified |
+
+Each supported installation repeats the full functional smoke test with a new profile, including format preparation, autosave/build, math/TikZ, export protection, error recovery and restart. The first Mac campaign applied quarantine after functional tests; the final harness assesses quarantine before the first launch, then removes it only from the disposable test bundle to run functional checks. It runs `spctl --assess` and `stapler validate`; raw executable launches do not stand in for Gatekeeper approval. Both Mac runners reported assessments enabled, rejection status 3 and no stapled ticket (status 65). No signing identity or Apple notarization credentials were used.
