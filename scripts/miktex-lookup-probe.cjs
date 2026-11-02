@@ -70,11 +70,4 @@ function validationQuery(names,resolve){
   return output(requested,requested.map(n=>snapshot.get(n)));
  };
 }
-function absentHints(names,resolve){
- if(!Array.isArray(names)||names.some(n=>!validName(n)))throw Error('Invalid MiKTeX preparation hints');
- const unique=[...new Set(names)],files=unique.length?resolve(unique):[];
- if(!Array.isArray(files)||files.length!==unique.length||files.some(f=>typeof f!=='string'))throw Error('Incomplete MiKTeX hint response');
- const absent=new Set(unique.filter((_,i)=>!files[i]));let active=true;
- return {read:name=>active&&absent.has(name),finish:()=>{active=false;absent.clear();}};
-}
-module.exports={lookup,output,validationQuery,absentHints};
+module.exports={lookup,output,validationQuery};
