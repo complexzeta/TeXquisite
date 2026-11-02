@@ -4,6 +4,8 @@ A standalone LaTeX editor with source and compiled preview side by side. It save
 
 ## Download and try it
 
+**Mac and Linux preview:** [Download TeXquisite 0.123.0](https://github.com/complexzeta/TeXquisite/releases/tag/v0.123.0) for Apple Silicon/Intel Macs and ARM64/x64 Linux. These are permanent release downloads. Mac previews require explicit first-launch approval; Linux uses tested Debian packages. Read the [Mac/Linux setup guide](https://github.com/complexzeta/TeXquisite/releases/download/v0.123.0/FIRST-RUN-MAC-LINUX.md).
+
 **Early Windows x64 test release:** [Download TeXquisite 0.122.0](https://github.com/complexzeta/TeXquisite/releases/download/v0.122.0/TeXquisite-0.122.0-Windows.exe).
 
 1. Install TeX Live separately, including latexmk. TeXquisite does not bundle a full TeX distribution.

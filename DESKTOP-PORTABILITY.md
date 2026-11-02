@@ -1,6 +1,6 @@
 # macOS and Linux preview
 
-Native macOS and Linux preview packages passed the cloud checks below in [PR #3](https://github.com/complexzeta/TeXquisite/pull/3). The public 0.122.0 release remains Windows-only. This work does not change an existing Windows installation.
+Native macOS and Linux preview packages passed the cloud checks below and are published in the [0.123.0 prerelease](https://github.com/complexzeta/TeXquisite/releases/tag/v0.123.0). These release downloads have no Actions artifact expiry. The separate 0.122.0 release remains Windows-only. This work does not change an existing Windows installation.
 
 ## Platforms and packages
 
@@ -23,7 +23,7 @@ Fast local preview requires an indexed TeX Live package tree and matching LaTeX 
 
 ## Preview installation
 
-After a successful matrix run, its `desktop-build-<platform>` artifacts contain packages and a `SHA256SUMS.txt` manifest. These are short-lived development artifacts, not a stable public release. Choose the package matching the computer's CPU architecture.
+Use the [permanent release page](https://github.com/complexzeta/TeXquisite/releases/tag/v0.123.0), its `SHA256SUMS-0.123.0.txt` and [first-run guide](https://github.com/complexzeta/TeXquisite/releases/download/v0.123.0/FIRST-RUN-MAC-LINUX.md). Choose the package matching the computer's CPU architecture. No GitHub login is required for public release downloads. Temporary Actions artifacts and test reports can expire without removing these release assets.
 
 On macOS, open the DMG and copy TeXquisite to Applications, or extract the ZIP and copy its app. Both installation paths have been tested on Apple Silicon and Intel Macs. Preview bundles use an ad-hoc signature and are not notarized. **Gatekeeper rejection is confirmed on both architectures:** the app works in functional tests, but it is not ready for a frictionless downloaded-app launch. Developer ID signing and notarization remain release work. Preview testers who deliberately trust the verified package can consult [Apple's per-app approval instructions](https://support.apple.com/en-us/102445). That approval UI has not been automated by these tests.
 
@@ -68,7 +68,7 @@ The original [native matrix run](https://github.com/complexzeta/TeXquisite/actio
 
 All twelve result records passed: source, packaged functional run and package verification for each target. Every functional run prepared a matching format and reused its cache after restart. All four Linux launches verified kernel Seccomp filtering and NoNewPrivs. The installed Debian sandbox helper was root-owned and mode 0755, using the supported user-namespace path rather than requiring a setuid helper.
 
-The current supported asset hashes are recorded in [DESKTOP-PREVIEW-SHA256SUMS.txt](DESKTOP-PREVIEW-SHA256SUMS.txt). [DESKTOP-PREVIEW.json](DESKTOP-PREVIEW.json) identifies their exact build run and source commit. No stable macOS/Linux GitHub release has been published.
+The current supported asset hashes are recorded in [DESKTOP-PREVIEW-SHA256SUMS.txt](DESKTOP-PREVIEW-SHA256SUMS.txt). [DESKTOP-PREVIEW.json](DESKTOP-PREVIEW.json) identifies their exact build run, source commit and permanent release tag. Version 0.123.0 is published as a prerelease; it is not described as a stable, notarized Mac release.
 
 The [Windows source regression control](https://github.com/complexzeta/TeXquisite/actions/runs/41390733046) passed 81 unit checks, one native preparation check and seven UI scenarios at `124584b8ad8fcb4af260698bf69189416d72b420`. Subsequent changes through the native matrix commit affected only the new desktop test scripts and workflow. Windows platform guards also passed in the final native matrix.
 
@@ -89,4 +89,8 @@ Each supported installation repeats the full functional smoke test with a new pr
 
 The corrected [fresh-download campaign](https://github.com/complexzeta/TeXquisite/actions/runs/41396774165) passed all four jobs at test commit `25b622f2c6b89d6c4df1d3c32aa9848dac3fd31f`, using the six supported assets from build run `41395773737`. All ten records passed: six functional installation runs plus four aggregate reports. Both Linux desktop entries were checked for the correct executable and absence of `--no-sandbox`; both Linux renderers passed kernel sandbox checks. All four Mac installations passed functionality while separately reporting first-launch Gatekeeper rejection. A green functional test result does not mark these Mac previews ready for ordinary downloaded-app distribution.
 
-The graphical approval flow, Finder/desktop interaction and file associations were not automated. For a new preview build, update `DESKTOP-PREVIEW.json` and its checksum manifest together before running the installation workflow. That workflow tests the pinned downloaded bytes; it does not rebuild the app.
+The graphical approval flow, Finder/desktop interaction and file associations were not automated. For a new preview build, update `DESKTOP-PREVIEW.json` and its checksum manifest together. Omit the release tag while testing an unpublished candidate, then add its intended tag and successful installation run before promotion. Published-package installation checks fetch permanent release assets and verify their hashes; they do not rebuild the app or depend on old Actions artifacts.
+
+## Permanent release publication
+
+The `publish-desktop-preview` workflow suite promotes exact tested bytes to a prepared draft prerelease. It verifies the source tag, successful build/test commits and all six package hashes before upload. It refuses to overwrite mismatching existing assets, calculates a manifest and provenance record, then publishes and re-downloads every asset without authentication to verify the public links. Release assets do not use workflow artifact retention. Existing Windows releases are preserved. Shared application downloads should always use release URLs, not temporary Actions artifact URLs.
