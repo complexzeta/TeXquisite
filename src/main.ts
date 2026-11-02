@@ -175,7 +175,7 @@ const appendLog=(text:string)=>{
   send({type:'log',text:text.slice(-2_000_000),append:true});
   if(text.startsWith('Resident fallback:')||text.startsWith('Resident compiler unavailable:')){previewFallback={time:Date.now(),kind:text.startsWith('Resident fallback:')?'fallback':'unavailable',reason:text.split('\n')[0].slice(0,300)};tracePreview({event:'compiler-fallback',kind:previewFallback.kind});}
   else if(text.startsWith('Resident capability check failed;')){previewFallback={time:Date.now(),kind:'capability'};tracePreview({event:'compiler-fallback',kind:'capability'});}
-  if(text.startsWith('Resident compiler unavailable:')&&toolchain){toolchain.fast={available:false,mismatches:[],reason:text.trim().replace(/^Resident compiler unavailable: /,'Native compilation only: ')};send({type:'toolchainStatus',report:toolchain});}
+  if(text.startsWith('Resident compiler unavailable:')&&toolchain){toolchain.fast={...toolchain.fast,available:false,resources:undefined,reason:text.trim().replace(/^Resident compiler unavailable: /,'Native compilation only: ')};send({type:'toolchainStatus',report:toolchain});}
 };
 function persist() {
   const captured=JSON.stringify(state);
