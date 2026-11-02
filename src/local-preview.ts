@@ -125,6 +125,8 @@ export class LocalPreview{
   // Bound to the prepared compiler and exact confirmed source pair. Plain text
   // may change on either side; definitions and command corrections re-run TeX.
   private recoveryHints=new WeakMap<Slot,{source:string;repaired:string}>();
+  private draftErrors=new WeakSet<Slot>();
+  get hasDraftError(){return !!this.slot?.ready&&this.draftErrors.has(this.slot);}
   private parked:Slot[]=[];
   // Hints only: every revision needs new compiler and raster proofs. Store
   // bounded paragraph text, never an old heap, PDF or source-wide snapshot.
@@ -193,10 +195,14 @@ export class LocalPreview{
   }
   constructor(private verify:(basis:LocalBasis,pdf:Uint8Array,page:number,fragmentPdf:Uint8Array,fragment:RegionFragment,footprint:{x:number;y:number;width:number;height:number},calibration:LocalCalibration)=>Promise<LocalVerification>,private publish:(candidate:LocalCandidate)=>Promise<boolean>,private fallback:(editId:string)=>void,private state:(state:string)=>void,private log:(message:string)=>void,private verifyPages?:(basis:LocalBasis,pdf:Uint8Array,span:PageSpan,continuation?:string)=>Promise<boolean>,private placement?:(basis:LocalBasis,page:number,fragmentPdf:Uint8Array,fragment:RegionFragment,calibration:LocalCalibration)=>Promise<LocalVerification>){}
   stop(){this.neutral=undefined;this.editorSource=undefined;this.editorCursor=undefined;this.visits=[];this.disarm();this.verifyingWithOwner=false;this.publishedCompiler=undefined;this.basis=undefined;this.compositionBase=undefined;}
-  prepareFullVerification(){
+  prepareFullVerification(preserveLocal=false){
     this.cancelIdle();
     const slot=this.slot,compiler=slot?.compiler??this.warmCompiler;
     if(this.running||this.pending||this.speculation||compiler?.busy||slot&&!slot.ready)return false;
+    // A half-typed command must not surrender the only proved paragraph.
+    // Let the controller use its own worker while this checkpoint remains
+    // available for the next (possibly corrected) character.
+    if(preserveLocal&&slot?.ready&&this.draftErrors.has(slot))return true;
     if(!compiler||!this.basis?.returnCompiler?.(compiler))return true;
     // The controller now owns this idle worker. Keep new requests on its full
     // queue until publication offers the converged worker back; creating a
@@ -644,10 +650,12 @@ export class LocalPreview{
     for(let attempt=0;;attempt++){
       try{
         const output=await this.output(slot,next);
+        if(next.recovery)this.draftErrors.add(slot);else this.draftErrors.delete(slot);
         if(confirmedHint)this.recoveryHints.set(slot,confirmedHint);else this.recoveryHints.delete(slot);
         return {...output,recovery:next.recovery,repairedSource:next.recovery?next.source:undefined,reusedRecovery:reused||known&&!!next.recovery};
       }
       catch(error){
+        if(error instanceof ResidentSourceError)this.draftErrors.add(slot);
         confirmedHint=undefined;reused=false;this.recoveryHints.delete(slot);
         if(error instanceof ResidentSourceError&&this.pending&&this.pending.editId!==request.editId)throw new ResidentSupersededError('A newer draft superseded local recovery.');
         const dirty=this.neutral?.dirty,activeOnly=this.retainedFlowEnabled&&this.neutral?.ids?.length===1&&dirty?.every(b=>b.id===neutralId(slot.range));

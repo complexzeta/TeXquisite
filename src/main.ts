@@ -105,7 +105,7 @@ function scheduleFullVerification(editId:string,delay=2500,required=delay===0){
     fullVerification=undefined;if(!state.onSave||editId!==latestEditId||state.previewMode==='lecture'&&!required)return;
     // Automatic verification must not compete with a queued/unfinished local
     // frame. Explicit builds bypass this idle scheduler.
-    if(!(required&&controller?.independentLocalOwner)&&(localPreview.busy||!localPreview.prepareFullVerification())){scheduleFullVerification(editId,50,required);return;}
+    if(!(required&&controller?.independentLocalOwner)&&(localPreview.busy||!localPreview.prepareFullVerification(localPreview.hasDraftError&&freemem()>=1024*1024*1024))){scheduleFullVerification(editId,50,required);return;}
     void build(undefined,true).catch(e=>setStatus(String(e)));
   },delay);fullVerification.unref();
 }
@@ -566,7 +566,7 @@ async function handle(method:string,args:unknown[]) {
         const local=immediate&&!state.previewEditing&&state.engine==='pdflatex'&&state.latexmk==='latexmk'&&typeof editId==='string'&&localPreview.request(doc.path,text,editId);
         tracePreview({event:'edit-route',editId,route:local?(localPreview.ready?'local-ready':'local-warming'):'full',cursor:state.lastCursor?.at,characters:text.length});
         clearTimeout(fullVerification);
-        if(local)scheduleFullVerification(editId!);
+        if(local){controller?.supersedeAutomaticForLocalEdit(editId!);scheduleFullVerification(editId!);}
         else if(immediate){if(latestEditId)scheduleFullVerification(latestEditId,0);else void build(undefined,true).catch(e=>setStatus(String(e)));}
         // Accept the editor revision immediately. Automatic disk saving remains
         // serialized and errors retain the draft, but does not block preview IPC.

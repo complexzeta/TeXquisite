@@ -138,7 +138,7 @@ export class BuildController {
   private retired=false;
   current?: Bundle;
   private active?: AbortController;
-  private activeDraft?:{identity:string;startedAt:number;automatic:boolean;compiling:boolean};
+  private activeDraft?:{identity:string;editId?:string;startedAt:number;automatic:boolean;compiling:boolean};
   private staleDraftTimer?:NodeJS.Timeout;
   private pending?: BuildOptions;
   private pendingAt=0;
@@ -236,6 +236,13 @@ export class BuildController {
     else{this.pruneTimer=setTimeout(prune,2000);this.pruneTimer.unref();}
   }
   get busy() { return !!this.loop; }
+  supersedeAutomaticForLocalEdit(editId:string){
+    // Local input has already accepted the newer revision. Cancel only its
+    // obsolete background verification, never an explicit Build/Export and
+    // never the independently owned local compiler.
+    if(this.pending?.automatic&&this.pending.editId!==editId)this.pending=undefined;
+    if(this.activeDraft?.automatic&&this.activeDraft.editId!==editId){this.canPrefetch=false;this.active?.abort();}
+  }
   constructor(readonly store: ArtifactStore, readonly viewer: Viewer, readonly status: (s:string)=>void, readonly log:(s:string)=>void) {const auxiliary=path.join(store.directory,'auxiliary');BuildController.auxiliaryUsers.set(auxiliary,(BuildController.auxiliaryUsers.get(auxiliary)??0)+1);const warm=path.join(store.directory,'warm',this.cacheSession);this.warm=new WarmCompiler(warm);BuildController.protectedDirectories.add(warm);BuildController.protectedDirectories.add(path.join(store.directory,'cache',this.cacheSession));}
   async restore() { this.current = (await this.store.history())[0]; this.revision = this.current?.revision ?? 0; return this.current; }
   request(options: BuildOptions): Promise<void> {
@@ -279,7 +286,7 @@ export class BuildController {
     this.canPrefetch=false;
     const began=performance.now();
     const abort = new AbortController(); this.active=abort;
-    this.activeDraft={identity:this.sourceIdentity(options),startedAt:began,automatic:!!options.automatic,compiling:true};
+    this.activeDraft={identity:this.sourceIdentity(options),editId:options.editId,startedAt:began,automatic:!!options.automatic,compiling:true};
     const generation=this.generation, revision=++this.revision;
     const check=()=>{if(abort.signal.aborted || generation!==this.generation) throw new Error('Build cancelled.');};
     // Reuse auxiliary state across edits, but never display this mutable output.
