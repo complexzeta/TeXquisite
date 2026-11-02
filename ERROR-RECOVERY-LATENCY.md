@@ -1,4 +1,40 @@
-# Temporary-error recovery in 0.124
+# Temporary-error recovery
+
+## 0.125: theorem math and memory pressure
+
+Deleting a closing dollar inside a theorem produces a different LaTeX error:
+the theorem end is invalid in math mode. The bounded local repair recognizes
+that error and can insert a temporary math closer before the literal environment
+end. When both dollars are removed, familiar argument-free math symbols can be
+wrapped in `\ensuremath` and text-mode subscripts escaped in the compilation
+copy. Explicit valid math remains untouched. The engine must accept the repair;
+the saved source and strict export requirements remain unchanged.
+
+Below 1 GiB available memory, automatic verification now waits instead of
+reclaiming the local compiler or starting another worker. Failed local edits
+still report a status-bar diagnostic immediately. Rejected provisional frames
+retain the last good image and checkpoint. Healthy page/paragraph checks also
+account for the already-established obsolete TikZ-loader compatibility change;
+a guard verifies that this does not normalize away an unrelated real error.
+
+[Windows run 41531926875](https://github.com/complexzeta/TeXquisite/actions/runs/41531926875)
+tested source `92cfa77cf4da8a01b9fea1a35a9aed94deeb8b71`. All 17 source and
+packaged integration reports passed. A synthetic theorem fixture with amsmath,
+amssymb, amsthm, TikZ and xcolor separately removes each dollar, keeps typing,
+and corrects a relation chain back to plain text. It simulates 256 MiB available
+memory by replacing the app's OS reading, without allocating memory to create
+real pressure. Both test forms retained the local compiler with zero automatic
+reclaims and saved exactly the original edited source.
+
+Across source and packaged runs, the first error frame took 288–300 ms;
+continued typing took 63–112 ms, and correcting the relation chain to plain text
+took 73–75 ms. The separate existing correction fixture measured 32–143 ms.
+These are hidden-window cloud canvas measurements, not physical-screen timings
+or guarantees for arbitrary documents. Actual memory exhaustion can still slow
+the operating system; unsupported edits and explicit Build/Export may require
+full compilation.
+
+## 0.124: preserving the warm local compiler
 
 A temporary local TeX error could trigger whole-document verification that
 reclaimed the only prepared local compiler. Correcting the error then waited
