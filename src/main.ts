@@ -8,7 +8,7 @@ import {performanceReport} from './performance-report';
 import {themeIconPath,followIconTheme} from './theme-icon';
 import {ArtifactStore,BuildController,Bundle,hash} from './core';
 import {saveDocument,sourceBytes,SourceConflictError} from './saving';
-import {BuildDiagnostic} from './diagnostics';
+import {BuildDiagnostic,parseDiagnostic} from './diagnostics';
 import {projectFolders,listProjectFiles,projectPath} from './project-navigation';
 import {ProjectSearch,SearchResult,searchHash,replacementPlan} from './project-search';
 import {Navigation,textHash} from './navigation';
@@ -103,6 +103,10 @@ function scheduleFullVerification(editId:string,delay=2500,required=delay===0){
   if(state.previewMode==='lecture'&&!required)return;
   fullVerification=setTimeout(()=>{
     fullVerification=undefined;if(!state.onSave||editId!==latestEditId||state.previewMode==='lecture'&&!required)return;
+    // Memory pressure must not turn a correctable local typo into a cold full
+    // build. Keep the existing worker; retry verification without allocating
+    // another one. Local checks and explicit Build/Export remain available.
+    if(localPreview.hasDraftError&&freemem()<1024*1024*1024){tracePreview({event:'verification-deferred',reason:'memory',editId});scheduleFullVerification(editId,2000,required);return;}
     // Automatic verification must not compete with a queued/unfinished local
     // frame. Explicit builds bypass this idle scheduler.
     if(!(required&&controller?.independentLocalOwner)&&(localPreview.busy||!localPreview.prepareFullVerification(localPreview.hasDraftError&&freemem()>=1024*1024*1024))){scheduleFullVerification(editId,50,required);return;}
@@ -166,7 +170,12 @@ const localPreview=new LocalPreview(
     }
     return accepted;
   });},
-  editId=>{if(state.onSave&&editId===latestEditId)scheduleFullVerification(editId,0,true);},
+  (editId,draftError)=>{if(state.onSave&&editId===latestEditId){
+    if(draftError){const doc=state.docs.find(d=>d.path===draftError.file);if(doc&&hash(doc.text.replace(/\r\n/g,'\n'))===draftError.sourceHash){
+      const issue:BuildDiagnostic={id:'local-draft-'+editId,root:state.root,editId,file:doc.path,kind:'tex',severity:'error',sourceHash:draftError.sourceHash,message:parseDiagnostic(draftError.log).message+' The last good preview is retained; corrections are checked automatically.'};
+      currentDiagnostic=issue;currentProblems=[...currentProblems.filter(i=>!i.id.startsWith('local-draft-')),issue];send({type:'diagnostic',issue});send({type:'problems',root:state.root,editId,issues:currentProblems});
+    }}scheduleFullVerification(editId,0,true);
+  }},
   value=>{tracePreview({event:'local-state',state:value});send({type:'localState',state:value});},message=>{tracePreview({event:'local-log',message:message.split('\n')[0].slice(0,500)});appendLog(message);},
   (basis,pdf,pageSpan,continuation)=>localMessage({type:'localVerifyPages',continuation,root:basis.options.root,baseId:basis.bundle.id,basePdf:new Uint8Array(basis.pdf),pdf:new Uint8Array(pdf),pageSpan}).then(result=>result===true),
   (basis,page,fragmentPdf,fragment,calibration)=>localMessage({type:'localPlacement',root:basis.options.root,baseId:basis.bundle.id,basePdf:new Uint8Array(basis.pdf),page,fragmentPdf:new Uint8Array(fragmentPdf),fragment,calibration}));

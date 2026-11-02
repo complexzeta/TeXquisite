@@ -229,6 +229,8 @@ jobs:
         run: node scripts/recovery-idle-test.cjs
       - name: Automatically continue and clear local errors across paragraphs
         run: node scripts/automatic-recovery-test.cjs
+      - name: Recover theorem math after deleting both dollar signs under memory pressure
+        run: node scripts/math-deletion-test.cjs
       - name: Early-page typing, display baselines and automatic failed-frame recovery
         if: ${{ inputs.suite != 'diagnostics' }}
         run: node scripts/editing-position-test.cjs
@@ -323,7 +325,7 @@ jobs:
           if ('${{ inputs.suite }}' -eq 'diagnostics') {
             $env:PERSISTENT_TEX_MULTI_BLOCK='0'
             $env:PERSISTENT_TEX_RETAINED_FLOW='0'
-            foreach($test in @('performance-report','recovery-navigation','status-bar','compact-fit','recovery-idle','automatic-recovery','recovery-latency')) {
+            foreach($test in @('performance-report','recovery-navigation','status-bar','compact-fit','recovery-idle','automatic-recovery','recovery-latency','math-deletion')) {
               node "scripts/$test-test.cjs"
               if($LASTEXITCODE -ne 0){exit $LASTEXITCODE}
             }

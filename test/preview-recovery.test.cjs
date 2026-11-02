@@ -2,6 +2,19 @@ const {test}=require('node:test'),assert=require('node:assert/strict');
 // core bundles the recovery helper; compile this pure module for unit coverage.
 const {previewRepair}=require('../dist/preview-recovery');
 const {previewRegionRepair}=require('../dist/preview-recovery');
+
+test('Deleting a math closer inside a complete theorem closes math before the theorem end',()=>{
+ const s='\\begin{defn} Let $a_0\\lhd a_1 form a chain. \\end{defn}\n\n';
+ const r=previewRegionRepair(s,'! Missing $ inserted.',{from:0,to:s.length},25);
+ assert.equal(r.source,s.replace('\\end{defn}','$\\end{defn}'));
+});
+test('Removing both math delimiters repairs literal relation chains only in the preview copy',()=>{
+ const s='\\begin{defn} Let a_0\\lhd a_1\\lhd\\cdots\\lhd a_r form a chain; $x_1\\lhd x_2$ is valid. \\end{defn}\n\n';
+ const r=previewRegionRepair(s,'! Missing $ inserted.',{from:0,to:s.length},30);
+ assert.ok(r);assert.match(r.source,/a\\_0\\ensuremath\{\\lhd\}/);assert.ok(r.source.includes('$x_1\\lhd x_2$'));assert.equal(s.includes('ensuremath'),false);
+ assert.equal(previewRegionRepair(s,'! Undefined control sequence.',{from:0,to:s.length},30),undefined);
+ const macro=s.replace('Let','\\def\\custom{abc} Let');assert.equal(previewRegionRepair(macro,'! Missing $ inserted.',{from:0,to:macro.length},40),undefined);
+});
 test('Undefined root commands can be skipped without changing source line or column offsets',()=>{
  const source='\\begin{document}\nHello \\tyop world.\n\\end{document}';
  const fixed=previewRepair(source,'! Undefined control sequence.\nl.2 Hello \\tyop\n world.');

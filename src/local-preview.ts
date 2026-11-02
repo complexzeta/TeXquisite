@@ -193,7 +193,7 @@ export class LocalPreview{
       }
     },this.slot?.basis.bundle.id!==this.basis?.bundle.id?150:500);this.idleTimer.unref();
   }
-  constructor(private verify:(basis:LocalBasis,pdf:Uint8Array,page:number,fragmentPdf:Uint8Array,fragment:RegionFragment,footprint:{x:number;y:number;width:number;height:number},calibration:LocalCalibration)=>Promise<LocalVerification>,private publish:(candidate:LocalCandidate)=>Promise<boolean>,private fallback:(editId:string)=>void,private state:(state:string)=>void,private log:(message:string)=>void,private verifyPages?:(basis:LocalBasis,pdf:Uint8Array,span:PageSpan,continuation?:string)=>Promise<boolean>,private placement?:(basis:LocalBasis,page:number,fragmentPdf:Uint8Array,fragment:RegionFragment,calibration:LocalCalibration)=>Promise<LocalVerification>){}
+  constructor(private verify:(basis:LocalBasis,pdf:Uint8Array,page:number,fragmentPdf:Uint8Array,fragment:RegionFragment,footprint:{x:number;y:number;width:number;height:number},calibration:LocalCalibration)=>Promise<LocalVerification>,private publish:(candidate:LocalCandidate)=>Promise<boolean>,private fallback:(editId:string,draftError?:{log:string;file:string;sourceHash:string})=>void,private state:(state:string)=>void,private log:(message:string)=>void,private verifyPages?:(basis:LocalBasis,pdf:Uint8Array,span:PageSpan,continuation?:string)=>Promise<boolean>,private placement?:(basis:LocalBasis,page:number,fragmentPdf:Uint8Array,fragment:RegionFragment,calibration:LocalCalibration)=>Promise<LocalVerification>){}
   stop(){this.neutral=undefined;this.editorSource=undefined;this.editorCursor=undefined;this.visits=[];this.disarm();this.verifyingWithOwner=false;this.publishedCompiler=undefined;this.basis=undefined;this.compositionBase=undefined;}
   prepareFullVerification(preserveLocal=false){
     this.cancelIdle();
@@ -725,10 +725,10 @@ export class LocalPreview{
         // A successful state-preserving region can establish that all root
         // repairs are gone only when the actual compiler input now equals the
         // complete editor draft. A remote skipped command prevents equality.
-        if(!slot.input&&!result.recovery&&result.kind==='flow'&&slot.compiledRange){
+        if(!slot.input&&!result.recovery&&(result.kind==='flow'||result.kind==='page'||result.kind==='paragraph')&&slot.compiledRange){
           const compiled=slot.basis.compilerSource;
           candidate.sourceMatchesDraft=compiled.slice(0,slot.compiledRange.from)+text+compiled.slice(slot.compiledRange.to)===(request.fullSource??request.source);
-          candidate.sourceHealthy=candidate.sourceMatchesDraft&&!result.flow.stateChanged;
+          candidate.sourceHealthy=candidate.sourceMatchesDraft&&result.kind==='flow'&&!result.flow.stateChanged;
           if(candidate.sourceMatchesDraft){candidate.recoveryCleared=!!slot.basis.bundle.recovered;candidate.recoveredBasis=false;}
         }
         if(slot.compositor)candidate.inkBleedBp=slot.compositor.inkBleedBp;
@@ -759,7 +759,8 @@ export class LocalPreview{
           // Lecture mode suppresses ordinary idle verification. A failed draft
           // needs an explicit recovery request, otherwise it stays invisible
           // indefinitely while the UI still says it is updating.
-          this.fallback(this.newestId(request.editId));
+          const newest=this.newestId(request.editId);
+          this.fallback(newest,newest===request.editId?{log:String(error),file:slot.file??slot.basis.options.root,sourceHash:hash((request.fullSource??request.source).replace(/\r\n/g,'\n'))}:undefined);
         }else{
           const newest=this.newestId(request.editId);this.log('Broader layout required: '+String(error)+'\n');
           // A failed layout proof retires the local frame, not a healthy TeX

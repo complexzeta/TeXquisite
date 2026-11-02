@@ -81,7 +81,8 @@ export function previewRegionRepair(source:string,log:string,range:{from:number;
  // from braces. Reject them even though the output is only approximate.
  if(/\\(?:catcode|csname|def|edef|gdef|xdef|let|futurelet|newcommand|renewcommand|providecommand|verb|lstinline)\b|\\begin\s*\{(?:verbatim\*?|Verbatim|lstlisting|minted)\}/.test(text))return;
  type Token={kind:'group'|'math'|'left'|'env';close:string;math?:boolean};
- const stack:Token[]=[],edits:{at:number;to:number;insert:string}[]=[];let finalComment:number|undefined;
+ const stack:Token[]=[],edits:{at:number;to:number;insert:string}[]=[];let finalComment:number|undefined,mathTextEdits=0;
+ const missingMath=/Missing \$ inserted/.test(log);
  const inMath=()=>stack.some(t=>t.kind==='math'||t.math);
  const insert=(at:number,value:string)=>{edits.push({at,to:at,insert:value});};
  const closeMath=(at:number,close:string)=>{
@@ -101,9 +102,13 @@ export function previewRegionRepair(source:string,log:string,range:{from:number;
     if(token==='\\begin')stack.push({kind:'env',close:'\\end{'+env[1]+'}',math:/^(?:equation|align|alignat|gather|multline|displaymath|math)\*?$/.test(env[1])});
     else{
      const last=stack.map(t=>t.kind).lastIndexOf('env');if(last<0)return;
-     let extra='';while(stack.length>last+1){const top=stack.pop()!;if(!stack[last].math||(top.kind!=='group'&&top.kind!=='left'))return;extra+=top.close;}
+     let extra='';while(stack.length>last+1){const top=stack.pop()!;if(top.kind==='math'&&!stack[last].math){extra+=top.close;continue;}if(!stack[last].math||(top.kind!=='group'&&top.kind!=='left'))return;extra+=top.close;}
      if(extra)insert(at,extra);const top=stack.pop()!;if(top.close!=='\\end{'+env[1]+'}')edits.push({at,to:i,insert:top.close});
     }
+   }else if(missingMath&&!inMath()&&/^\\(?:lhd|rhd|unlhd|unrhd|triangleleft|triangleright|cdots|ldots|leq|geq|neq|in|notin|subset|subseteq|supset|supseteq|to|rightarrow|leftarrow|pi|alpha|beta|gamma)$/.test(token)){
+    // Only known argument-free math symbols, after TeX actually reports a
+    // missing math delimiter. The engine must accept this provisional copy.
+    edits.push({at,to:i,insert:'\\ensuremath{'+token+'}'});mathTextEdits++;
    }else if(/^\\(?:frac|dfrac|tfrac)$/.test(token)&&inMath()){
     // Recognize only a missing literal braced argument at a math boundary.
     // TeX also allows token/macro arguments; leave those to the engine.
@@ -120,6 +125,7 @@ export function previewRegionRepair(source:string,log:string,range:{from:number;
   if(c==='$'){
    const token=text[i+1]==='$'?'$$':'$';if(stack.some(t=>t.kind==='math')){if(!closeMath(i,token))return;}else{if(inMath())return;stack.push({kind:'math',close:token});}i+=token.length;continue;
   }
+  if(missingMath&&!inMath()&&(c==='_'||c==='^')){edits.push({at:i,to:i+1,insert:c==='_'?'\\_':'\\^{}'});mathTextEdits++;}
   if(c==='{')stack.push({kind:'group',close:'}'});
   else if(c==='}'&&stack.pop()?.kind!=='group')return;
   i++;
@@ -129,7 +135,7 @@ export function previewRegionRepair(source:string,log:string,range:{from:number;
   if(stack.some((t,i)=>t.kind==='group'&&!stack.slice(0,i).some(p=>p.kind==='math'||p.math)))return;
   insert(finalComment??ending.index,stack.reverse().map(t=>t.close).join(''));
  }
- if(!edits.length||edits.length>8||edits.some(e=>e.insert.length>256))return;
+ if(!edits.length||edits.length-mathTextEdits>8||edits.length>32||edits.some(e=>e.insert.length>256))return;
  let repaired=text;for(const edit of edits.sort((a,b)=>b.at-a.at||b.to-a.to))repaired=repaired.slice(0,edit.at)+edit.insert+repaired.slice(edit.to);
- return {source:source.slice(0,range.from)+repaired+source.slice(range.to),message:'Preview temporarily balanced unfinished math or an environment in this paragraph.',line:source.slice(0,range.from).split('\n').length};
+ return {source:source.slice(0,range.from)+repaired+source.slice(range.to),message:mathTextEdits?'Preview temporarily displayed math-only symbols in text mode.':'Preview temporarily balanced unfinished math or an environment in this paragraph.',line:source.slice(0,range.from).split('\n').length};
 }
