@@ -3,7 +3,7 @@ const fs=require('node:fs'),path=require('node:path'),cp=require('node:child_pro
  assert.equal(process.env.CI,'true');const directory=require('./test-artifacts.cjs').testDirectory('desktop-package-verification'),release=path.resolve('release'),result={passed:false,platform:process.platform,arch:process.arch,commit:process.env.GITHUB_SHA,assets:[]};
  const run=(exe,args,options={})=>cp.execFileSync(exe,args,{stdio:'inherit',...options});let mounted;
  try{
-  const files=fs.readdirSync(release).filter(n=>process.platform==='darwin'?/\.(dmg|zip)$/.test(n):/\.(AppImage|deb)$/.test(n));assert.equal(files.length,2);
+  const files=fs.readdirSync(release).filter(n=>process.platform==='darwin'?/\.(dmg|zip)$/.test(n):/\.deb$/.test(n));assert.equal(files.length,process.platform==='darwin'?2:1);if(process.platform==='linux')assert.ok(!fs.readdirSync(release).some(n=>n.endsWith('.AppImage')),'Unsupported AppImage must not be produced');
   for(const name of files){const file=path.join(release,name),hash=createHash('sha256');for await(const part of fs.createReadStream(file))hash.update(part);result.assets.push({name,bytes:fs.statSync(file).size,sha256:hash.digest('hex')});}
   fs.writeFileSync(path.join(release,'SHA256SUMS.txt'),result.assets.map(a=>a.sha256+'  '+a.name).join('\n')+'\n');let executable;
   if(process.platform==='darwin'){

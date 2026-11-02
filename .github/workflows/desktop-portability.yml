@@ -86,7 +86,6 @@ jobs:
           path: |
             release/*.dmg
             release/*.zip
-            release/*.AppImage
             release/*.deb
             release/SHA256SUMS.txt
   windows-guards:

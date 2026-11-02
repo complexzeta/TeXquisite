@@ -73,7 +73,7 @@
       "artifactName": "TeXquisite-${version}-macOS-${arch}.${ext}"
     },
     "linux": {
-      "target": ["AppImage", "deb"],
+      "target": ["deb"],
       "maintainer": "TeXquisite contributors",
       "category": "Office",
       "icon": "media/texquisite-icon-light.png",
