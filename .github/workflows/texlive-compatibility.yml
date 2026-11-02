@@ -6,7 +6,12 @@ on:
         description: Test suite
         type: choice
         default: compatibility
-        options: [compatibility, retained-preview, editing-position, diagnostics, miktex, miktex-fast, desktop-portability, desktop-installation, mac-release-rehearsal, mac-release-candidate, publish-desktop-preview, recovery-latency]
+        options: [compatibility, retained-preview, editing-position, diagnostics, miktex, miktex-fast, desktop-portability, desktop-installation, mac-release-rehearsal, mac-release-candidate, publish-desktop-preview, recovery-latency, tail-latency]
+      tail_samples:
+        description: Edits per tail-latency scenario
+        type: choice
+        default: '256'
+        options: ['256', '4096']
       package_retained:
         description: Build and test a portable after the retained suite passes
         type: boolean
@@ -17,6 +22,11 @@ concurrency:
   group: texlive-compatibility-${{ github.ref }}-${{ inputs.suite }}
   cancel-in-progress: false
 jobs:
+  tail-latency:
+    if: ${{ inputs.suite == 'tail-latency' }}
+    uses: ./.github/workflows/tail-latency.yml
+    with:
+      samples: ${{ inputs.tail_samples }}
   recovery-latency:
     if: ${{ inputs.suite == 'recovery-latency' }}
     uses: ./.github/workflows/recovery-latency.yml

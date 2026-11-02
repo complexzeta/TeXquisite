@@ -1,0 +1,48 @@
+// Open-loop latency campaign. Never waits for compiler readiness between edits.
+// All fixtures are synthetic. The user's session is never read or copied.
+const {_electron:electron}=require('playwright'),fs=require('fs/promises'),path=require('path'),assert=require('assert/strict'),{createHash}=require('crypto');
+const hash=s=>createHash('sha256').update(s).digest('hex');
+(async()=>{
+ assert.equal(process.env.CI,'true');const scenario=process.env.TAIL_SCENARIO||'boundary',count=Number(process.env.TAIL_SAMPLES||256);assert.ok(['boundary','long','theorem','low-memory'].includes(scenario));assert.ok(Number.isInteger(count)&&count>=128&&count<=20000);
+ const dir=require('./test-artifacts.cjs').testDirectory('tail-'+scenario),profile=path.join(dir,'profile'),project=path.join(dir,'project'),root=path.join(project,'main.tex');await fs.mkdir(profile);await fs.mkdir(project);require('./retained-test-format.cjs').seedProfile(profile);
+ const prefix='\\documentclass{'+(scenario==='theorem'?'amsart':'article')+'}\n\\usepackage{amsmath,amssymb,amsthm,tikz,xcolor}\n\\newtheorem{defn}{Definition}\n'+('% stable synthetic preamble comment '.repeat(4)+'\n').repeat(150)+'\\begin{document}';
+ const first='FirstSentinel ordinary lecture words.',second='SecondSentinel ordinary words.',theorem='\\begin{defn} MathSentinel $a_0\\lhd a_1\\lhd\\cdots\\lhd a_r$ describes a chain. \\end{defn}';
+ const source=prefix+'\n\n'+first+'\n\n'+second+'\n\n'+theorem+'\n\n'+Array.from({length:scenario==='long'?100:12},(_,i)=>'Block'+String(i).padStart(3,'0')+': '+('Ordinary surrounding words with $x+1$. '.repeat(scenario==='long'?7:1))+'\n\n').join('')+'\\end{document}\n';
+ await fs.writeFile(root,source);await fs.writeFile(path.join(profile,'session.json'),JSON.stringify({docs:[{path:root,text:source,diskHash:hash(source),dirty:false,eol:'\n'}],root,active:root,engine:'pdflatex',latexmk:'latexmk',previewMode:'lecture',onSave:true,liveVersion:2,continuousPreview:true,autoClose:false,followPreview:false,lastCursor:{file:root,at:source.indexOf('FirstSentinel')+14}}));
+ const app=await electron.launch({...(process.env.PERSISTENT_TEX_EXECUTABLE?{executablePath:process.env.PERSISTENT_TEX_EXECUTABLE,args:[]}:{args:['.']}),env:{...process.env,PERSISTENT_TEX_TEST_DATA:profile,PERSISTENT_TEX_TEST_HIDDEN:'0',PERSISTENT_TEX_MULTI_BLOCK:'0',PERSISTENT_TEX_RETAINED_FLOW:'0'},timeout:120000}),result={passed:false,scenario,count};let page;
+ try{
+  if(scenario==='low-memory')await app.evaluate(()=>{process.getBuiltinModule('os').freemem=()=>256*1048576;});
+  page=await app.firstWindow();await page.locator('.cm-content').waitFor();result.version=await app.evaluate(({app})=>app.getVersion());
+  await page.waitForFunction(h=>[...document.querySelectorAll('#pages canvas')].some(c=>c.dataset.sourceHash===h),hash(source),{timeout:90000});
+  // Initial warm-up is explicit; no subsequent ready/idle waits are allowed.
+  await page.waitForFunction(async()=>{const p=await window.desktop.call('previewPerformance');return p.localReady&&!p.localBusy;},null,{timeout:60000});
+  await page.evaluate(()=>{
+   window.tailInputs=[];window.tailFrames=[];window.tailStalls=[];window.tailErrors=[];const seen=new Set();
+   new MutationObserver(()=>{for(const c of document.querySelectorAll('#pages canvas')){const d=c.dataset,id=d.localEditId||d.editId;if(!id||seen.has(id)||d.localEditId&&d.localLatencyEditId!==id||!d.localEditId&&!d.editLatencyMs)continue;seen.add(id);window.tailFrames.push({id,at:performance.now(),local:!!d.localEditId,layout:d.localLayout,reportedMs:Number(d.localEditId?d.localLatencyMs:d.editLatencyMs)});}}).observe(document.querySelector('#pages'),{subtree:true,attributes:true,attributeFilter:['data-local-latency-edit-id','data-edit-latency-ms']});
+  });
+  await page.evaluate(async({count,scenario,first})=>{
+   const v=document.querySelector('.cm-content').cmTile.root.view,begin=performance.now(),cadence=65;let pause=0,joinedAt=0;
+   for(let n=0;n<count;n++){
+    if(n&&n%64===0)pause+=900;if(n&&n%512===0)pause+=2500;
+    const due=begin+n*cadence+pause;await new Promise(r=>setTimeout(r,Math.max(0,due-performance.now())));
+    const text=v.state.doc.toString(),slot=n%64,body=text.indexOf('\\begin{document}')+'\\begin{document}'.length;let from,to,insert,kind,valid=true;
+    const front=text.indexOf('FirstSentinel'),second=text.indexOf('SecondSentinel');
+    if(slot===24||slot===25||slot===26||slot===27){from=body;to=second;insert=(slot===24?'':slot===25?'\n':slot===26?'\n\n':'\n\n')+first+'\n\n';kind=['inline-document-start','one-leading-newline','restore-leading-blank','body-reset'][slot-24];}
+    else if(slot===40||slot===41){from=slot===40?text.indexOf('$ describes a chain.'):text.indexOf(' describes a chain.');to=from+(slot===40?1:0);insert=slot===40?'':'$';kind=slot===40?'remove-math-closer':'restore-math-closer';valid=slot!==40;}
+    else if(slot===46||slot===47){from=text.indexOf(' describes a chain.');to=from;insert=slot===46?' \\unfinishedTail':' ';if(slot===47){from=text.indexOf(' \\unfinishedTail');to=from+' \\unfinishedTail'.length;insert='';}kind=slot===46?'undefined-command':'correct-command';valid=slot!==46;}
+    else if(slot===32||slot===33){from=slot===32?(joinedAt=text.indexOf('\n\n',front)):joinedAt;to=from+(slot===32?1:0);insert=slot===32?'':'\n';kind=slot===32?'join-paragraphs':'split-paragraphs';}
+    else{const marker=scenario==='long'&&slot%8>=4?'Block'+String((Math.floor(n/64)*17)%100).padStart(3,'0')+':':scenario==='theorem'&&slot%8>=4?'MathSentinel':slot%8>=4?'SecondSentinel':'FirstSentinel';from=text.indexOf(marker)+marker.length;to=from;insert=slot%4===3?'':'x';if(slot%4===3){from=to;to=Math.min(text.length,from+1);}kind=insert?'typing':'backspace';}
+    if(from<0||to<from)throw Error('Invalid synthetic operation '+kind+' '+n);
+    const applied=performance.now();v.dispatch({changes:{from,to,insert},selection:{anchor:from+insert.length},userEvent:insert?'input.type':'delete.backward'});
+    const snapshot=await window.desktop.call('previewPerformance');window.tailInputs.push({n,id:snapshot.latestEditId,due,applied,ack:performance.now(),kind,valid});
+    if(performance.now()-applied>300){window.tailStalls.push({n,phase:'input-ack',ms:performance.now()-applied,performance:await window.desktop.call('previewPerformance',true)});if(window.tailStalls.length>24)window.tailStalls.shift();}
+   }
+  },{count,scenario,first});
+  await page.waitForFunction(()=>{const last=window.tailInputs.at(-1);return window.tailFrames.some(f=>f.id===last.id);},null,{timeout:30000}).catch(()=>{result.finalFrameTimedOut=true;});
+  const data=await page.evaluate(()=>({inputs:window.tailInputs,frames:window.tailFrames,stalls:window.tailStalls,now:performance.now(),source:document.querySelector('.cm-content').cmTile.root.view.state.doc.toString()}));
+  const sequence=new Map(data.inputs.map(i=>[i.id,i.n])),frames=data.frames.map(f=>({...f,n:sequence.get(f.id)})).filter(f=>f.n!==undefined).sort((a,b)=>a.at-b.at);
+  result.samples=data.inputs.map(i=>{const f=frames.find(f=>f.n>=i.n&&f.at>=i.applied);return {...i,ms:Math.ceil((f?.at??data.now)-i.applied),scheduledMs:Math.ceil((f?.at??data.now)-i.due),inputQueueMs:Math.ceil(i.applied-i.due),coalescedTo:f?.n,censored:!f,local:f?.local,layout:f?.layout};});
+  const summarize=a=>{const v=a.map(s=>s.ms).sort((a,b)=>a-b),q=p=>v[Math.min(v.length-1,Math.ceil(v.length*p)-1)];return {count:v.length,p50:q(.5),p95:q(.95),p99:q(.99),p999:q(.999),max:v.at(-1),over300:a.filter(s=>s.ms>300).length,over1000:a.filter(s=>s.ms>1000).length,censored:a.filter(s=>s.censored).length};};
+  result.summary=summarize(result.samples);result.byKind=Object.fromEntries([...new Set(result.samples.map(s=>s.kind))].map(k=>[k,summarize(result.samples.filter(s=>s.kind===k))]));result.validSummary=summarize(result.samples.filter(s=>s.valid));result.worst=result.samples.toSorted((a,b)=>b.ms-a.ms).slice(0,24);result.stalls=data.stalls;result.frames=frames;result.performance=await page.evaluate(()=>window.desktop.call('previewPerformance',true));for(let attempt=0;attempt<500&&await fs.readFile(root,'utf8')!==data.source;attempt++)await new Promise(r=>setTimeout(r,20));assert.equal(await fs.readFile(root,'utf8'),data.source);result.sourceSavedExactly=true;assert.equal(result.samples.length,count);assert.ok(result.samples.every(s=>s.id),'Each input requires an acknowledged edit identity');if(process.env.TAIL_ENFORCE==='1'){assert.equal(result.summary.censored,0);assert.ok(result.validSummary.p999<=300);assert.ok(result.validSummary.max<=1000);}result.passed=true;
+ }catch(e){result.error=String(e);throw e;}finally{if(page){await fs.writeFile(path.join(dir,'build.log'),await page.locator('#log').textContent().catch(()=>''));result.performance??=await page.evaluate(()=>window.desktop.call('previewPerformance',true)).catch(()=>undefined);}await app.close().catch(()=>{});await fs.writeFile(path.join(dir,'result.json'),JSON.stringify(result,null,2));console.log(JSON.stringify({directory:dir,scenario,passed:result.passed,summary:result.summary,error:result.error}));}
+})().catch(e=>{console.error(String(e));process.exitCode=1;});
