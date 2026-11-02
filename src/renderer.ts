@@ -362,6 +362,9 @@ function createState(text:string){
     const edit={id:editSession+'-'+(++editSequence),startedAt:inputStartedAt||performance.now(),text:update.state.doc.toString()};inputStartedAt=0;
     localInputs.set(edit.id,{file:active,text:edit.text,startedAt:edit.startedAt,sequence:editSequence});if(localInputs.size>128)localInputs.delete(localInputs.keys().next().value!);
     editDetails.set(active,edit);latestEdit=edit;previewKnownCurrent=false;
+    // Correlate input with painted frames without waiting for main-process
+    // acknowledgement (which would hide queueing in latency measurements).
+    update.view.dom.dataset.editorEditId=edit.id;
     previewUpdating=!!model.onSave;renderIssue();
     refreshPreviewStatus();
     const doc=model.docs.find((d:any)=>d.path===active);if(doc){doc.text=update.state.doc.toString();doc.dirty=true;renderTabs();}

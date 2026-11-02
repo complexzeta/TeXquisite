@@ -12,7 +12,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        scenario: [boundary, long, theorem, low-memory]
+        scenario: [boundary, long, theorem, low-memory, high-dpr, contention]
     runs-on: windows-2025
     timeout-minutes: 60
     steps:
