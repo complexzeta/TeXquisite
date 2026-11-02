@@ -17,9 +17,9 @@ const hash=s=>createHash('sha256').update(s).digest('hex'),delay=ms=>new Promise
    const at=expected.indexOf('TargetSentinel')+'TargetSentinel'.length;await ready(at);const before=expected,token=kind==='brace'?' \\textbf{':kind==='command'?' \\unfinishedCommand':' $';await edit(at,0,token);await delay(pause);
    const started=performance.now();await edit(at,token.length,' repaired'+result.samples.length);await visible();
    const ms=Math.ceil(performance.now()-started),p=await page.evaluate(()=>window.desktop.call('previewPerformance',true));result.samples.push({kind,pause,ms,localReady:p.localReady,reclaims:p.trace.filter(e=>e.event==='local-log'&&String(e.message).includes('Idle verification reclaimed')).length});
-   await page.waitForFunction(()=>document.querySelector('#errorCount').dataset.errors==='0'&&document.querySelector('#errorCount').dataset.checking==='0',null,{timeout:30000});
+   await page.waitForFunction(()=>document.querySelector('#errorCount').dataset.errors==='0'&&document.querySelector('#errorCount').dataset.checking==='0',null,{timeout:5000});result.samples.at(-1).diagnosticsMs=Math.ceil(performance.now()-started);
    assert.equal(await fs.readFile(root,'utf8'),expected);await delay(1100);
   }
-  result.maximumCorrectionMs=Math.max(...result.samples.map(s=>s.ms));result.performance=await page.evaluate(()=>window.desktop.call('previewPerformance',true));result.passed=true;
+  result.maximumCorrectionMs=Math.max(...result.samples.map(s=>s.ms));assert.ok(result.samples.every(s=>s.localReady&&s.reclaims===0),'A temporary error gave up the local compiler');assert.ok(result.maximumCorrectionMs<1000,'Correction regressed to a long full build');result.performance=await page.evaluate(()=>window.desktop.call('previewPerformance',true));result.passed=true;
  }catch(error){result.error=String(error);throw error;}finally{if(page){await fs.writeFile(path.join(dir,'build.log'),await page.locator('#log').textContent().catch(()=>''));result.performance=await page.evaluate(()=>window.desktop.call('previewPerformance',true)).catch(()=>undefined);}await app.close().catch(()=>{});await fs.writeFile(path.join(dir,'result.json'),JSON.stringify(result,null,2));console.log(JSON.stringify({directory:dir,...result}));}
 })().catch(e=>{console.error(String(e));process.exitCode=1;});

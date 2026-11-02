@@ -1107,7 +1107,7 @@ api.on(async message=>{
     if(message.issue.root!==model.root||message.issue.editId!==latestEdit?.id)return;
     compileIssue=message.issue;projectProblems=[message.issue];previewKnownCurrent=false;previewUpdating=false;renderIssue();
   }
-  if(message.type==='localRecovered'&&message.root===model.root&&message.editId===latestEdit?.id){compileIssue=undefined;projectProblems=[];renderIssue();}
+  if(message.type==='localRecovered'&&message.root===model.root&&message.editId===latestEdit?.id){compileIssue=undefined;projectProblems=[];if(operationIssue?.startsWith('Build failed:'))operationIssue=undefined;renderIssue();}
   if(message.type==='log'){
     const log=el('log');
     if(!message.append){log.textContent=message.text;logLength=message.text.length;}

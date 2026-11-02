@@ -138,7 +138,7 @@ export class BuildController {
   private retired=false;
   current?: Bundle;
   private active?: AbortController;
-  private activeDraft?:{identity:string;editId?:string;startedAt:number;automatic:boolean;compiling:boolean};
+  private activeDraft?:{identity:string;editId?:string;startedAt:number;automatic:boolean;compiling:boolean;supersededLocally?:boolean};
   private staleDraftTimer?:NodeJS.Timeout;
   private pending?: BuildOptions;
   private pendingAt=0;
@@ -241,7 +241,7 @@ export class BuildController {
     // obsolete background verification, never an explicit Build/Export and
     // never the independently owned local compiler.
     if(this.pending?.automatic&&this.pending.editId!==editId)this.pending=undefined;
-    if(this.activeDraft?.automatic&&this.activeDraft.editId!==editId){this.canPrefetch=false;this.active?.abort();}
+    if(this.activeDraft?.automatic&&this.activeDraft.editId!==editId){this.activeDraft.supersededLocally=true;this.canPrefetch=false;this.active?.abort();}
   }
   constructor(readonly store: ArtifactStore, readonly viewer: Viewer, readonly status: (s:string)=>void, readonly log:(s:string)=>void) {const auxiliary=path.join(store.directory,'auxiliary');BuildController.auxiliaryUsers.set(auxiliary,(BuildController.auxiliaryUsers.get(auxiliary)??0)+1);const warm=path.join(store.directory,'warm',this.cacheSession);this.warm=new WarmCompiler(warm);BuildController.protectedDirectories.add(warm);BuildController.protectedDirectories.add(path.join(store.directory,'cache',this.cacheSession));}
   async restore() { this.current = (await this.store.history())[0]; this.revision = this.current?.revision ?? 0; return this.current; }
@@ -506,6 +506,8 @@ export class BuildController {
       if(!bundle)this.resetCaches.add(job);
       if(!abort.signal.aborted&&generation===this.generation){
         const transcript=!compilerFinished&&nativeAttempted?await fs.readFile(path.join(output,path.basename(options.root,'.tex')+'.log'),'utf8').catch(()=>''):'';
+        // Reading a failed process log can race a newer accepted local edit.
+        if(abort.signal.aborted||generation!==this.generation)return;
         const mirror=this.mirrors.get(job),identity=JSON.stringify([options.root,this.sourceIdentity(options)]);
         if(mirror?.selective&&missingProjectInput(transcript+'\n'+nativeTranscript+'\n'+message)&&!this.discoveryRetries.has(identity)){
           this.discoveryRetries.add(identity);if(this.discoveryRetries.size>16)this.discoveryRetries.delete(this.discoveryRetries.values().next().value!);mirror.requireDiscovery();
@@ -516,7 +518,7 @@ export class BuildController {
         this.viewer.diagnostic?.(issue);
         this.viewer.problems?.([issue],options.editId);
         this.status(`Build failed: ${issue.message} ${this.current?'Showing the last successful version.':'No successful preview yet.'} Keep editing; preview will retry automatically.`);
-      }else this.status('Build cancelled. '+(this.current?'Showing the last successful version.':'No successful preview yet.'));
+      }else if(!this.activeDraft?.supersededLocally)this.status('Build cancelled. '+(this.current?'Showing the last successful version.':'No successful preview yet.'));
     } finally {
       clearTimeout(this.staleDraftTimer);this.activeDraft=undefined;
       this.retryingNativeFor=undefined;
