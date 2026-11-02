@@ -722,9 +722,9 @@ export class LocalPreview{
             if(candidate.pageLocations)candidate.pageLocations=candidate.pageLocations.map(p=>({...p,...recoveryLocations(p.locations,request.source,result.repairedSource!)}));
           }else candidate.pageLocations=undefined;
         }
-        // A successful state-preserving region can establish that all root
-        // repairs are gone only when the actual compiler input now equals the
-        // complete editor draft. A remote skipped command prevents equality.
+        // Clear root diagnostics only when the successful, unmodified compiler
+        // input equals the complete editor draft. A remote skip prevents
+        // equality; state convergence remains a separate flow-only proof.
         if(!slot.input&&!result.recovery&&(result.kind==='flow'||result.kind==='page'||result.kind==='paragraph')&&slot.compiledRange){
           const compiled=slot.basis.compilerSource;
           candidate.sourceMatchesDraft=compiled.slice(0,slot.compiledRange.from)+text+compiled.slice(slot.compiledRange.to)===(request.fullSource??request.source);

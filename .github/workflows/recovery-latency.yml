@@ -34,6 +34,7 @@ jobs:
           if($LASTEXITCODE -ne 0){exit $LASTEXITCODE}
           "$env:COMPATIBILITY_ROOT/installation/texlive/bin/windows" >> $env:GITHUB_PATH
       - run: node scripts/retained-test-format.cjs
+      - run: node scripts/math-deletion-test.cjs
       - run: node scripts/recovery-latency-test.cjs
       - name: Save bounded recovery evidence
         if: always()
