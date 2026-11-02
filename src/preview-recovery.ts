@@ -76,7 +76,7 @@ export function previewRegionRepair(source:string,log:string,range:{from:number;
  }
  const text=source.slice(range.from,range.to),ending=/\n[\t ]*\n$/.exec(text);
  if(!ending||text.length>16000||/\n[\t ]*\n/.test(text.slice(0,ending.index)))return;
- if(!/Local paragraph needs input beyond its boundary|Missing [}{$] inserted|Missing \\right|Paragraph ended before|File ended while scanning|ended by \\end|Misplaced \\cr|Bad math environment delimiter|You can't use [^\r\n]*\\eqno[^\r\n]*math mode/.test(log))return;
+ if(!/Local paragraph needs input beyond its boundary|Missing [}{$] inserted|Missing \\right|Paragraph ended before|File ended while scanning|ended by \\end|Command \\end\{[A-Za-z*]+\} invalid in math mode|Misplaced \\cr|Bad math environment delimiter|You can't use [^\r\n]*\\eqno[^\r\n]*math mode/.test(log))return;
  // Catcode changes, literal verbatim and macro definitions cannot be inferred
  // from braces. Reject them even though the output is only approximate.
  if(/\\(?:catcode|csname|def|edef|gdef|xdef|let|futurelet|newcommand|renewcommand|providecommand|verb|lstinline)\b|\\begin\s*\{(?:verbatim\*?|Verbatim|lstlisting|minted)\}/.test(text))return;

@@ -5,8 +5,7 @@ const {previewRegionRepair}=require('../dist/preview-recovery');
 
 test('Deleting a math closer inside a complete theorem closes math before the theorem end',()=>{
  const s='\\begin{defn} Let $a_0\\lhd a_1 form a chain. \\end{defn}\n\n';
- const r=previewRegionRepair(s,'! Missing $ inserted.',{from:0,to:s.length},25);
- assert.equal(r.source,s.replace('\\end{defn}','$\\end{defn}'));
+ for(const log of ['! Missing $ inserted.','! LaTeX Error: Command \\end{defn} invalid in math mode.']){const r=previewRegionRepair(s,log,{from:0,to:s.length},25);assert.equal(r.source,s.replace('\\end{defn}','$\\end{defn}'));}
 });
 test('Removing both math delimiters repairs literal relation chains only in the preview copy',()=>{
  const s='\\begin{defn} Let a_0\\lhd a_1\\lhd\\cdots\\lhd a_r form a chain; $x_1\\lhd x_2$ is valid. \\end{defn}\n\n';
