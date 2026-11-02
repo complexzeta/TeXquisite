@@ -9,7 +9,7 @@ if [[ "$(uname -s)" == Darwin ]]; then
   bin=/Library/TeX/texbin
   export PATH="$bin:$PATH"
   sudo "$bin/tlmgr" --repository "$repo" update --self
-  sudo "$bin/tlmgr" --repository "$repo" install latexmk amscls amsmath tools graphics pgf xcolor geometry hyperref babel-english ec
+  sudo "$bin/tlmgr" --repository "$repo" install latexmk amscls amsmath tools graphics pgf xcolor geometry hyperref babel-english ec luatexbase tex-ini-files
 else
   curl -fL --retry 3 --retry-all-errors --connect-timeout 30 --max-time 300 "$repo/install-tl-unx.tar.gz" -o "$work/installer.tar.gz"
   curl -fL --retry 3 --retry-all-errors "$repo/install-tl-unx.tar.gz.sha512" -o "$work/installer.sha512"
@@ -39,9 +39,10 @@ EOF
   if [[ -z "$bin" ]]; then for candidate in "$work"/texlive/bin/*; do if [[ -x "$candidate/tlmgr" ]]; then bin="$candidate"; break; fi; done; fi
   [[ -n "$bin" ]] || { echo 'No native TeX binary directory'; exit 1; }
   export PATH="$bin:$PATH"
-  "$bin/tlmgr" --repository "$repo" install collection-latex latexmk amscls amsmath tools graphics pgf xcolor geometry hyperref babel-english ec
+  "$bin/tlmgr" --repository "$repo" install collection-latex latexmk amscls amsmath tools graphics pgf xcolor geometry hyperref babel-english ec luatexbase tex-ini-files
 fi
 "$bin/pdflatex" --version
 "$bin/latexmk" --version
+for input in latex.ltx expl3.ltx ltluatex.tex pdftexconfig.tex language.dat hyphen.cfg; do "$bin/kpsewhich" "$input"; done
 echo "TEXQUISITE_TEST_TEX_BIN=$bin" >> "$GITHUB_ENV"
 echo "$bin" >> "$GITHUB_PATH"

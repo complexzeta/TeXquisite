@@ -44,6 +44,8 @@ jobs:
           sudo apt-get install -y xvfb libgtk-3-0 libnss3 libasound2t64 libgbm1 libxss1 libxtst6 libatk-bridge2.0-0 libfuse2t64 ruby ruby-dev build-essential
           sudo gem install fpm --no-document
       - run: npm ci --no-audit --no-fund
+      - name: Install the native Electron runtime explicitly
+        run: node node_modules/electron/install.js
       - name: Build and platform guards
         run: |
           npm run build

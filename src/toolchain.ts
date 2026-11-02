@@ -58,6 +58,8 @@ export async function inspectToolchain(options:{cache?:string;selected?:string;e
   const fontMap=await run(kpse,['pdftex.map'],env).catch(()=>'');if(fontMap)files['pdftex.map']=fontMap;
   report.fast.available=!report.fast.mismatches.length;
   report.fast.preparable=report.ready&&checked.every(c=>!!c.actual);
+  const missingInputs=checked.filter(c=>!c.actual).map(c=>c.name);
+  if(missingInputs.length){report.fast.available=false;report.fast.reason='Native compilation only: fast-format preparation requires these missing TeX inputs: '+missingInputs.join(', ')+'. Install their packages with your TeX distribution’s package manager, then check the installation again.';return report;}
   if(report.fast.available)report.fast.resources={root,files};
   if(!report.fast.available&&options.cache&&report.fast.preparable){const manifest=path.join(options.cache,formatKey(path.dirname(options.metadata),chosen!.bin,actual),'manifest.json');if(preparedFormat(manifest,path.dirname(options.metadata),chosen!.bin,env)){report.fast.available=true;report.fast.resources={root,files,formatManifest:manifest};report.fast.reason='A prepared fast-preview format matches this installation.';return report;}}
   report.fast.reason=report.fast.available?'Fast local preview is compatible with this installation.':'Native compilation only: the installed LaTeX format differs from the bundled fast-preview format ('+report.fast.mismatches.join(', ')+'). Documents can still compile, but local updates may be slower. Choose Prepare matching fast preview to try creating a local format for this installation. Unsupported kernels can continue using native compilation.';
