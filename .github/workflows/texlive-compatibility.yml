@@ -6,7 +6,7 @@ on:
         description: Test suite
         type: choice
         default: compatibility
-        options: [read-ahead-release, preamble-read-ahead, paragraph-burst, paragraph-window, lecture-tail, canvas-protocol, compatibility, retained-preview, editing-position, diagnostics, miktex, miktex-fast, desktop-portability, desktop-installation, mac-release-rehearsal, mac-release-candidate, publish-desktop-preview, recovery-latency, tail-latency, page-transport]
+        options: [read-ahead-portable-miktex, read-ahead-release, preamble-read-ahead, paragraph-burst, paragraph-window, lecture-tail, canvas-protocol, compatibility, retained-preview, editing-position, diagnostics, miktex, miktex-fast, desktop-portability, desktop-installation, mac-release-rehearsal, mac-release-candidate, publish-desktop-preview, recovery-latency, tail-latency, page-transport]
       tail_samples:
         description: Edits per tail-latency scenario
         type: choice
@@ -22,7 +22,16 @@ concurrency:
   group: texlive-compatibility-${{ github.ref }}-${{ inputs.suite }}
   cancel-in-progress: false
 jobs:
+  read-ahead-portable-miktex:
+    if: ${{ inputs.suite == 'read-ahead-portable-miktex' }}
+    permissions:
+      contents: read
+      actions: read
+    uses: ./.github/workflows/read-ahead-portable-miktex.yml
   read-ahead-release:
+    permissions:
+      contents: read
+      actions: read
     if: ${{ inputs.suite == 'read-ahead-release' }}
     uses: ./.github/workflows/read-ahead-release.yml
   preamble-read-ahead:
@@ -89,6 +98,9 @@ jobs:
     if: ${{ inputs.suite == 'desktop-portability' }}
     uses: ./.github/workflows/desktop-portability.yml
   miktex:
+    permissions:
+      contents: read
+      actions: read
     if: ${{ inputs.suite == 'miktex' || inputs.suite == 'miktex-fast' }}
     uses: ./.github/workflows/miktex-compatibility.yml
     with:

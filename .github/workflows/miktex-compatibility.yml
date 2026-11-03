@@ -8,6 +8,12 @@ on:
         default: false
   workflow_call:
     inputs:
+      operating_systems:
+        type: string
+        default: '["windows-2022", "windows-2025"]'
+      portable_run:
+        type: number
+        default: 0
       candidate:
         type: boolean
         default: false
@@ -16,6 +22,7 @@ on:
         default: false
 permissions:
   contents: read
+  actions: read
 concurrency:
   group: miktex-compatibility-${{ github.ref }}
   cancel-in-progress: false
@@ -28,7 +35,7 @@ jobs:
       fail-fast: false
       max-parallel: 2
       matrix:
-        os: [windows-2022, windows-2025]
+        os: ${{ fromJSON(inputs.operating_systems || '["windows-2022", "windows-2025"]') }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
@@ -97,8 +104,32 @@ jobs:
           $exe=& scripts/prepare-portable-test.ps1 -WorkRoot "$env:MIKTEX_TEST_ROOT/published-package"
           if($LASTEXITCODE -ne 0){exit $LASTEXITCODE}
           "PERSISTENT_TEX_EXECUTABLE=$exe" >> $env:GITHUB_ENV
+      - name: Download the previously audited exact release portable
+        if: ${{ inputs.portable_run > 0 }}
+        uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0
+        with:
+          name: retained-preview-portable
+          run-id: ${{ inputs.portable_run }}
+          github-token: ${{ github.token }}
+          path: ${{ env.MIKTEX_TEST_ROOT }}/official-portable
+      - name: Verify and select the exact release runtime
+        id: exact_runtime
+        if: ${{ inputs.portable_run > 0 }}
+        shell: pwsh
+        run: |
+          $exe="$env:MIKTEX_TEST_ROOT/official-portable/TeXquisite-0.133.0-Windows.exe"
+          if((Get-FileHash -LiteralPath $exe -Algorithm SHA256).Hash.ToLowerInvariant() -ne '37911e1831e257c2daa13839a738f6070f5ba4e56216bab2145d7631bdccbc87'){throw 'Release portable hash mismatch'}
+          $archive="$env:MIKTEX_TEST_ROOT/official-archive"
+          $runtime="$env:MIKTEX_TEST_ROOT/official-runtime"
+          & 'C:/Program Files/7-Zip/7z.exe' x $exe "-o$archive" -y
+          if($LASTEXITCODE -ne 0){exit $LASTEXITCODE}
+          & 'C:/Program Files/7-Zip/7z.exe' x "$archive/`$PLUGINSDIR/app-64.7z" "-o$runtime" -y
+          if($LASTEXITCODE -ne 0){exit $LASTEXITCODE}
+          node scripts/portable-runtime-diff.cjs "$env:MIKTEX_TEST_ROOT/package/win-unpacked/resources/app.asar" "$runtime/resources/app.asar"
+          if($LASTEXITCODE -ne 0){exit $LASTEXITCODE}
+          "PERSISTENT_TEX_EXECUTABLE=$runtime/TeXquisite.exe" >> $env:GITHUB_ENV
       - name: Check the selected packaged app with MiKTeX
-        if: ${{ !inputs.fast_probe && !cancelled() && (steps.portable.outcome == 'success' || steps.candidate_package.outcome == 'success') }}
+        if: ${{ !inputs.fast_probe && !cancelled() && (steps.portable.outcome == 'success' || steps.candidate_package.outcome == 'success') && (inputs.portable_run == 0 || !inputs.portable_run || steps.exact_runtime.outcome == 'success') }}
         run: node scripts/miktex-ui-test.cjs
       - name: Upload bounded compatibility evidence
         if: ${{ always() }}

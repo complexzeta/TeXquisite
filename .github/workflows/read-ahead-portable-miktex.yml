@@ -1,0 +1,13 @@
+name: Exact release portable on Windows 2022 MiKTeX
+on:
+  workflow_call:
+permissions:
+  contents: read
+  actions: read
+jobs:
+  exact-portable:
+    uses: ./.github/workflows/miktex-compatibility.yml
+    with:
+      candidate: true
+      operating_systems: '["windows-2022"]'
+      portable_run: 41728950972
