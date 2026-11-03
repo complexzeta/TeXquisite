@@ -216,7 +216,7 @@ jobs:
         run: |
           npm run build
           if($LASTEXITCODE -ne 0){exit $LASTEXITCODE}
-          node --test --test-concurrency=1 test/async-wait.test.cjs test/pdf-page-identity.test.cjs test/retained-layout.test.cjs test/retained-navigation.test.cjs test/contraction-probe.test.cjs test/window-page-fallback.test.cjs test/paragraph-split.test.cjs test/region-navigation-cache.test.cjs test/local-preview.test.cjs test/raster-bytes.test.cjs test/ink-bounds.test.cjs test/local-recovery.test.cjs test/preview-recovery.test.cjs test/pdf-work-queue.test.cjs test/performance-report.test.cjs test/recovery-navigation.test.cjs test/vertical-placement.test.cjs test/recovery-supersession.test.cjs
+          node --test --test-concurrency=1 test/cross-page-flow.test.cjs test/async-wait.test.cjs test/pdf-page-identity.test.cjs test/retained-layout.test.cjs test/retained-navigation.test.cjs test/contraction-probe.test.cjs test/window-page-fallback.test.cjs test/paragraph-split.test.cjs test/region-navigation-cache.test.cjs test/local-preview.test.cjs test/raster-bytes.test.cjs test/ink-bounds.test.cjs test/local-recovery.test.cjs test/preview-recovery.test.cjs test/pdf-work-queue.test.cjs test/performance-report.test.cjs test/recovery-navigation.test.cjs test/vertical-placement.test.cjs test/recovery-supersession.test.cjs
           if($LASTEXITCODE -ne 0){exit $LASTEXITCODE}
           node scripts/retained-layout-test.cjs
           exit $LASTEXITCODE
@@ -233,6 +233,8 @@ jobs:
       - name: Native retained ownership and unsupported math fallback
         id: native_retained
         run: node --test --test-concurrency=1 test/retained-preview.test.cjs
+      - name: Cross-page paragraph geometry and alternating synthetic lecture comparison
+        run: node scripts/cross-page-flow-test.cjs
       - name: Exact pixels for sparse high-DPI page rasterization
         run: node scripts/page-ink-raster-test.cjs
       - name: Default-mode report privacy, menu and canonical handoff

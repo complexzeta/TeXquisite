@@ -147,3 +147,11 @@ export function placementCorrection(offsets:{x:number;y:number}[],current:{x:num
   if(Math.abs(dx)+Math.abs(dy)<.00001)return allowAligned?{dx:0,dy:0}:false;
   return {dx,dy};
 }
+
+export function crossPageClearOutside(data:Uint8Array|Uint8ClampedArray,width:number,height:number,guard:{top:number;bottom:number;rectangles:{x:number;y:number;width:number;height:number}[]},factor:number){
+ if(!Number.isFinite(factor)||factor<=0||!Number.isSafeInteger(width)||!Number.isSafeInteger(height)||data.length!==width*height*4||!guard||!Number.isFinite(guard.top)||!Number.isFinite(guard.bottom)||guard.bottom<=guard.top||guard.rectangles.length<1||guard.rectangles.length>64)return false;
+ const rs=guard.rectangles.map(r=>({x:Math.floor(r.x*factor),y:Math.floor(r.y*factor),right:Math.ceil((r.x+r.width)*factor),bottom:Math.ceil((r.y+r.height)*factor)}));if(rs.some(r=>!Object.values(r).every(Number.isFinite)||r.x<0||r.y<0||r.right>width||r.bottom>height||r.right<=r.x||r.bottom<=r.y))return false;
+ const start=Math.floor(guard.top*factor),stop=Math.ceil(guard.bottom*factor);if(start<0||stop>height)return false;
+ for(let y=start;y<stop;y++){const intervals=rs.filter(r=>y>=r.y&&y<r.bottom).sort((a,b)=>a.x-b.x);let x=0;for(const r of [...intervals,{x:width,right:width}]){for(;x<r.x;x++){const p=(y*width+x)*4;if(data[p]!==255||data[p+1]!==255||data[p+2]!==255||data[p+3]!==255)return false;}x=Math.max(x,r.right);}}
+ return true;
+}
