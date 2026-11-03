@@ -1,0 +1,911 @@
+{
+  "experiment": "cross-page paragraph flow",
+  "date": "2026-11-03",
+  "sourceCommit": "4530dc4a9c49ca5518f6b789b87bdb440fee902d",
+  "cloudRun": "https://github.com/complexzeta/TeXquisite/actions/runs/41681032646",
+  "validation": {
+    "passed": true,
+    "unitAndNativeChecks": 106,
+    "boundedReports": 17,
+    "automaticRecovery": true,
+    "bidirectionalNavigation": true,
+    "footerFallback": true,
+    "browserPixelScrollResizeDisposal": true
+  },
+  "disposition": "WITHDRAWN: slower than the disabled control; no binary or release published",
+  "installedVersion": "0.128.0",
+  "scope": "Cloud synthetic same-build feature-flag comparison. Hidden completed canvas; not physical paint, private lecture measurements or a 99.9th-percentile bound.",
+  "groups": {
+    "baseline": {
+      "text": {
+        "n": 40,
+        "median": 110.5,
+        "p95": 161,
+        "max": 263
+      },
+      "math": {
+        "n": 20,
+        "median": 114,
+        "p95": 134,
+        "max": 167
+      },
+      "sustained": {
+        "n": 120,
+        "median": 202.5,
+        "p95": 293,
+        "max": 350
+      },
+      "additionalPreparationWaitMs": [
+        15,
+        23
+      ]
+    },
+    "candidate": {
+      "text": {
+        "n": 40,
+        "median": 140,
+        "p95": 174,
+        "max": 193
+      },
+      "math": {
+        "n": 20,
+        "median": 138,
+        "p95": 159,
+        "max": 177
+      },
+      "sustained": {
+        "n": 120,
+        "median": 331,
+        "p95": 400,
+        "max": 416
+      },
+      "additionalPreparationWaitMs": [
+        767,
+        377
+      ]
+    }
+  },
+  "trials": [
+    {
+      "kind": "baseline",
+      "text": {
+        "n": 20,
+        "median": 100,
+        "p95": 135,
+        "max": 240
+      },
+      "math": {
+        "n": 10,
+        "median": 114,
+        "p95": 125,
+        "max": 125
+      },
+      "sustained": {
+        "n": 60,
+        "median": 214.5,
+        "p95": 322,
+        "max": 350
+      },
+      "sustainedLatenciesMs": [
+        114,
+        123,
+        126,
+        152,
+        151,
+        154,
+        141,
+        140,
+        134,
+        123,
+        113,
+        160,
+        160,
+        199,
+        179,
+        185,
+        185,
+        162,
+        187,
+        190,
+        170,
+        180,
+        219,
+        226,
+        171,
+        176,
+        216,
+        202,
+        180,
+        193,
+        184,
+        185,
+        229,
+        250,
+        227,
+        250,
+        249,
+        255,
+        249,
+        242,
+        254,
+        250,
+        322,
+        327,
+        310,
+        316,
+        213,
+        262,
+        348,
+        350,
+        240,
+        240,
+        293,
+        281,
+        268,
+        260,
+        241,
+        256,
+        244,
+        229
+      ],
+      "additionalPreparationWaitMs": 15,
+      "textAndMathSamples": [
+        {
+          "kind": "text",
+          "ms": 240
+        },
+        {
+          "kind": "text",
+          "ms": 135
+        },
+        {
+          "kind": "text",
+          "ms": 116
+        },
+        {
+          "kind": "text",
+          "ms": 98
+        },
+        {
+          "kind": "text",
+          "ms": 99
+        },
+        {
+          "kind": "text",
+          "ms": 97
+        },
+        {
+          "kind": "text",
+          "ms": 97
+        },
+        {
+          "kind": "text",
+          "ms": 134
+        },
+        {
+          "kind": "text",
+          "ms": 106
+        },
+        {
+          "kind": "text",
+          "ms": 110
+        },
+        {
+          "kind": "text",
+          "ms": 98
+        },
+        {
+          "kind": "text",
+          "ms": 101
+        },
+        {
+          "kind": "text",
+          "ms": 93
+        },
+        {
+          "kind": "text",
+          "ms": 94
+        },
+        {
+          "kind": "text",
+          "ms": 97
+        },
+        {
+          "kind": "text",
+          "ms": 99
+        },
+        {
+          "kind": "text",
+          "ms": 105
+        },
+        {
+          "kind": "text",
+          "ms": 97
+        },
+        {
+          "kind": "text",
+          "ms": 107
+        },
+        {
+          "kind": "text",
+          "ms": 103
+        },
+        {
+          "kind": "math",
+          "ms": 118
+        },
+        {
+          "kind": "math",
+          "ms": 115
+        },
+        {
+          "kind": "math",
+          "ms": 109
+        },
+        {
+          "kind": "math",
+          "ms": 107
+        },
+        {
+          "kind": "math",
+          "ms": 122
+        },
+        {
+          "kind": "math",
+          "ms": 125
+        },
+        {
+          "kind": "math",
+          "ms": 114
+        },
+        {
+          "kind": "math",
+          "ms": 114
+        },
+        {
+          "kind": "math",
+          "ms": 108
+        },
+        {
+          "kind": "math",
+          "ms": 108
+        }
+      ],
+      "automaticRecovery": false,
+      "bidirectionalNavigation": false,
+      "sampledRestorationCompilerMs": 32.333199999999124,
+      "sampledRestorationDisplayMs": 65.79999999993015
+    },
+    {
+      "kind": "candidate",
+      "text": {
+        "n": 20,
+        "median": 150.5,
+        "p95": 174,
+        "max": 193
+      },
+      "math": {
+        "n": 10,
+        "median": 147.5,
+        "p95": 177,
+        "max": 177
+      },
+      "sustained": {
+        "n": 60,
+        "median": 367.5,
+        "p95": 402,
+        "max": 416
+      },
+      "sustainedLatenciesMs": [
+        174,
+        198,
+        237,
+        245,
+        306,
+        348,
+        400,
+        405,
+        342,
+        385,
+        399,
+        322,
+        368,
+        390,
+        401,
+        354,
+        379,
+        396,
+        335,
+        367,
+        402,
+        312,
+        343,
+        380,
+        387,
+        327,
+        376,
+        410,
+        393,
+        352,
+        400,
+        380,
+        333,
+        365,
+        379,
+        308,
+        344,
+        383,
+        372,
+        311,
+        347,
+        381,
+        389,
+        328,
+        361,
+        386,
+        389,
+        337,
+        368,
+        367,
+        299,
+        349,
+        392,
+        395,
+        342,
+        394,
+        416,
+        339,
+        363,
+        386
+      ],
+      "additionalPreparationWaitMs": 767,
+      "textAndMathSamples": [
+        {
+          "kind": "text",
+          "ms": 193
+        },
+        {
+          "kind": "text",
+          "ms": 174
+        },
+        {
+          "kind": "text",
+          "ms": 157
+        },
+        {
+          "kind": "text",
+          "ms": 157
+        },
+        {
+          "kind": "text",
+          "ms": 141
+        },
+        {
+          "kind": "text",
+          "ms": 149
+        },
+        {
+          "kind": "text",
+          "ms": 152
+        },
+        {
+          "kind": "text",
+          "ms": 169
+        },
+        {
+          "kind": "text",
+          "ms": 144
+        },
+        {
+          "kind": "text",
+          "ms": 151
+        },
+        {
+          "kind": "text",
+          "ms": 140
+        },
+        {
+          "kind": "text",
+          "ms": 139
+        },
+        {
+          "kind": "text",
+          "ms": 159
+        },
+        {
+          "kind": "text",
+          "ms": 150
+        },
+        {
+          "kind": "text",
+          "ms": 149
+        },
+        {
+          "kind": "text",
+          "ms": 161
+        },
+        {
+          "kind": "text",
+          "ms": 149
+        },
+        {
+          "kind": "text",
+          "ms": 135
+        },
+        {
+          "kind": "text",
+          "ms": 136
+        },
+        {
+          "kind": "text",
+          "ms": 164
+        },
+        {
+          "kind": "math",
+          "ms": 159
+        },
+        {
+          "kind": "math",
+          "ms": 149
+        },
+        {
+          "kind": "math",
+          "ms": 154
+        },
+        {
+          "kind": "math",
+          "ms": 142
+        },
+        {
+          "kind": "math",
+          "ms": 145
+        },
+        {
+          "kind": "math",
+          "ms": 177
+        },
+        {
+          "kind": "math",
+          "ms": 137
+        },
+        {
+          "kind": "math",
+          "ms": 144
+        },
+        {
+          "kind": "math",
+          "ms": 146
+        },
+        {
+          "kind": "math",
+          "ms": 153
+        }
+      ],
+      "automaticRecovery": true,
+      "bidirectionalNavigation": true,
+      "sampledRestorationCompilerMs": 14.76510000000053,
+      "sampledRestorationDisplayMs": 114.5
+    },
+    {
+      "kind": "baseline",
+      "text": {
+        "n": 20,
+        "median": 117,
+        "p95": 161,
+        "max": 263
+      },
+      "math": {
+        "n": 10,
+        "median": 115.5,
+        "p95": 167,
+        "max": 167
+      },
+      "sustained": {
+        "n": 60,
+        "median": 202,
+        "p95": 275,
+        "max": 283
+      },
+      "sustainedLatenciesMs": [
+        147,
+        129,
+        125,
+        128,
+        136,
+        137,
+        136,
+        132,
+        158,
+        196,
+        201,
+        174,
+        183,
+        193,
+        185,
+        194,
+        191,
+        186,
+        184,
+        204,
+        214,
+        190,
+        203,
+        202,
+        168,
+        177,
+        196,
+        190,
+        189,
+        241,
+        237,
+        231,
+        225,
+        226,
+        189,
+        181,
+        202,
+        205,
+        182,
+        222,
+        227,
+        269,
+        267,
+        261,
+        242,
+        240,
+        197,
+        247,
+        246,
+        276,
+        276,
+        283,
+        272,
+        275,
+        271,
+        248,
+        235,
+        247,
+        221,
+        262
+      ],
+      "additionalPreparationWaitMs": 23,
+      "textAndMathSamples": [
+        {
+          "kind": "text",
+          "ms": 263
+        },
+        {
+          "kind": "text",
+          "ms": 138
+        },
+        {
+          "kind": "text",
+          "ms": 130
+        },
+        {
+          "kind": "text",
+          "ms": 134
+        },
+        {
+          "kind": "text",
+          "ms": 116
+        },
+        {
+          "kind": "text",
+          "ms": 102
+        },
+        {
+          "kind": "text",
+          "ms": 159
+        },
+        {
+          "kind": "text",
+          "ms": 123
+        },
+        {
+          "kind": "text",
+          "ms": 114
+        },
+        {
+          "kind": "text",
+          "ms": 102
+        },
+        {
+          "kind": "text",
+          "ms": 113
+        },
+        {
+          "kind": "text",
+          "ms": 111
+        },
+        {
+          "kind": "text",
+          "ms": 120
+        },
+        {
+          "kind": "text",
+          "ms": 112
+        },
+        {
+          "kind": "text",
+          "ms": 161
+        },
+        {
+          "kind": "text",
+          "ms": 102
+        },
+        {
+          "kind": "text",
+          "ms": 120
+        },
+        {
+          "kind": "text",
+          "ms": 112
+        },
+        {
+          "kind": "text",
+          "ms": 118
+        },
+        {
+          "kind": "text",
+          "ms": 107
+        },
+        {
+          "kind": "math",
+          "ms": 121
+        },
+        {
+          "kind": "math",
+          "ms": 103
+        },
+        {
+          "kind": "math",
+          "ms": 167
+        },
+        {
+          "kind": "math",
+          "ms": 109
+        },
+        {
+          "kind": "math",
+          "ms": 134
+        },
+        {
+          "kind": "math",
+          "ms": 129
+        },
+        {
+          "kind": "math",
+          "ms": 112
+        },
+        {
+          "kind": "math",
+          "ms": 101
+        },
+        {
+          "kind": "math",
+          "ms": 119
+        },
+        {
+          "kind": "math",
+          "ms": 107
+        }
+      ],
+      "automaticRecovery": false,
+      "bidirectionalNavigation": false,
+      "sampledRestorationCompilerMs": 41.24279999999999,
+      "sampledRestorationDisplayMs": 59.5
+    },
+    {
+      "kind": "candidate",
+      "text": {
+        "n": 20,
+        "median": 132,
+        "p95": 150,
+        "max": 174
+      },
+      "math": {
+        "n": 10,
+        "median": 127.5,
+        "p95": 139,
+        "max": 139
+      },
+      "sustained": {
+        "n": 60,
+        "median": 305,
+        "p95": 349,
+        "max": 363
+      },
+      "sustainedLatenciesMs": [
+        134,
+        155,
+        172,
+        188,
+        200,
+        217,
+        221,
+        258,
+        282,
+        298,
+        311,
+        338,
+        331,
+        323,
+        267,
+        281,
+        303,
+        329,
+        350,
+        349,
+        271,
+        292,
+        311,
+        333,
+        332,
+        344,
+        275,
+        290,
+        305,
+        323,
+        330,
+        329,
+        252,
+        268,
+        287,
+        301,
+        310,
+        323,
+        326,
+        348,
+        279,
+        295,
+        326,
+        363,
+        357,
+        278,
+        290,
+        312,
+        329,
+        345,
+        347,
+        279,
+        298,
+        305,
+        331,
+        326,
+        326,
+        260,
+        277,
+        307
+      ],
+      "additionalPreparationWaitMs": 377,
+      "textAndMathSamples": [
+        {
+          "kind": "text",
+          "ms": 174
+        },
+        {
+          "kind": "text",
+          "ms": 138
+        },
+        {
+          "kind": "text",
+          "ms": 140
+        },
+        {
+          "kind": "text",
+          "ms": 132
+        },
+        {
+          "kind": "text",
+          "ms": 145
+        },
+        {
+          "kind": "text",
+          "ms": 134
+        },
+        {
+          "kind": "text",
+          "ms": 127
+        },
+        {
+          "kind": "text",
+          "ms": 132
+        },
+        {
+          "kind": "text",
+          "ms": 130
+        },
+        {
+          "kind": "text",
+          "ms": 134
+        },
+        {
+          "kind": "text",
+          "ms": 124
+        },
+        {
+          "kind": "text",
+          "ms": 129
+        },
+        {
+          "kind": "text",
+          "ms": 128
+        },
+        {
+          "kind": "text",
+          "ms": 132
+        },
+        {
+          "kind": "text",
+          "ms": 123
+        },
+        {
+          "kind": "text",
+          "ms": 137
+        },
+        {
+          "kind": "text",
+          "ms": 150
+        },
+        {
+          "kind": "text",
+          "ms": 128
+        },
+        {
+          "kind": "text",
+          "ms": 123
+        },
+        {
+          "kind": "text",
+          "ms": 138
+        },
+        {
+          "kind": "math",
+          "ms": 133
+        },
+        {
+          "kind": "math",
+          "ms": 139
+        },
+        {
+          "kind": "math",
+          "ms": 121
+        },
+        {
+          "kind": "math",
+          "ms": 136
+        },
+        {
+          "kind": "math",
+          "ms": 126
+        },
+        {
+          "kind": "math",
+          "ms": 131
+        },
+        {
+          "kind": "math",
+          "ms": 123
+        },
+        {
+          "kind": "math",
+          "ms": 129
+        },
+        {
+          "kind": "math",
+          "ms": 121
+        },
+        {
+          "kind": "math",
+          "ms": 124
+        }
+      ],
+      "automaticRecovery": true,
+      "bidirectionalNavigation": true,
+      "sampledRestorationCompilerMs": 12.765900000000329,
+      "sampledRestorationDisplayMs": 98
+    }
+  ],
+  "finding": "The flow compiler skips the immutable paragraph prefix and is faster, but the whole-paragraph bitmap redraw loses the old page cache hits. A future renderer must retain unchanged lines or an equivalent independently validated scene region."
+}
