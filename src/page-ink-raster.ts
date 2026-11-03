@@ -48,5 +48,5 @@ export function renderInkPage(page:any,scale:number){
     const tile=new Uint8ClampedArray(m.HEAPU8.buffer,ptr,width*height*4),canvas=new OffscreenCanvas(size.width,size.height),ctx=canvas.getContext('2d')!;
     ctx.fillStyle='white';ctx.fillRect(0,0,size.width,size.height);ctx.putImageData(new ImageData(tile,width,height),x,y);
     return {image:canvas.transferToImageBitmap(),width:size.width,height:size.height,...actual,inkPixels:width*height,fullPixels:size.width*size.height};
-  }finally{if(bitmap)m._FPDFBitmap_Destroy(bitmap);if(ptr)m.wasmExports.free(ptr);if(scratch)m.wasmExports.free(scratch);}
+  }catch{return;}finally{if(bitmap)m._FPDFBitmap_Destroy(bitmap);if(ptr)m.wasmExports.free(ptr);if(scratch)m.wasmExports.free(scratch);}
 }
