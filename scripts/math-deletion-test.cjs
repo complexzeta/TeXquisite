@@ -1,0 +1,29 @@
+const waitForAsync=require('./wait-for-async.cjs');
+// Synthetic theorem math and simulated low-memory recovery, never user source.
+const {_electron:electron}=require('playwright'),fs=require('node:fs/promises'),path=require('node:path'),assert=require('node:assert/strict'),{createHash}=require('node:crypto');
+const hash=s=>createHash('sha256').update(s).digest('hex'),delay=ms=>new Promise(r=>setTimeout(r,ms));
+(async()=>{
+ assert.equal(process.env.CI,'true');const dir=require('./test-artifacts.cjs').testDirectory('math-deletion'),profile=path.join(dir,'profile'),project=path.join(dir,'project'),root=path.join(project,'main.tex');await fs.mkdir(profile);await fs.mkdir(project);require('./retained-test-format.cjs').seedProfile(profile);
+ let expected='\\documentclass{article}\n\\usepackage{amsmath,amssymb,amsthm,tikz,xcolor}\n\\newtheorem{defn}{Definition}\n\\begin{document}\n\nWarmup ordinary words.\n\n\\begin{defn} TargetSentinel let $x+y$ describe a chain. \\end{defn}\n\nRemoteSentinel ordinary words.\n\n'+Array.from({length:60},(_,i)=>'Paragraph '+i+' ordinary words with $a+b$.\n\n').join('')+'\\end{document}\n';
+ await fs.writeFile(root,expected);await fs.writeFile(path.join(profile,'session.json'),JSON.stringify({docs:[{path:root,text:expected,diskHash:hash(expected),dirty:false,eol:'\n'}],root,active:root,engine:'pdflatex',latexmk:'latexmk',previewMode:'lecture',onSave:true,liveVersion:2,continuousPreview:true,autoClose:false,followPreview:false,lastCursor:{file:root,at:expected.indexOf('TargetSentinel')+14}}));
+ const app=await electron.launch({...(process.env.PERSISTENT_TEX_EXECUTABLE?{executablePath:process.env.PERSISTENT_TEX_EXECUTABLE,args:[]}:{args:['.']}),env:{...process.env,PERSISTENT_TEX_TEST_DATA:profile,PERSISTENT_TEX_TEST_HIDDEN:'1',PERSISTENT_TEX_MULTI_BLOCK:'0',PERSISTENT_TEX_RETAINED_FLOW:'0'},timeout:120000}),result={passed:false,samples:[]};let page;
+ try{
+  // Mock the app's memory reading, without consuming real memory on the runner.
+  assert.equal(await app.evaluate(()=>{const os=process.getBuiltinModule('os');global.originalMathTestFreemem=os.freemem;os.freemem=()=>256*1024*1024;return os.freemem();}),256*1024*1024);
+  page=await app.firstWindow();result.version=await app.evaluate(({app})=>app.getVersion());await page.locator('.cm-content').waitFor();
+  const visible=()=>page.waitForFunction(h=>[...document.querySelectorAll('#pages canvas')].some(c=>(c.dataset.localSourceHash||c.dataset.sourceHash)===h),hash(expected),{timeout:30000,polling:10});
+  const ready=async()=>{const at=expected.indexOf('TargetSentinel')+14;await page.evaluate(async({root,at})=>{const v=document.querySelector('.cm-content').cmTile.root.view;v.dispatch({selection:{anchor:at}});await window.desktop.call('localCursor',root,at);},{root,at});await waitForAsync(page,async at=>{const p=await window.desktop.call('previewPerformance');return p.localReady&&!p.localBusy&&p.localRange?.from<=at&&at<p.localRange.to;},at,{timeout:60000,polling:20});};
+  const edit=async(at,count,insert)=>{await page.evaluate(({at,count,insert})=>{const v=document.querySelector('.cm-content').cmTile.root.view;v.dispatch({changes:{from:at,to:at+count,insert},selection:{anchor:at+insert.length}});},{at,count,insert});expected=expected.slice(0,at)+insert+expected.slice(at+count);};
+  const sample=async(label,at,count,insert)=>{const t=performance.now();await edit(at,count,insert);await visible();result.samples.push({label,ms:Math.ceil(performance.now()-t)});};
+  await visible();await ready();
+  for(const math of ['x+y','a_0\\lhd a_1\\lhd\\cdots\\lhd a_r']){
+   let at=expected.indexOf('let ')+4;const end=expected.indexOf(' describe a chain.',at);await sample('install-'+math,at,end-at,'$'+math+'$');await ready();
+   at=expected.indexOf('$'+math+'$');await sample('remove-closer',at+math.length+1,1,'');await delay(900);
+   await sample('remove-opener',at,1,'');await delay(900);
+   for(const word of [' first',' second',' third']){const pos=expected.indexOf(' describe a chain.');await sample('continued'+word,pos,0,word);await delay(300);}
+   if(math==='x+y')await page.waitForFunction(()=>document.querySelector('#errorCount').dataset.errors==='0',null,{timeout:5000});
+   else{await page.waitForFunction(()=>Number(document.querySelector('#errorCount').dataset.errors)>0);await sample('correct-to-plain-text',at,math.length,'plain chain');await page.waitForFunction(()=>document.querySelector('#errorCount').dataset.errors==='0'&&document.querySelector('#errorCount').dataset.checking==='0',null,{timeout:5000});}
+  }
+  result.performance=await page.evaluate(()=>window.desktop.call('previewPerformance',true));assert.ok(result.performance.localReady);assert.ok(result.performance.trace.some(e=>e.event==='verification-deferred'&&e.reason==='memory'),'Low-memory verification must retain the local worker');assert.equal(result.performance.trace.filter(e=>e.event==='local-log'&&String(e.message).includes('Idle verification reclaimed')).length,0);assert.ok(Math.max(...result.samples.map(s=>s.ms))<1000);assert.equal(await fs.readFile(root,'utf8'),expected);result.sourceSavedExactly=true;result.passed=true;
+ }catch(e){result.error=String(e);throw e;}finally{if(page){result.performance=await page.evaluate(()=>window.desktop.call('previewPerformance',true)).catch(()=>undefined);result.footer=await page.locator('#statusBar').innerText().catch(()=>'');await fs.writeFile(path.join(dir,'build.log'),await page.locator('#log').textContent().catch(()=>''));}await app.close().catch(()=>{});await fs.writeFile(path.join(dir,'result.json'),JSON.stringify(result,null,2));console.log(JSON.stringify({directory:dir,...result}));}
+})().catch(e=>{console.error(String(e));process.exitCode=1;});

@@ -283,7 +283,8 @@ await extend('tex/pdftexd.h',[['int persistent_region_stop(void);','void persist
 await extend('main.c',[
  ['  if(persistent_page_stop()||persistent_region_stop())return 1;','  if(persistent_page_stop()||persistent_region_stop())return 1;\n  if(persistent_prefix_active())return persistent_prefix_check();'],
  ['  persistent_tex_checkpoint_kind = persistent_page_stop()?3:persistent_region_stop()?2:1;\n  persistent_tex_body_offset = (int)ftell(inputfile[1]);','  int prefix=persistent_prefix_take();\n  persistent_tex_checkpoint_kind = prefix>=0?4:persistent_page_stop()?3:persistent_region_stop()?2:1;\n  persistent_tex_body_offset = prefix>=0?prefix:(int)ftell(inputfile[1]);'],
- ['int compileLaTeX() {',await readFile('scripts/prefix-engine.c','utf8')+'\nint compileLaTeX() {']
+ ['int compileLaTeX() {',await readFile('scripts/prefix-engine.c','utf8')+'\nint compileLaTeX() {'],
+ ['int compileLaTeX() {',await readFile('scripts/read-ahead-engine.c','utf8')+'\nint compileLaTeX() {']
 ]);
 await extend('tex/pdftex0.c',[
  ['persistent_region_input(curinput.indexfield);persistent_page_input(curinput.indexfield);','persistent_region_input(curinput.indexfield);persistent_page_input(curinput.indexfield);persistent_prefix_input(curinput.indexfield);'],

@@ -1,0 +1,34 @@
+name: Canvas reuse ownership protocol
+on:
+  workflow_call:
+permissions:
+  contents: read
+jobs:
+  protocol:
+    runs-on: windows-2025
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '24'
+      - shell: pwsh
+        run: |
+          $root=Join-Path $env:RUNNER_TEMP 'canvas-reuse-protocol'
+          New-Item -ItemType Directory -Path "$root/temporary","$root/artifacts" -Force|Out-Null
+          "PERSISTENT_TEX_TEST_ARTIFACTS=$root/artifacts" >> $env:GITHUB_ENV
+          "TEMP=$root/temporary" >> $env:GITHUB_ENV
+          "TMP=$root/temporary" >> $env:GITHUB_ENV
+          "npm_config_cache=$root/npm" >> $env:GITHUB_ENV
+      - run: npm ci --no-audit --no-fund
+      - name: Delayed replies, resize, detached pages and worker failure
+        run: node scripts/canvas-reuse-protocol-test.cjs
+      - name: Preserve bounded ownership evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: canvas-reuse-protocol-results
+          retention-days: 7
+          path: ${{ env.PERSISTENT_TEX_TEST_ARTIFACTS }}/**/result.json

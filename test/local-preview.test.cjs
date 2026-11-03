@@ -2,6 +2,13 @@ const {test}=require('node:test'),assert=require('node:assert/strict');
 const {paragraphAt}=require('../dist/local-preview'),{matchLocalRaster}=require('../dist/local-raster');
 const {matchLocalPatchRaster}=require('../dist/local-raster');
 
+test('The verified body boundary excludes the preamble and retains removable leading blank lines',()=>{
+ const header='\\documentclass{article}\n\\begin{document}\n',source=header+'\nFirst words.\n\nSecond words.\n\n',floor=header.length;
+ const range=paragraphAt(source,source.indexOf('First'),floor);assert.equal(range.from,floor);assert.equal(source.slice(range.from,range.to),'\nFirst words.\n\n');
+ const fewer=source.replace('\n\nFirst','\nFirst');assert.equal(paragraphAt(fewer,fewer.indexOf('First'),floor).from,floor);
+ assert.equal(paragraphAt(source,header.indexOf('document'),floor),undefined,'Preamble edits cannot borrow a body checkpoint');
+});
+
 test('Fractional native page geometry survives raster rounding but true changes still refuse',()=>{
  const {matchingPageGeometry}=require('../dist/local-raster'),size={originalWidth:595.2756,originalHeight:841.8898};
  for(const scale of [1,1.5,2.5]){

@@ -1,0 +1,640 @@
+{
+  "passed": true,
+  "source": "eb0d9aefaf36cd025d10fdd33b1d1fafa4ef6e79",
+  "run": 41725897902,
+  "url": "https://github.com/complexzeta/TeXquisite/actions/runs/41725897902",
+  "experimentalOnly": true,
+  "installedVersion": "0.132.0",
+  "reports": {
+    "linux": {
+      "engine": {
+        "source": "eb0d9aefaf36cd025d10fdd33b1d1fafa4ef6e79",
+        "sdk": "3.1.46",
+        "sdkSource": "93360d3670018769b424e4e8f1d3d9b26d32c977",
+        "upstream": "87dfb950eb9c8e9dcd4ee2a3ac97fbbbacfc618a",
+        "archive": "0beac6bbf8913d41574d80f55b34179ed023ef146878421a955a7ba3b4c37247",
+        "js": "5d2f42d8852796a66a1afa04890878915173e2651ebdd45f94ed36394fe3e3d9",
+        "wasm": "fc7c3b405b57e6c9fa94e6d7d27d54ec3136b229a20e4b5fbd3e2aadbeabf5de"
+      },
+      "renderedComparisons": 158,
+      "summary": {
+        "inline-control": {
+          "samples": 8,
+          "medianMs": 125.14813949999996,
+          "maxMs": 135.16299299999991,
+          "preambleRebuilds": 8
+        },
+        "inline-candidate": {
+          "samples": 8,
+          "medianMs": 12.526690000002418,
+          "maxMs": 18.064551999996183,
+          "preambleRebuilds": 0
+        },
+        "newline-control": {
+          "samples": 8,
+          "medianMs": 12.681578000003356,
+          "maxMs": 14.000834999999825,
+          "preambleRebuilds": 0
+        },
+        "newline-candidate": {
+          "samples": 8,
+          "medianMs": 12.025692499999423,
+          "maxMs": 13.784216000000015,
+          "preambleRebuilds": 0
+        },
+        "packages-control": {
+          "samples": 4,
+          "medianMs": 374.2784360000005,
+          "maxMs": 375.9555549999932,
+          "preambleRebuilds": 4
+        },
+        "packages-candidate": {
+          "samples": 4,
+          "medianMs": 23.51036749999912,
+          "maxMs": 32.358305000001565,
+          "preambleRebuilds": 0
+        },
+        "references-control": {
+          "samples": 4,
+          "medianMs": 170.6267224999974,
+          "maxMs": 173.1985969999987,
+          "preambleRebuilds": 4
+        },
+        "references-candidate": {
+          "samples": 4,
+          "medianMs": 49.007909500000096,
+          "maxMs": 50.15607199999795,
+          "preambleRebuilds": 0
+        },
+        "transformed-consumed-control": {
+          "samples": 4,
+          "medianMs": 125.96000800000002,
+          "maxMs": 127.86473699999988,
+          "preambleRebuilds": 4
+        },
+        "transformed-consumed-candidate": {
+          "samples": 4,
+          "medianMs": 123.80757550000271,
+          "maxMs": 126.10344299999997,
+          "preambleRebuilds": 4
+        },
+        "macro-start-control": {
+          "samples": 4,
+          "medianMs": 124.16764849999981,
+          "maxMs": 126.7341720000004,
+          "preambleRebuilds": 4
+        },
+        "macro-start-candidate": {
+          "samples": 4,
+          "medianMs": 12.873762500004887,
+          "maxMs": 13.567985999994562,
+          "preambleRebuilds": 0
+        }
+      },
+      "recovery": [
+        {
+          "enabled": false,
+          "ms": [
+            116.85531700000865,
+            123.35832700000901
+          ]
+        },
+        {
+          "enabled": true,
+          "ms": [
+            11.60358099998848,
+            17.177983000001404
+          ]
+        }
+      ],
+      "local": [
+        {
+          "newline": false,
+          "word": "Beta",
+          "ms": 15.903309000001173
+        },
+        {
+          "newline": false,
+          "word": "Gamma $x^2$",
+          "ms": 17.924562999993213
+        },
+        {
+          "newline": false,
+          "word": "Alpha",
+          "ms": 10.981643000006443
+        },
+        {
+          "newline": true,
+          "word": "Beta",
+          "ms": 13.61719199999061
+        },
+        {
+          "newline": true,
+          "word": "Gamma $x^2$",
+          "ms": 16.73927600000752
+        },
+        {
+          "newline": true,
+          "word": "Alpha",
+          "ms": 10.934194000001298
+        }
+      ]
+    },
+    "windows": {
+      "engine": {
+        "source": "eb0d9aefaf36cd025d10fdd33b1d1fafa4ef6e79",
+        "sdk": "3.1.46",
+        "sdkSource": "93360d3670018769b424e4e8f1d3d9b26d32c977",
+        "upstream": "87dfb950eb9c8e9dcd4ee2a3ac97fbbbacfc618a",
+        "archive": "0beac6bbf8913d41574d80f55b34179ed023ef146878421a955a7ba3b4c37247",
+        "js": "5d2f42d8852796a66a1afa04890878915173e2651ebdd45f94ed36394fe3e3d9",
+        "wasm": "fc7c3b405b57e6c9fa94e6d7d27d54ec3136b229a20e4b5fbd3e2aadbeabf5de"
+      },
+      "renderedComparisons": 158,
+      "summary": {
+        "inline-control": {
+          "samples": 8,
+          "medianMs": 135.34669999999983,
+          "maxMs": 146.66899999999987,
+          "preambleRebuilds": 8
+        },
+        "inline-candidate": {
+          "samples": 8,
+          "medianMs": 14.540549999999712,
+          "maxMs": 20.740599999997357,
+          "preambleRebuilds": 0
+        },
+        "newline-control": {
+          "samples": 8,
+          "medianMs": 14.75575000000299,
+          "maxMs": 16.041000000004715,
+          "preambleRebuilds": 0
+        },
+        "newline-candidate": {
+          "samples": 8,
+          "medianMs": 15.049800000000687,
+          "maxMs": 18.30290000000241,
+          "preambleRebuilds": 0
+        },
+        "packages-control": {
+          "samples": 4,
+          "medianMs": 400.70520000000033,
+          "maxMs": 432.3290000000052,
+          "preambleRebuilds": 4
+        },
+        "packages-candidate": {
+          "samples": 4,
+          "medianMs": 27.13810000000376,
+          "maxMs": 37.839599999999336,
+          "preambleRebuilds": 0
+        },
+        "references-control": {
+          "samples": 4,
+          "medianMs": 201.34719999999834,
+          "maxMs": 206.81259999999747,
+          "preambleRebuilds": 4
+        },
+        "references-candidate": {
+          "samples": 4,
+          "medianMs": 63.01220000000103,
+          "maxMs": 68.29899999999907,
+          "preambleRebuilds": 0
+        },
+        "transformed-consumed-control": {
+          "samples": 4,
+          "medianMs": 132.77300000000014,
+          "maxMs": 140.31849999999395,
+          "preambleRebuilds": 4
+        },
+        "transformed-consumed-candidate": {
+          "samples": 4,
+          "medianMs": 130.92720000000008,
+          "maxMs": 133.9841000000015,
+          "preambleRebuilds": 4
+        },
+        "macro-start-control": {
+          "samples": 4,
+          "medianMs": 132.1267000000007,
+          "maxMs": 138.59210000000166,
+          "preambleRebuilds": 4
+        },
+        "macro-start-candidate": {
+          "samples": 4,
+          "medianMs": 15.407149999999092,
+          "maxMs": 19.108800000001793,
+          "preambleRebuilds": 0
+        }
+      },
+      "recovery": [
+        {
+          "enabled": false,
+          "ms": [
+            149.57850000000326,
+            129.91990000000806
+          ]
+        },
+        {
+          "enabled": true,
+          "ms": [
+            14.715599999995902,
+            21.98880000000645
+          ]
+        }
+      ],
+      "local": [
+        {
+          "newline": false,
+          "word": "Beta",
+          "ms": 17.863299999997253
+        },
+        {
+          "newline": false,
+          "word": "Gamma $x^2$",
+          "ms": 20.500299999999697
+        },
+        {
+          "newline": false,
+          "word": "Alpha",
+          "ms": 14.588300000003073
+        },
+        {
+          "newline": true,
+          "word": "Beta",
+          "ms": 17.63860000000568
+        },
+        {
+          "newline": true,
+          "word": "Gamma $x^2$",
+          "ms": 20.827100000009523
+        },
+        {
+          "newline": true,
+          "word": "Alpha",
+          "ms": 14.595100000005914
+        }
+      ]
+    }
+  },
+  "viewer": {
+    "passed": true,
+    "endpoint": "completed hidden canvas, not physical paint",
+    "trials": [
+      {
+        "enabled": false,
+        "sourcePreserved": true,
+        "fullCommits": 16,
+        "samples": [
+          {
+            "kind": "insert",
+            "ms": 452.20000000001164,
+            "layout": "full"
+          },
+          {
+            "kind": "undo",
+            "ms": 433.1000000000349,
+            "layout": "full"
+          },
+          {
+            "kind": "insert",
+            "ms": 433.9000000000233,
+            "layout": "full"
+          },
+          {
+            "kind": "undo",
+            "ms": 485.19999999995343,
+            "layout": "full"
+          },
+          {
+            "kind": "insert",
+            "ms": 454.20000000001164,
+            "layout": "full"
+          },
+          {
+            "kind": "undo",
+            "ms": 449.3999999999651,
+            "layout": "full"
+          },
+          {
+            "kind": "insert",
+            "ms": 456.6000000000349,
+            "layout": "full"
+          },
+          {
+            "kind": "undo",
+            "ms": 445.0999999999767,
+            "layout": "full"
+          },
+          {
+            "kind": "insert",
+            "ms": 452.0999999999767,
+            "layout": "full"
+          },
+          {
+            "kind": "undo",
+            "ms": 421.20000000001164,
+            "layout": "full"
+          },
+          {
+            "kind": "insert",
+            "ms": 433.5999999999767,
+            "layout": "full"
+          },
+          {
+            "kind": "undo",
+            "ms": 464.20000000001164,
+            "layout": "full"
+          },
+          {
+            "kind": "insert",
+            "ms": 435.5999999999767,
+            "layout": "full"
+          },
+          {
+            "kind": "undo",
+            "ms": 444.80000000004657,
+            "layout": "full"
+          },
+          {
+            "kind": "insert",
+            "ms": 437.4000000000233,
+            "layout": "full"
+          },
+          {
+            "kind": "undo",
+            "ms": 407.20000000001164,
+            "layout": "full"
+          }
+        ],
+        "medianMs": 444.95000000001164,
+        "maxMs": 485.19999999995343
+      },
+      {
+        "enabled": true,
+        "sourcePreserved": true,
+        "fullCommits": 16,
+        "samples": [
+          {
+            "kind": "insert",
+            "ms": 67.29999999998836,
+            "layout": "full"
+          },
+          {
+            "kind": "undo",
+            "ms": 65.40000000002328,
+            "layout": "full"
+          },
+          {
+            "kind": "insert",
+            "ms": 66.59999999997672,
+            "layout": "full"
+          },
+          {
+            "kind": "undo",
+            "ms": 64.60000000003492,
+            "layout": "full"
+          },
+          {
+            "kind": "insert",
+            "ms": 63.29999999998836,
+            "layout": "full"
+          },
+          {
+            "kind": "undo",
+            "ms": 61.90000000002328,
+            "layout": "full"
+          },
+          {
+            "kind": "insert",
+            "ms": 56.79999999998836,
+            "layout": "full"
+          },
+          {
+            "kind": "undo",
+            "ms": 63.90000000002328,
+            "layout": "full"
+          },
+          {
+            "kind": "insert",
+            "ms": 65.09999999997672,
+            "layout": "full"
+          },
+          {
+            "kind": "undo",
+            "ms": 52.90000000002328,
+            "layout": "full"
+          },
+          {
+            "kind": "insert",
+            "ms": 61.79999999998836,
+            "layout": "full"
+          },
+          {
+            "kind": "undo",
+            "ms": 63,
+            "layout": "full"
+          },
+          {
+            "kind": "insert",
+            "ms": 51.70000000001164,
+            "layout": "full"
+          },
+          {
+            "kind": "undo",
+            "ms": 63.5,
+            "layout": "full"
+          },
+          {
+            "kind": "insert",
+            "ms": 61.90000000002328,
+            "layout": "full"
+          },
+          {
+            "kind": "undo",
+            "ms": 61.79999999998836,
+            "layout": "full"
+          }
+        ],
+        "medianMs": 63.14999999999418,
+        "maxMs": 67.29999999998836
+      },
+      {
+        "enabled": false,
+        "sourcePreserved": true,
+        "fullCommits": 16,
+        "samples": [
+          {
+            "kind": "insert",
+            "ms": 464.19999999995343,
+            "layout": "full"
+          },
+          {
+            "kind": "undo",
+            "ms": 475.29999999998836,
+            "layout": "full"
+          },
+          {
+            "kind": "insert",
+            "ms": 425.9000000000233,
+            "layout": "full"
+          },
+          {
+            "kind": "undo",
+            "ms": 424.20000000001164,
+            "layout": "full"
+          },
+          {
+            "kind": "insert",
+            "ms": 415,
+            "layout": "full"
+          },
+          {
+            "kind": "undo",
+            "ms": 412.6000000000349,
+            "layout": "full"
+          },
+          {
+            "kind": "insert",
+            "ms": 414.5999999999767,
+            "layout": "full"
+          },
+          {
+            "kind": "undo",
+            "ms": 418.5,
+            "layout": "full"
+          },
+          {
+            "kind": "insert",
+            "ms": 416.5999999999767,
+            "layout": "full"
+          },
+          {
+            "kind": "undo",
+            "ms": 434.9000000000233,
+            "layout": "full"
+          },
+          {
+            "kind": "insert",
+            "ms": 429.5999999999767,
+            "layout": "full"
+          },
+          {
+            "kind": "undo",
+            "ms": 417.29999999998836,
+            "layout": "full"
+          },
+          {
+            "kind": "insert",
+            "ms": 418.79999999998836,
+            "layout": "full"
+          },
+          {
+            "kind": "undo",
+            "ms": 418.5999999999767,
+            "layout": "full"
+          },
+          {
+            "kind": "insert",
+            "ms": 417.79999999998836,
+            "layout": "full"
+          },
+          {
+            "kind": "undo",
+            "ms": 418.69999999995343,
+            "layout": "full"
+          }
+        ],
+        "medianMs": 418.6499999999651,
+        "maxMs": 475.29999999998836
+      },
+      {
+        "enabled": true,
+        "sourcePreserved": true,
+        "fullCommits": 16,
+        "samples": [
+          {
+            "kind": "insert",
+            "ms": 69.89999999996508,
+            "layout": "full"
+          },
+          {
+            "kind": "undo",
+            "ms": 63.70000000001164,
+            "layout": "full"
+          },
+          {
+            "kind": "insert",
+            "ms": 67.20000000001164,
+            "layout": "full"
+          },
+          {
+            "kind": "undo",
+            "ms": 63.20000000001164,
+            "layout": "full"
+          },
+          {
+            "kind": "insert",
+            "ms": 55.40000000002328,
+            "layout": "full"
+          },
+          {
+            "kind": "undo",
+            "ms": 55.90000000002328,
+            "layout": "full"
+          },
+          {
+            "kind": "insert",
+            "ms": 63.20000000001164,
+            "layout": "full"
+          },
+          {
+            "kind": "undo",
+            "ms": 74.59999999997672,
+            "layout": "full"
+          },
+          {
+            "kind": "insert",
+            "ms": 60.199999999953434,
+            "layout": "full"
+          },
+          {
+            "kind": "undo",
+            "ms": 62.20000000001164,
+            "layout": "full"
+          },
+          {
+            "kind": "insert",
+            "ms": 60.79999999998836,
+            "layout": "full"
+          },
+          {
+            "kind": "undo",
+            "ms": 61.40000000002328,
+            "layout": "full"
+          },
+          {
+            "kind": "insert",
+            "ms": 53.70000000001164,
+            "layout": "full"
+          },
+          {
+            "kind": "undo",
+            "ms": 60.600000000034925,
+            "layout": "full"
+          },
+          {
+            "kind": "insert",
+            "ms": 58.899999999965075,
+            "layout": "full"
+          },
+          {
+            "kind": "undo",
+            "ms": 61.29999999998836,
+            "layout": "full"
+          }
+        ],
+        "medianMs": 61.35000000000582,
+        "maxMs": 74.59999999997672
+      }
+    ]
+  }
+}

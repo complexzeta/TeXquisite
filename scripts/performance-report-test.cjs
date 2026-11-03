@@ -1,3 +1,4 @@
+const waitForAsync=require('./wait-for-async.cjs');
 // A disposable app, source and clipboard mock; never touches the user's profile
 // or operating-system clipboard. Exercises the actual native menu and renderer.
 const {_electron:electron}=require('playwright'),fs=require('node:fs/promises'),path=require('node:path'),os=require('node:os'),assert=require('node:assert/strict'),{createHash}=require('node:crypto');
@@ -12,7 +13,7 @@ const hash=s=>createHash('sha256').update(s).digest('hex');
  try{
   page=await app.firstWindow();page.on('pageerror',e=>errors.push(String(e)));await page.waitForFunction(h=>[...document.querySelectorAll('#pages canvas')].some(c=>c.dataset.sourceHash===h),hash(source),{timeout:90000});
   await page.evaluate(at=>{const v=document.querySelector('.cm-content').cmTile.root.view;v.dispatch({selection:{anchor:at}});},at);
-  await page.waitForFunction(async()=>{const p=await window.desktop.call('previewPerformance');return p.localReady&&!p.localBusy;},null,{timeout:60000});
+  await waitForAsync(page,async()=>{const p=await window.desktop.call('previewPerformance');return p.localReady&&!p.localBusy;},null,{timeout:60000});
   await page.evaluate(at=>{const v=document.querySelector('.cm-content').cmTile.root.view;v.dispatch({changes:{from:at,insert:'new '},selection:{anchor:at+4}});},at);source=source.slice(0,at)+'new '+source.slice(at);
   await page.waitForFunction(h=>[...document.querySelectorAll('#pages canvas')].some(c=>c.dataset.localSourceHash===h&&c.dataset.localLatencyEditId===c.dataset.localEditId),hash(source),{timeout:30000});
   const before=await page.evaluate(()=>window.desktop.call('performanceReport'));assert.equal(before.mode,'lecture');assert.equal(before.retainedLayoutEnabled,false);assert.ok(before.latencyMs.local.count>0);assert.equal(before.latestEdit.frameAcknowledged,true);

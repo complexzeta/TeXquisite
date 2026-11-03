@@ -21,7 +21,7 @@ import {recoveryNavigation} from './recovery-navigation';
 export const hash = (bytes: Uint8Array | string) => createHash('sha256').update(bytes).digest('hex');
 const legacyTkzLoader=/^[\t ]*\\usetkzobj\{all\}[\t ]*(?:%[^\r\n]*)?\r?$/m;
 const hasEuclide=(source:string)=>/\\usepackage(?:\[[^\]]*\])?\{tkz-euclide\}/.test(source);
-const withoutLegacyTkz=(source:string)=>hasEuclide(source)?source.replace(legacyTkzLoader,'% Compatibility: obsolete tkz object loader omitted.'):source;
+export const withoutLegacyTkz=(source:string)=>hasEuclide(source)?source.replace(legacyTkzLoader,'% Compatibility: obsolete tkz object loader omitted.'):source;
 export interface Bundle {
   schema: 1; id: string; revision: number; root: string; engine: string;
   completed: string; pdfHash: string; pages: number; synctex: boolean;
@@ -129,7 +129,7 @@ export class ArtifactStore {
 
 export interface BuildOptions { focus?:{line:number;column:number}; root: string; engine: string; executable: string; timeoutMs: number; sourceRevision?:number; sourceText?:string; characterMapping?:boolean; sourceFiles?:Record<string,string>; supportFolders?:string[]; editId?:string; automatic?:boolean; }
 export interface DisplayTiming {editId?:string;backend:string;requestToCommitMs:number;recovered?:boolean;}
-export interface LocalBasis {bundle:Bundle;options:BuildOptions;source:string;originalSource?:string;recoveryIssues?:BuildDiagnostic[];compilerSource:string;project:ResidentContext;pdf:Uint8Array;canBuildAlongside?:()=>boolean;takeCompiler?:()=>ResidentCompiler|undefined;replaceCompiler?:(previous:ResidentCompiler)=>ResidentCompiler|undefined;returnCompiler?:(compiler:ResidentCompiler)=>boolean;claimAutomatic?:(editId:string,source:string,previous?:ResidentCompiler)=>ResidentCompiler|undefined;}
+export interface LocalBasis {bundle:Bundle;options:BuildOptions;source:string;originalSource?:string;recoveryIssues?:BuildDiagnostic[];compilerSource:string;bodyLine?:number;compilerInput?:(source:string)=>string;project:ResidentContext;pdf:Uint8Array;canBuildAlongside?:()=>boolean;takeCompiler?:()=>ResidentCompiler|undefined;replaceCompiler?:(previous:ResidentCompiler)=>ResidentCompiler|undefined;returnCompiler?:(compiler:ResidentCompiler)=>boolean;claimAutomatic?:(editId:string,source:string,previous?:ResidentCompiler)=>ResidentCompiler|undefined;}
 export interface Viewer { prepare(bundle: Bundle,pdf?:Uint8Array,navigation?:Navigation,displayFocus?:PreviewFocus): Promise<void>; commit(bundle: Bundle,timing?:DisplayTiming): void; discard(bundle: Bundle): void; diagnostic?(issue:BuildDiagnostic):void; problems?(issues:BuildDiagnostic[],editId?:string):void; localBasis?(basis:LocalBasis):void; performance?(report:Record<string,unknown>):void; }
 export class BuildController {
   private static protectedDirectories=new Set<string>();
@@ -138,7 +138,7 @@ export class BuildController {
   private retired=false;
   current?: Bundle;
   private active?: AbortController;
-  private activeDraft?:{identity:string;startedAt:number;automatic:boolean;compiling:boolean};
+  private activeDraft?:{identity:string;editId?:string;startedAt:number;automatic:boolean;compiling:boolean;supersededLocally?:boolean};
   private staleDraftTimer?:NodeJS.Timeout;
   private pending?: BuildOptions;
   private pendingAt=0;
@@ -236,6 +236,13 @@ export class BuildController {
     else{this.pruneTimer=setTimeout(prune,2000);this.pruneTimer.unref();}
   }
   get busy() { return !!this.loop; }
+  supersedeAutomaticForLocalEdit(editId:string){
+    // Local input has already accepted the newer revision. Cancel only its
+    // obsolete background verification, never an explicit Build/Export and
+    // never the independently owned local compiler.
+    if(this.pending?.automatic&&this.pending.editId!==editId)this.pending=undefined;
+    if(this.activeDraft?.automatic&&this.activeDraft.editId!==editId){this.activeDraft.supersededLocally=true;this.canPrefetch=false;this.active?.abort();}
+  }
   constructor(readonly store: ArtifactStore, readonly viewer: Viewer, readonly status: (s:string)=>void, readonly log:(s:string)=>void) {const auxiliary=path.join(store.directory,'auxiliary');BuildController.auxiliaryUsers.set(auxiliary,(BuildController.auxiliaryUsers.get(auxiliary)??0)+1);const warm=path.join(store.directory,'warm',this.cacheSession);this.warm=new WarmCompiler(warm);BuildController.protectedDirectories.add(warm);BuildController.protectedDirectories.add(path.join(store.directory,'cache',this.cacheSession));}
   async restore() { this.current = (await this.store.history())[0]; this.revision = this.current?.revision ?? 0; return this.current; }
   request(options: BuildOptions): Promise<void> {
@@ -247,8 +254,14 @@ export class BuildController {
     if(draft?.automatic&&options.automatic&&draft.identity!==this.sourceIdentity(options)){
       this.staleDraftTimer=setTimeout(()=>{
         if(this.activeDraft!==draft||!draft.compiling||!this.pending?.automatic||this.sourceIdentity(this.pending)===draft.identity)return;
+        // Killing a resident worker loses its preamble checkpoint. If startup
+        // takes just over this timer, continuous typing can restart it forever.
+        // Let that bounded compile publish once, then consume the newest draft.
+        // Its own timeout still bounds runaway TeX; native fallback stays
+        // interruptible because it cannot donate a resident checkpoint.
+        if(this.residentTask)return;
         this.log('Stopping obsolete automatic typesetting so the newest edit can continue.\n');
-        this.active?.abort();this.residentTask?.abort.abort();
+        this.active?.abort();
       },Math.max(0,1000-(performance.now()-draft.startedAt)));this.staleDraftTimer.unref();
     }
     // A capability retry for an obsolete draft must not hold newer input behind
@@ -279,7 +292,7 @@ export class BuildController {
     this.canPrefetch=false;
     const began=performance.now();
     const abort = new AbortController(); this.active=abort;
-    this.activeDraft={identity:this.sourceIdentity(options),startedAt:began,automatic:!!options.automatic,compiling:true};
+    this.activeDraft={identity:this.sourceIdentity(options),editId:options.editId,startedAt:began,automatic:!!options.automatic,compiling:true};
     const generation=this.generation, revision=++this.revision;
     const check=()=>{if(abort.signal.aborted || generation!==this.generation) throw new Error('Build cancelled.');};
     // Reuse auxiliary state across edits, but never display this mutable output.
@@ -350,10 +363,11 @@ export class BuildController {
           if(!pdf&&options.automatic&&(failure instanceof ResidentSourceError||recoverableTexError(String(failure)))){
             const deadline=performance.now()+4000;
             // A handful of known, local repairs may keep a lecture moving.
-            // New edits cancel recovery; repeated/unsafe errors never spin.
-            this.retryingNativeFor=this.sourceIdentity(options);
+            // Skip obsolete repairs between compiler calls. Aborting a live
+            // resident repair would destroy the worker needed by the next edit.
             for(let attempt=0;attempt<3;attempt++){
               check();
+              if(this.pending?.automatic&&this.sourceIdentity(this.pending)!==this.sourceIdentity(options))throw failure;
               const parsed=parseDiagnostic(String(failure),diagnosticInputs);
               if(parsed.file!==options.root)break;
               const repair=previewRepair(compilerSource,String(failure));if(!repair||repair.source===compilerSource||performance.now()>=deadline)break;
@@ -453,8 +467,13 @@ export class BuildController {
       // refuses any changed paragraph, and repeats native/raster proofs.
       if(recoveryIssues.length&&!localRecoveryEligible&&source.split('\n').length===compilerSource.split('\n').length){localSource=source;localRecoveryEligible=true;}
       if(recoveryIssues.length)this.log('Recovered local basis: '+JSON.stringify({eligible:localRecoveryEligible,sourceCharacters:source.length,compiledCharacters:compilerSource.length,sourceLines:source.split('\n').length,compiledLines:compilerSource.split('\n').length})+'\n');
+      // Capture only established compatibility normalization, never temporary
+      // error repairs, for later comparisons with the actual editor draft.
+      const compilerInput=this.legacyTkzCompatible?(text:string)=>emptyDocumentPreview(withoutLegacyTkz(text)):emptyDocumentPreview;
+      const bodyOffset=this.resident.lastTiming?.preambleOffset,normalizedInput=Buffer.from(compilerSource.replace(/\r\n/g,'\n'));
+      const bodyLine=typeof bodyOffset==='number'&&Number.isSafeInteger(bodyOffset)&&bodyOffset>=0&&bodyOffset<=normalizedInput.length?normalizedInput.subarray(0,bodyOffset).toString('utf8').split('\n').length-1:undefined;
       // Recovered output is never proof of the unmodified editor source.
-      if(backend.startsWith('Preamble')||recoveryIssues.length&&localRecoveryEligible)try{this.viewer.localBasis?.({bundle,options,source:recoveryIssues.length?localSource:source,originalSource:recoveryIssues.length?source:undefined,recoveryIssues:recoveryIssues.length?recoveryIssues:undefined,compilerSource,project,pdf,canBuildAlongside:()=>this.independentLocalOwner,takeCompiler:()=>{
+      if(backend.startsWith('Preamble')||recoveryIssues.length&&localRecoveryEligible)try{this.viewer.localBasis?.({bundle,options,source:recoveryIssues.length?localSource:source,originalSource:recoveryIssues.length?source:undefined,recoveryIssues:recoveryIssues.length?recoveryIssues:undefined,compilerSource,bodyLine,compilerInput,project,pdf,canBuildAlongside:()=>this.independentLocalOwner,takeCompiler:()=>{
         // Transfer ownership only after publication and only while idle. Future
         // full verification gets its own worker; local edits cannot race it.
         // A failed local page proof may stop its transferred worker. That
@@ -499,6 +518,8 @@ export class BuildController {
       if(!bundle)this.resetCaches.add(job);
       if(!abort.signal.aborted&&generation===this.generation){
         const transcript=!compilerFinished&&nativeAttempted?await fs.readFile(path.join(output,path.basename(options.root,'.tex')+'.log'),'utf8').catch(()=>''):'';
+        // Reading a failed process log can race a newer accepted local edit.
+        if(abort.signal.aborted||generation!==this.generation)return;
         const mirror=this.mirrors.get(job),identity=JSON.stringify([options.root,this.sourceIdentity(options)]);
         if(mirror?.selective&&missingProjectInput(transcript+'\n'+nativeTranscript+'\n'+message)&&!this.discoveryRetries.has(identity)){
           this.discoveryRetries.add(identity);if(this.discoveryRetries.size>16)this.discoveryRetries.delete(this.discoveryRetries.values().next().value!);mirror.requireDiscovery();
@@ -509,7 +530,7 @@ export class BuildController {
         this.viewer.diagnostic?.(issue);
         this.viewer.problems?.([issue],options.editId);
         this.status(`Build failed: ${issue.message} ${this.current?'Showing the last successful version.':'No successful preview yet.'} Keep editing; preview will retry automatically.`);
-      }else this.status('Build cancelled. '+(this.current?'Showing the last successful version.':'No successful preview yet.'));
+      }else if(!this.activeDraft?.supersededLocally)this.status('Build cancelled. '+(this.current?'Showing the last successful version.':'No successful preview yet.'));
     } finally {
       clearTimeout(this.staleDraftTimer);this.activeDraft=undefined;
       this.retryingNativeFor=undefined;

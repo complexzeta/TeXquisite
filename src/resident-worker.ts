@@ -1,3 +1,4 @@
+import {checkpointInputLine} from './preamble-read-ahead';
 import {CheckpointPages} from './checkpoint-pages';
 import {TikzMathCache,buildTikzMathPlan} from './tikz-math-cache';
 import {includedEntry,IncludedInput} from './included-source';
@@ -26,6 +27,8 @@ let startupLookups={distribution:0,support:0,supportChecks:0};
 const compressPreview=(bytes:Uint8Array,level:number)=>{const started=performance.now();try{return deflateSync(Buffer.from(bytes.buffer,bytes.byteOffset,bytes.byteLength),{level});}finally{nativeZipMs+=performance.now()-started;nativeZipStreams++;}};
 let fastFlowCapture=false,fastFlowEqual=false;
 let prefixProbeSource:Buffer|undefined;
+let readAheadRestored=false,readAheadSuppressed=false,readAheadMarkCode=-7;
+class ReadAheadReloadError extends Error{}
 const streamCache=new PdfStreamCache();
 const fontBodyCache=new FontBodyCache();
 const fontProgramCache=new FontBodyCache();
@@ -73,7 +76,7 @@ function directoryChanged(directory:string,prior:{mtime:number;ctime:number;ino:
 const dynamicResourceData=new Map<string,Uint8Array>();
 class Unavailable extends Error{}
 class SourceError extends Error{}
-type Checkpoint={pages:Buffer[];length:number;streams:any[];files:Map<string,Uint8Array>;prefix:Buffer;offset:number;page?:number;reusedBytes?:number};
+type Checkpoint={readAhead?:boolean;pages:Buffer[];length:number;streams:any[];files:Map<string,Uint8Array>;prefix:Buffer;offset:number;page?:number;reusedBytes?:number};
 type AuxiliaryCheckpoint={state:Checkpoint;inputs:Set<string>;auxiliary:Map<string,Uint8Array>;mathEnabled:boolean};
 let auxiliaryCheckpoint:AuxiliaryCheckpoint|undefined;
 // Exact-byte sharing only, never an execution state. Retained for one aux pass.
@@ -176,12 +179,14 @@ function neutralWrites(job:string){
 }
 function writeWork(name:string,bytes:Uint8Array|string){
   if(name.startsWith('/')||name.includes('\\')||name.includes(':')||name.split('/').includes('..'))throw new Error('Invalid project resource path.');
-  // Immutable input/font files normally survive a warm edit unchanged. Avoid
-  // recreating MEMFS nodes and copying their bytes on every restore.
+  let unchanged=false;
   try{const node=FS.lookupPath('/work/'+name).node,content=node.contents,saved=typeof bytes==='string'?Buffer.from(bytes):Buffer.from(bytes.buffer,bytes.byteOffset,bytes.byteLength);
-    if(content?.buffer&&node.usedBytes===saved.length&&Buffer.from(content.buffer,content.byteOffset,saved.length).equals(saved))return;
-  }catch{/* Missing files are recreated below, including unlinked error output. */}
-  FS.mkdirTree('/work/'+path.posix.dirname(name));FS.writeFile('/work/'+name,bytes);
+    unchanged=!!content?.buffer&&node.usedBytes===saved.length&&Buffer.from(content.buffer,content.byteOffset,saved.length).equals(saved);
+  }catch{/* Missing inputs are recreated after restored streams are rebound. */}
+  if(!unchanged){FS.mkdirTree('/work/'+path.posix.dirname(name));FS.writeFile('/work/'+name,bytes);}
+  // Restore rewires the saved streams first. Reload only before execution, and
+  // only the unread root-line tail; a guard failure takes the ordinary rebuild.
+  if(readAheadRestored&&name===currentJob+'.tex'&&Module._persistentPreambleReload()!==0)throw new ReadAheadReloadError('Unread root input needs a full checkpoint rebuild.');
 }
 function restoreWork(files:Map<string,Uint8Array>,directory='/work',prefix=''){
   for(const name of FS.readdir(directory)){
@@ -215,6 +220,7 @@ function capture(prefix:Buffer,offset:number,base?:Checkpoint,reuse?:{pages:Buff
   return {pages,length:live.length,reusedBytes,streams:FS.streams.map((stream:any)=>stream?{copy:clone(stream),path:stream.path}:stream),files:workFiles(),prefix:Buffer.from(prefix.subarray(0,offset)),offset,page:Module._persistentPageLast?Module._persistentPageLast()+1:undefined};
 }
 function restore(state:Checkpoint){
+  readAheadRestored=false;
   const started=performance.now();let copiedBytes=0;
   context.closeFSStreams();
   // Most of the 149 MB TeX heap is unchanged between keystrokes. Native
@@ -234,8 +240,18 @@ function restore(state:Checkpoint){
     // unlinked file that was present when the checkpoint was captured.
     if(entry.path?.startsWith('/work/'))stream.node=FS.lookupPath(entry.path).node;
     return stream;
-  });FS.chdir('/work');context.memlog='';mathPlans=0;mathCache?.discardProvisional();
+  });FS.chdir('/work');readAheadRestored=!!state.readAhead;context.memlog='';mathPlans=0;mathCache?.discardProvisional();
   restoreTiming={heapMs:heapAt-started,filesMs:filesAt-heapAt,streamsMs:performance.now()-filesAt,heapBytes:state.length,copiedBytes};
+}
+function capturePreamble(bytes:Buffer,stream:any,base?:Checkpoint,reuse?:{pages:Buffer[]}):Checkpoint{
+  const line=checkpointInputLine(bytes,stream.position),streams=FS.streams.filter((s:any)=>s?.path==='/work/'+currentJob+'.tex');
+  let offset=-1;readAheadMarkCode=-7;
+  if(!readAheadSuppressed&&process.env.PERSISTENT_TEX_PREAMBLE_READAHEAD!=='0'&&line&&streams.length===1&&streams[0]===stream&&Module._persistentPreambleMark&&Module._persistentPreambleReload){
+    prefixProbeSource=bytes;
+    try{offset=Module._persistentPreambleMark(line.start,line.visibleLength,line.readEnd);readAheadMarkCode=offset;}finally{prefixProbeSource=undefined;}
+  }
+  const usable=!!line&&Number.isSafeInteger(offset)&&offset>=line.start&&offset<=line.start+line.visibleLength;
+  return {...capture(bytes,usable?offset:stream.position,base,reuse),readAhead:usable};
 }
 async function initialize(){
   let metadata=JSON.parse(fs.readFileSync(path.join(assets,'format.json'),'utf8'));
@@ -289,7 +305,7 @@ async function initialize(){
   if(process.env.PERSISTENT_TEX_NATIVE_ZLIB==='1'&&!process.env.PERSISTENT_TEX_WASM_ZLIB)context.persistentCompress=compressPreview;
   const code=fs.readFileSync(path.join(assets,'pdftex.js'),'utf8').replace(/var Module\s*=\s*\{\};/,'var Module={wasmBinary:wasmBytes};');
   vm.runInContext(code,context,{filename:'resident-pdftex.js'});await initialized;
-  FS=context.FS;Module=context.Module;if(!Module._persistentMathGuardVersion)mathCache=undefined;
+  FS=context.FS;Module=context.Module;const resume=Module._persistentResume;Module._persistentResume=()=>{readAheadRestored=false;return resume();};if(!Module._persistentMathGuardVersion)mathCache=undefined;
   // Emscripten's stdout/stderr dispatchers stay outside heap snapshots. Feed
   // their small chunks directly; never rescan/flatten the growing full log.
   for(const name of ['out','err']){const output=context[name];if(mathCache&&typeof output==='function')context[name]=(line:string)=>{output(line);mathCache?.observeOutput(line+'\n');};}
@@ -393,7 +409,7 @@ async function compilePass(nextPreamble:string,body:string,resources:[string,Uin
       const saved=auxiliaryCheckpoint!;restore(saved.state);preambleInputs=new Set(saved.inputs);
       for(const name of saved.auxiliary.keys())if(!auxiliary.has(name))try{FS.unlink('/work/'+name);}catch{}
     }else{
-      auxiliaryCheckpoint=undefined;context.prepareExecutionContext();context.cleanDir('/work');
+      auxiliaryCheckpoint=undefined;readAheadRestored=false;context.prepareExecutionContext();context.cleanDir('/work');
       FS.mkdirTree('/work/.persistent-tex');preambleInputs=new Set();
     }
     const preambleRestoredAt=performance.now();preambleRestoreMs=preambleRestoredAt-initializedAt;
@@ -421,7 +437,7 @@ async function compilePass(nextPreamble:string,body:string,resources:[string,Uin
       if(stops>256){auxiliaryCheckpointSupported=false;auxiliaryCheckpoint=undefined;initial=undefined;return compilePass(nextPreamble,body,resources,key,jobName,anchor);}
       if(kind===0&&before>=0&&before>after){
         const stream=FS.streams.find((stream:any)=>stream?.path==='/work/'+jobName+'.tex');
-        if(stream&&!auxiliaryCheckpointReused)auxiliaryCheckpoint={inputs:new Set(preambleInputs),auxiliary:new Map(auxiliary),mathEnabled,state:capture(bytes,stream.position)};
+        if(stream&&!auxiliaryCheckpointReused)auxiliaryCheckpoint={inputs:new Set(preambleInputs),auxiliary:new Map(auxiliary),mathEnabled,state:capturePreamble(bytes,stream)};
       }else if(kind===0){
         // Custom logging/hooks may hide phase markers. Fall back to the former
         // single checkpoint rather than guessing where auxiliary input began.
@@ -435,7 +451,7 @@ async function compilePass(nextPreamble:string,body:string,resources:[string,Uin
     if(!sourceStream)throw new Error('The document closed its source before the preamble checkpoint. A native build is required.');
     initialMathActive=mathEnabled&&(Module._persistentMathGuardCount?.()??0)>0;if(!initialMathActive)initialMathEntries=0;
     const preambleReplayedAt=performance.now();preambleReplayMs=preambleReplayedAt-preambleSetupAt;
-    initial=capture(bytes,sourceStream.position,auxiliaryCheckpoint?.state,auxiliaryCheckpointReused?donor:undefined);preambleCaptureMs=performance.now()-preambleReplayedAt;
+    initial=capturePreamble(bytes,sourceStream,auxiliaryCheckpoint?.state,auxiliaryCheckpointReused?donor:undefined);preambleCaptureMs=performance.now()-preambleReplayedAt;
   }
   const preambleAt=performance.now();
   let unchanged=0;
@@ -566,7 +582,7 @@ async function compilePass(nextPreamble:string,body:string,resources:[string,Uin
   const snapshots=new Set<Buffer>([...(auxiliaryCheckpoint?.state.pages??[]),...initial.pages,...(bodyState?.pages??[]),...prefixPoints.flatMap(c=>c.pages)]);
   const checkpointBytes=Array.from(snapshots).reduce((size,page)=>size+page.length,0);
   const navigation=FS.analyzePath('/work/.persistent-tex/navigation.jsonl').exists?FS.readFile('/work/.persistent-tex/navigation.jsonl',{encoding:'utf8'}):'';
-  return {pdf,navigation,log,timing:{totalMs:performance.now()-started,initializationMs:initializedAt-started,preambleMs:preambleAt-initializedAt,preambleStages:{restoreMs:preambleRestoreMs,setupMs:preambleSetupMs,replayMs:preambleReplayMs,captureMs:preambleCaptureMs},resumeMs:performance.now()-restoredAt,restoreMs:heapRestoredAt-restoredAt,inputsMs:inputsAt-heapRestoredAt,typesetMs:typesetAt-inputsAt,outputMs:performance.now()-typesetAt,checkpointOffset:candidate.offset,preambleOffset:initial.offset,preambleRebuilt:preambleRebuilt&&!auxiliaryCheckpointReused,auxiliaryCheckpointReused,bodyCheckpointRebuilt:preambleRebuilt,expensivePrefixReused,prefixCaptures,prefixCaptureMs,expensivePrefixEntries:prefixPoints.length,expensivePrefixBytes:witnessExtraBytes(initial,...prefixPoints),fullWitnessReused,localContinuationReused,localPrefixReused,checkpointBytes,bytes:pdf.length,tikzMathPlans:mathPlans,tikzMathEntries:initialMathEntries,tikzMathLearned:math?.records,tikzMathHits:math?.hits,tikzMathProvisionalHits:math?.provisionalHits,tikzMathIntermediateHits:math?.intermediateHits,tikzMathIntermediateLearned:math?.intermediateLearned,tikzMathIntermediateEntries:math?.intermediateEntries,pageWitnessCaptured:passPageWitnesses.length>0,pageWitnessCount:passPageWitnesses.length,witnessCaptureMs,witnessCaptureReused}};
+  return {pdf,navigation,log,timing:{totalMs:performance.now()-started,initializationMs:initializedAt-started,preambleMs:preambleAt-initializedAt,preambleStages:{restoreMs:preambleRestoreMs,setupMs:preambleSetupMs,replayMs:preambleReplayMs,captureMs:preambleCaptureMs},resumeMs:performance.now()-restoredAt,restoreMs:heapRestoredAt-restoredAt,inputsMs:inputsAt-heapRestoredAt,typesetMs:typesetAt-inputsAt,outputMs:performance.now()-typesetAt,checkpointOffset:candidate.offset,preambleOffset:initial.offset,preambleReadAhead:!!initial.readAhead,preambleReadAheadMark:readAheadMarkCode,readAheadFallback:false,preambleRebuilt:preambleRebuilt&&!auxiliaryCheckpointReused,auxiliaryCheckpointReused,bodyCheckpointRebuilt:preambleRebuilt,expensivePrefixReused,prefixCaptures,prefixCaptureMs,expensivePrefixEntries:prefixPoints.length,expensivePrefixBytes:witnessExtraBytes(initial,...prefixPoints),fullWitnessReused,localContinuationReused,localPrefixReused,checkpointBytes,bytes:pdf.length,tikzMathPlans:mathPlans,tikzMathEntries:initialMathEntries,tikzMathLearned:math?.records,tikzMathHits:math?.hits,tikzMathProvisionalHits:math?.provisionalHits,tikzMathIntermediateHits:math?.intermediateHits,tikzMathIntermediateLearned:math?.intermediateLearned,tikzMathIntermediateEntries:math?.intermediateEntries,pageWitnessCaptured:passPageWitnesses.length>0,pageWitnessCount:passPageWitnesses.length,witnessCaptureMs,witnessCaptureReused}};
 }
 const auxSignature=(files:Map<string,Uint8Array>)=>digest(Buffer.concat([...files].sort(([a],[b])=>a.localeCompare(b)).flatMap(([name,bytes])=>[Buffer.from(name+'\0'),Buffer.from(bytes)])));
 let removedResources:string[]=[];
@@ -634,12 +650,18 @@ async function compile(nextPreamble:string,body:string,resources:[string,Uint8Ar
     const before=auxSignature(auxiliary);let result:Awaited<ReturnType<typeof compilePass>>;
     try{result=await compilePass(nextPreamble,body,resources,key,jobName);}
     catch(error){
+      if(error instanceof ReadAheadReloadError){
+        readAheadRestored=false;initial=bodyState=undefined;auxiliaryCheckpoint=undefined;auxiliaryPages=undefined;preparedBaseline=undefined;regionCache.clear();boundaries=[];
+        readAheadSuppressed=true;
+        try{result=await compilePass(nextPreamble,body,resources,key,jobName);result={...result,timing:{...result.timing,readAheadFallback:true}};}finally{readAheadSuppressed=false;}
+      }else{
       if(!diskAuxiliaryReused||diskAuxiliaryRejected)throw error;
       // A syntactically valid but obsolete/damaged .aux can itself fail TeX.
       // Retry once without disk state before reporting a document error.
       auxiliary.clear();auxiliaryCheckpoint=undefined;auxiliaryPages=undefined;initial=bodyState=undefined;previousBody=Buffer.alloc(0);boundaries=[];
       diskAuxiliaryReused=false;diskAuxiliaryRejected=true;pass=0;
       log+='Cached auxiliary inputs were rejected; retrying a cold build.\n';continue;
+      }
     }
     log+=result.log;passTimings.push(result.timing);preambleInitialized||=result.timing.preambleRebuilt;
     const inputs=new Map(resources);
@@ -935,7 +957,15 @@ async function renderRegion(source:string,request:RegionRequest,jobName:string,e
     }
     if(code!==100)throw new SourceError('Affected page could not ship inside its bounded input window ('+code+').\n'+context.memlog);
     const stoppedAt=performance.now(),consumed=request.input?Module._persistentSelectedOffset():Module._persistentCheckpointOffset(),pageSpan={first:baselineCheckpoint?Math.min(Module._persistentPageFirst(),state.checkpoint.page??Module._persistentPageFirst()):Module._persistentPageFirst(),last:Module._persistentPageLast()};
-    const sealed=Module._persistentPagePdf();if(sealed!==0)throw new Error('Could not seal the affected page ('+sealed+').\n'+context.memlog);
+    // Preview-only page output contains many identical font streams between
+    // keystrokes. Reuse compression of exact bytes at the requested level;
+    // baseline proofs and full builds/export retain their original path.
+    streamCache.resetTiming();
+    const priorPageCompress=context.persistentCompress;
+    if(!request.baselineProof&&process.env.PERSISTENT_TEX_DISABLE_PAGE_STREAM_CACHE!=='1')context.persistentCompress=(data:Uint8Array,level:number)=>streamCache.compress(data,level);
+    let sealed:number;try{sealed=Module._persistentPagePdf();}finally{context.persistentCompress=priorPageCompress;}
+    const pageStreams={hits:streamCache.hits,misses:streamCache.misses,milliseconds:streamCache.milliseconds,retainedBytes:streamCache.retainedBytes};
+    if(sealed!==0)throw new Error('Could not seal the affected page ('+sealed+').\n'+context.memlog);
     if(continuationCaptured&&pageContinuation){
       // Font finalization can discover additional read-only inputs. Keep their
       // identities too, even though the resumable heap precedes finalization.
@@ -954,7 +984,7 @@ async function renderRegion(source:string,request:RegionRequest,jobName:string,e
     }
     const pdf=new Uint8Array(FS.readFile('/work/'+jobName+'.pdf')),navigation=FS.readFile('/work/.persistent-tex/navigation.jsonl',{encoding:'utf8'});
     const math=mathCache?.collect(context.memlog,true);
-    return {scope:'region-page' as const,pdf,pageSpan,navigation,log:math?.log??context.memlog,timing:{drawingCaptures,drawingCaptureMs,editedDrawingPrefixCaptured,editedFamilyCaptured,editedFamilyCaptureMs,continuationCaptured,continuationCaptureMs,continuationPrefixBytes,continuationPrefixRetained,continuationReusedBytes,tikzMathPlans:mathPlans,tikzMathEntries:initialMathEntries,tikzMathLearned:math?.records,tikzMathHits:math?.hits,tikzMathProvisionalHits:math?.provisionalHits,tikzMathIntermediateHits:math?.intermediateHits,tikzMathIntermediateLearned:math?.intermediateLearned,tikzMathIntermediateEntries:math?.intermediateEntries,totalMs:performance.now()-started,restoreMs:restoredAt-started,...restoration,inputsMs:inputsAt-restoredAt,typesetMs:stoppedAt-inputsAt,outputMs:performance.now()-stoppedAt,nativeZipMs,nativeZipStreams,checkpointOffset:state.checkpoint.offset,preambleOffset:initial.offset,documentSourceBytes:bytes.length,sourceFile:state.inputFile,inputCheckpoint:!!state.inputCheckpoint,reprocessedSourceBytes:Math.max(0,Math.min(consumed,boundary?.final?boundary.from:bytes.length)-(state.inputFile&&!state.inputCheckpoint?0:state.checkpoint.offset)),excludedSuffixBytes:bytes.length-Math.min(consumed,boundary?.final?boundary.from:bytes.length),syntheticEnd:false,continuation:boundary&&consumed>=(boundary.final?boundary.from+10:boundary.to)?digest(bytes.subarray(boundary.to)):undefined,boundedPageOnly:!!state.boundedPageOnly,finalPageFlush:!!boundary?.final&&consumed>=boundary.from+10,documentComplete:false,affectedPage:pageSpan.first,affectedPages:pageSpan.last-pageSpan.first+1}};
+    return {scope:'region-page' as const,pdf,pageSpan,navigation,log:math?.log??context.memlog,timing:{drawingCaptures,drawingCaptureMs,editedDrawingPrefixCaptured,editedFamilyCaptured,editedFamilyCaptureMs,continuationCaptured,continuationCaptureMs,continuationPrefixBytes,continuationPrefixRetained,continuationReusedBytes,tikzMathPlans:mathPlans,tikzMathEntries:initialMathEntries,tikzMathLearned:math?.records,tikzMathHits:math?.hits,tikzMathProvisionalHits:math?.provisionalHits,tikzMathIntermediateHits:math?.intermediateHits,tikzMathIntermediateLearned:math?.intermediateLearned,tikzMathIntermediateEntries:math?.intermediateEntries,totalMs:performance.now()-started,restoreMs:restoredAt-started,...restoration,inputsMs:inputsAt-restoredAt,typesetMs:stoppedAt-inputsAt,outputMs:performance.now()-stoppedAt,pageStreams,nativeZipMs,nativeZipStreams,checkpointOffset:state.checkpoint.offset,preambleOffset:initial.offset,documentSourceBytes:bytes.length,sourceFile:state.inputFile,inputCheckpoint:!!state.inputCheckpoint,reprocessedSourceBytes:Math.max(0,Math.min(consumed,boundary?.final?boundary.from:bytes.length)-(state.inputFile&&!state.inputCheckpoint?0:state.checkpoint.offset)),excludedSuffixBytes:bytes.length-Math.min(consumed,boundary?.final?boundary.from:bytes.length),syntheticEnd:false,continuation:boundary&&consumed>=(boundary.final?boundary.from+10:boundary.to)?digest(bytes.subarray(boundary.to)):undefined,boundedPageOnly:!!state.boundedPageOnly,finalPageFlush:!!boundary?.final&&consumed>=boundary.from+10,documentComplete:false,affectedPage:pageSpan.first,affectedPages:pageSpan.last-pageSpan.first+1}};
   }
   if(request.action==='nodes'||request.action==='flow'){
     fastFlowCapture=request.action==='flow'&&!!request.provisional&&process.env.PERSISTENT_TEX_VERIFY_STATE_HASH!=='1';

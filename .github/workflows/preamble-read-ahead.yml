@@ -1,0 +1,151 @@
+name: Experimental preamble read-ahead
+on:
+  workflow_call:
+permissions:
+  contents: read
+jobs:
+  probe:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '24'
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          repository: emscripten-core/emsdk
+          ref: 93360d3670018769b424e4e8f1d3d9b26d32c977
+          path: .experimental-emsdk
+          persist-credentials: false
+      - name: Install isolated cloud tools
+        shell: bash
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends texlive-latex-base texlive-latex-recommended poppler-utils
+          .experimental-emsdk/emsdk install 3.1.46
+          .experimental-emsdk/emsdk activate 3.1.46
+          cp .experimental-emsdk/.emscripten .experimental-emsdk/checkpoint.emscripten
+          echo "PERSISTENT_TEX_TEST_ARTIFACTS=$RUNNER_TEMP/read-ahead/results" >> "$GITHUB_ENV"
+          echo "PERSISTENT_TEX_TEST_FORMAT_CACHE=$RUNNER_TEMP/read-ahead/formats" >> "$GITHUB_ENV"
+          echo "PERSISTENT_TEX_TEST_RESOURCE_FILE=$RUNNER_TEMP/read-ahead/formats/resources.json" >> "$GITHUB_ENV"
+          echo "PERSISTENT_TEX_ENGINE_BASELINE=$RUNNER_TEMP/read-ahead/source" >> "$GITHUB_ENV"
+          echo "PERSISTENT_TEX_ENGINE_SOURCE_ROOT=$RUNNER_TEMP/read-ahead/source/pdftex.wasm" >> "$GITHUB_ENV"
+          echo "PERSISTENT_TEX_ENGINE_SDK=$GITHUB_WORKSPACE/.experimental-emsdk" >> "$GITHUB_ENV"
+          echo "PERSISTENT_TEX_ENGINE_JOBS=2" >> "$GITHUB_ENV"
+      - name: Restore corresponding upstream source
+        shell: bash
+        run: |
+          mkdir -p "$PERSISTENT_TEX_ENGINE_BASELINE" "$PERSISTENT_TEX_TEST_ARTIFACTS"
+          python - <<'PY'
+          import zipfile, os, pathlib
+          root=pathlib.Path(os.environ['PERSISTENT_TEX_ENGINE_BASELINE']).resolve()
+          with zipfile.ZipFile('engine/resident/upstream-source.zip') as z:
+              for item in z.infolist():
+                  target=(root/item.filename).resolve()
+                  assert target.is_relative_to(root) and (item.external_attr >> 16) & 0o170000 != 0o120000
+              z.extractall(root)
+          PY
+          git -C "$PERSISTENT_TEX_ENGINE_BASELINE" init
+          git -C "$PERSISTENT_TEX_ENGINE_BASELINE" add .
+          git -C "$PERSISTENT_TEX_ENGINE_BASELINE" -c user.name=Fixture -c user.email=fixture@example.invalid commit -qm 'Pristine bundled corresponding source'
+      - run: node scripts/patch-checkpoint-engine.mjs
+      - run: node scripts/build-checkpoint-engine.mjs
+      - name: Bind the experimental compiler to its source
+        shell: bash
+        run: |
+          cp "$PERSISTENT_TEX_ENGINE_SOURCE_ROOT/checkpoint-build/checkpoint-pdftex.js" engine/resident/pdftex.js
+          cp "$PERSISTENT_TEX_ENGINE_SOURCE_ROOT/checkpoint-build/checkpoint-pdftex.wasm" engine/resident/pdftex.wasm
+          node - <<'JS'
+          const fs=require('fs'),crypto=require('crypto');const sha=p=>crypto.createHash('sha256').update(fs.readFileSync(p)).digest('hex');
+          fs.writeFileSync(process.env.PERSISTENT_TEX_TEST_ARTIFACTS+'/engine.json',JSON.stringify({source:process.env.GITHUB_SHA,sdk:'3.1.46',sdkSource:'93360d3670018769b424e4e8f1d3d9b26d32c977',upstream:'87dfb950eb9c8e9dcd4ee2a3ac97fbbbacfc618a',archive:sha('engine/resident/upstream-source.zip'),js:sha('engine/resident/pdftex.js'),wasm:sha('engine/resident/pdftex.wasm')},null,2));
+          JS
+      - run: npm ci --no-audit --no-fund
+      - run: npm run build
+      - run: node --test test/preamble-read-ahead.test.cjs
+      - run: node scripts/retained-test-format.cjs
+      - run: node scripts/preamble-read-ahead-probe.cjs
+      - name: Check retained preview and automatic recovery on the new compiler
+        env:
+          PERSISTENT_TEX_PREAMBLE_READAHEAD: '1'
+        run: node --test --test-concurrency=1 test/retained-preview.test.cjs test/preview-recovery.test.cjs test/local-recovery.test.cjs test/recovery-navigation.test.cjs test/paragraph-window.test.cjs
+      - name: Save source-bound experimental compiler for Windows testing
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: preamble-read-ahead-compiler
+          retention-days: 7
+          path: |
+            engine/resident/pdftex.js
+            engine/resident/pdftex.wasm
+            ${{ env.PERSISTENT_TEX_TEST_ARTIFACTS }}/engine.json
+      - name: Save bounded experimental evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: preamble-read-ahead-evidence-linux
+          retention-days: 7
+          path: ${{ env.PERSISTENT_TEX_TEST_ARTIFACTS }}/*.json
+  windows:
+    needs: probe
+    runs-on: windows-2025
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '24'
+      - uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0
+        with:
+          name: preamble-read-ahead-compiler
+          path: ${{ runner.temp }}/compiler
+      - name: Verify and select the source-bound experimental compiler
+        shell: pwsh
+        run: |
+          $root=Join-Path $env:RUNNER_TEMP 'read-ahead'
+          New-Item -ItemType Directory -Path "$root/results" -Force | Out-Null
+          $compiler=Join-Path $env:RUNNER_TEMP 'compiler'
+          $proofs=@(Get-ChildItem -LiteralPath $compiler -Recurse -File -Filter engine.json)
+          if($proofs.Count -ne 1){throw 'Ambiguous compiler provenance'}
+          $proof=Get-Content -LiteralPath $proofs[0].FullName -Raw | ConvertFrom-Json
+          if($proof.source -ne $env:GITHUB_SHA){throw 'Experimental compiler source mismatch'}
+          foreach($ext in @('js','wasm')){
+            $files=@(Get-ChildItem -LiteralPath $compiler -Recurse -File -Filter "pdftex.$ext")
+            if($files.Count -ne 1 -or (Get-FileHash -LiteralPath $files[0].FullName -Algorithm SHA256).Hash.ToLowerInvariant() -ne $proof.$ext){throw 'Experimental compiler hash mismatch'}
+            Copy-Item -LiteralPath $files[0].FullName -Destination "engine/resident/pdftex.$ext"
+          }
+          Copy-Item -LiteralPath $proofs[0].FullName -Destination "$root/results/engine.json"
+          "COMPATIBILITY_ROOT=$root" >> $env:GITHUB_ENV
+          "PERSISTENT_TEX_TEST_ARTIFACTS=$root/results" >> $env:GITHUB_ENV
+          "PERSISTENT_TEX_TEST_FORMAT_CACHE=$root/formats" >> $env:GITHUB_ENV
+          "PERSISTENT_TEX_TEST_RESOURCE_FILE=$root/formats/resources.json" >> $env:GITHUB_ENV
+      - run: npm ci --no-audit --no-fund
+      - run: npm run build
+      - run: node --test test/preamble-read-ahead.test.cjs
+      - name: Install isolated TeX Live 2026
+        shell: pwsh
+        run: |
+          & scripts/install-test-texlive.ps1 -Year 2026 -WorkRoot "$env:COMPATIBILITY_ROOT/installation"
+          if($LASTEXITCODE -ne 0){exit $LASTEXITCODE}
+          "$env:COMPATIBILITY_ROOT/installation/texlive/bin/windows" >> $env:GITHUB_PATH
+      - run: node scripts/retained-test-format.cjs
+      - run: node scripts/preamble-read-ahead-probe.cjs
+      - name: Check retained preview and automatic recovery on Windows
+        env:
+          PERSISTENT_TEX_PREAMBLE_READAHEAD: '1'
+        run: node --test --test-concurrency=1 test/retained-preview.test.cjs test/preview-recovery.test.cjs test/local-recovery.test.cjs test/recovery-navigation.test.cjs test/paragraph-window.test.cjs
+      - name: Compare complete edit-to-canvas latency on Windows
+        run: node scripts/preamble-read-ahead-viewer.cjs
+      - name: Save bounded Windows evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: preamble-read-ahead-evidence-windows
+          retention-days: 7
+          path: |
+            ${{ env.PERSISTENT_TEX_TEST_ARTIFACTS }}/*.json
+            ${{ env.PERSISTENT_TEX_TEST_ARTIFACTS }}/preamble-viewer-*/result.json
+            ${{ env.PERSISTENT_TEX_TEST_ARTIFACTS }}/preamble-viewer-*/trial-*/build.log

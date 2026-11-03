@@ -6,6 +6,26 @@ new Function('require','module','__dirname',code)(require,runtime,path.resolve(_
 const {LocalPreview,ResidentSourceError,ResidentSupersededError}=runtime.exports;
 const baseline='Before\n\nTarget ordinary words.\n\nAfter\n',draft=baseline.replace('ordinary','\\broken'),range={from:baseline.indexOf('Target'),to:baseline.indexOf('After')};
 const make=()=>new LocalPreview(async()=>true,async()=>true,()=>{},()=>{},()=>{});
+
+test('Rejected provisional rendering preserves the healthy checkpoint for a correction',async()=>{
+ const local=make();let restored=0,fallback;local.publish=async()=>false;local.fallback=(id,error)=>{fallback={id,error};};
+ const slot={ready:true,basis:{source:baseline,compilerSource:baseline,options:{root:'main.tex'},bundle:{id:'base'}},range,abort:new AbortController(),compiler:{prepareNextRegionEdit(){restored++;}},compositor:{page:1}};
+ local.slot=slot;local.pending={source:draft,editId:'bad-render',at:range.from+3};local.recoverOutput=async()=>({kind:'flow',output:{pdf:Buffer.alloc(0)},flow:{},recovery:{line:3,message:'Temporary repair'},repairedSource:baseline});
+ await local.drain();assert.equal(local.slot,slot);assert.ok(restored);assert.equal(local.verifyingWithOwner,false);assert.equal(fallback.id,'bad-render');assert.match(fallback.error.log,/could not be displayed/);
+});
+
+test('Known preamble compatibility does not hide a healthy math correction or a remote real repair',()=>{
+ const {withoutLegacyTkz}=require('../dist/core'),source='\\usepackage{tkz-euclide}\n\\usetkzobj{all}\n\nTarget $a$.\n\nRemote \\bad.\n',compiled=withoutLegacyTkz(source),from=source.indexOf('Target'),to=source.indexOf('Remote'),cfrom=compiled.indexOf('Target'),cto=compiled.indexOf('Remote'),local=make();
+ const slot={basis:{source,compilerSource:compiled,compilerInput:withoutLegacyTkz},range:{from,to},compiledRange:{from:cfrom,to:cto}};
+ const request={source:source.replace('$a$','a'),editId:'fixed',at:from+8};assert.equal(local.matchesDraft(slot,request),true);
+ slot.basis.compilerSource=compiled.replace('\\bad','    ');assert.equal(local.matchesDraft(slot,request),false,'Compatibility must not normalize away a remote TeX error');
+});
+test('A temporary syntax error retains its checkpoint during background verification and clears on correction',async()=>{
+ const local=make();let returned=0;const slot={ready:true,basis:{source:baseline,returnCompiler(){returned++;return false;}},range,abort:new AbortController(),compiler:{busy:false}};local.slot=slot;local.basis=slot.basis;
+ local.output=async()=>{throw new ResidentSourceError('Runaway argument.');};await assert.rejects(local.runOutput(slot,{source:draft,editId:'broken',at:20}),ResidentSourceError);
+ assert.equal(local.hasDraftError,true);assert.equal(local.prepareFullVerification(true),true);assert.equal(returned,0);assert.equal(local.slot,slot);assert.equal(local.verifyingWithOwner,false);
+ local.output=async()=>({kind:'flow',output:{},flow:{}});await local.runOutput(slot,{source:baseline,editId:'fixed',at:20});assert.equal(local.hasDraftError,false);local.prepareFullVerification();assert.equal(returned,1);
+});
 test('Local repair keeps the editor draft and baseline immutable and returns explicit approximate metadata',async()=>{
  const local=make(),slot={basis:{source:baseline},range,abort:new AbortController()},request={source:draft,editId:'edit',at:20};let calls=0,compiled;
  local.output=async(_slot,r)=>{calls++;if(r.source.includes('\\broken'))throw new ResidentSourceError('! Undefined control sequence.\nl.3 Target \\broken\n');compiled=r.source;return {kind:'flow',output:{},flow:{}};};

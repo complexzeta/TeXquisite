@@ -49,23 +49,26 @@ export function carryUndefinedRepair(previous:string,repaired:string,current:str
   if(current.slice(at,at+command.length)!==command||/[A-Za-z@]/.test(current[at+command.length]??''))return;
   return {source:current.slice(0,at)+' '.repeat(command.length)+current.slice(at+command.length),message:'Preview skipped undefined command '+command+'.',line:current.slice(0,at).split('\n').length};
 }
-export function paragraphAt(source:string,at:number):RegionRange|undefined{
-  if(at<0||at>source.length)return;
+export function paragraphAt(source:string,at:number,floor=0):RegionRange|undefined{
+  if(at<floor||at>source.length||floor<0)return;
   // Treat a run of blank lines as one terminator. A caret within that run
   // still belongs to the preceding paragraph, rather than accidentally
   // preparing both it and the following paragraph.
   const separators=[...source.matchAll(/\n(?:[\t ]*\n)+/g)],left=separators.filter(m=>m.index!+m[0].length<=at).at(-1),right=separators.find(m=>m.index!+m[0].length>at);
-  const from=left?left.index!+left[0].length:0,to=right?right.index!+right[0].length:source.length;
+  let from=Math.max(floor,left?left.index!+left[0].length:0);const to=right?right.index!+right[0].length:source.length;
+  // Include leading body whitespace in the first region. Removing a blank
+  // line must not suddenly turn the preamble into part of that paragraph.
+  if(from>floor&&!source.slice(floor,from).trim())from=floor;
   const text=source.slice(from,to);
   if(!right||!text.trim()||text.length>12000)return;
   return {from,to};
 }
-export function flowWindowAt(source:string,at:number):RegionRange|undefined{
-  const current=paragraphAt(source,at);if(!current)return;
+export function flowWindowAt(source:string,at:number,floor=0):RegionRange|undefined{
+  const current=paragraphAt(source,at,floor);if(!current)return;
   let pictureDepth=0;
   for(const m of source.slice(0,current.from).matchAll(/\\(begin|end)\{tikzpicture\}/g))pictureDepth=m[1]==='begin'?pictureDepth+1:Math.max(0,pictureDepth-1);
   if(pictureDepth)return current;
-  const next=paragraphAt(source,current.to);
+  const next=paragraphAt(source,current.to,floor);
   // Small forward windows amortize preparation across nearby paragraphs. This
   // is just a candidate range: ordinary compiler/raster proof still authorizes
   // it, and preparation retries the current paragraph if the window fails.
@@ -74,12 +77,40 @@ export function flowWindowAt(source:string,at:number):RegionRange|undefined{
   if(/\\begin\{tikzpicture\}/.test(source.slice(current.from,next?.to??current.to)))return current;
   return next&&next.from===current.to&&next.to-current.from<=768?{from:current.from,to:next.to}:current;
 }
+// Extend only into the immediate following paragraph. This selects work, not
+// proof: ordinary exact-source native checks and full page-baseline proof still
+// authorize every resulting frame. No new heap or document snapshot is cached.
+export function followingParagraphWindow(baseline:string,source:string,range:RegionRange){
+  if(!Number.isSafeInteger(range.from)||!Number.isSafeInteger(range.to)||range.from<0||range.to<=range.from||range.to>baseline.length)return;
+  const next=paragraphAt(baseline,range.to);
+  if(!next||next.from!==range.to||next.to-range.from>1200)return;
+  const window={from:range.from,to:next.to},prefix=baseline.slice(0,window.from),suffix=baseline.slice(window.to);
+  if(!source.startsWith(prefix)||!source.endsWith(suffix)||source.length<prefix.length+suffix.length)return;
+  if(/\\begin\{tikzpicture\}/.test(baseline.slice(window.from,window.to)))return;
+  if(!/\n[\t ]*\n$/.test(source.slice(prefix.length,source.length-suffix.length)))return;
+  return window;
+}
+export function adjacentParagraphWindow(baseline:string,source:string,range:RegionRange,previous=baseline){
+  const joins=(window:RegionRange)=>{
+    const prefix=baseline.slice(0,window.from),suffix=baseline.slice(window.to);
+    if(![previous,source].every(text=>text.startsWith(prefix)&&text.endsWith(suffix)&&text.length>=prefix.length+suffix.length))return false;
+    const count=(text:string)=>[...text.slice(prefix.length,text.length-suffix.length).matchAll(/\n(?:[\t ]*\n)+/g)].length;
+    return count(source)<count(previous)&&!/\\begin\{tikzpicture\}/.test(baseline.slice(window.from,window.to));
+  };
+  const forward=followingParagraphWindow(baseline,source,range);if(forward&&joins(forward))return forward;
+  const prior=paragraphAt(baseline,range.from-1);
+  if(!prior||prior.to!==range.from||range.to-prior.from>1200)return;
+  const backward={from:prior.from,to:range.to};
+  // Require an actual separator removal, including coalesced typing, rather
+  // than routing ordinary neighbor edits or whole-document replacement here.
+  if(joins(backward)&&/\n[\t ]*\n$/.test(source.slice(backward.from,source.length-baseline.length+backward.to)))return backward;
+}
 const lineOffset=(source:string,line:number)=>{let at=0;while(line-->0){at=source.indexOf('\n',at);if(at<0)return -1;at++;}return at;};
 type Request={source:string;fullSource?:string;editId:string;at:number;recovery?:{message:string;line:number};};
 export interface LocalCandidate {recovery?:{message:string;line:number};reusedRecovery?:boolean;sourceMatchesDraft?:boolean;sourceHealthy?:boolean;recoveryCleared?:boolean;recoveredBasis?:boolean;unchangedRecovery?:BuildDiagnostic[];reprepareParagraph?:boolean;inkBleedBp?:number;}
 export interface LocalCandidate {pageLocations?:{page:number;locations:ReturnType<typeof flowLocations>;blocked?:{x:number;y:number;width:number;height:number}[]}[];retainedFlow?:boolean;retainedSource?:string;}
 type DiskInput={file:string;mtime:number;ctime:number;ino:number;size:number;};
-type Slot={diagnosticSource?:string;pageProbe?:{source:string;range:RegionRange;output:Awaited<ReturnType<ResidentCompiler['previewRegionPage']>>};neutralLast?:boolean;cancelWork?:()=>void;epoch?:number;cancelled?:boolean;regionKey?:string;edited?:boolean;latestSource?:string;file?:string;input?:IncludedInput;sourceText?:string;otherResources?:string;basis:LocalBasis;range:RegionRange;liveEnd:number;compiledRange:RegionRange;compiler:ResidentCompiler;compositor?:RegionCompositor;ready:boolean;abort:AbortController;diskInputs:DiskInput[];pageMode?:boolean;pageReady?:boolean;pageCostMs?:number;proofPage?:number;sourcePages?:PageSpan;baselineSpan?:PageSpan;continuation?:string;verifyPageRange?:()=>Promise<void>;};
+type Slot={boundaryWindow?:boolean;diagnosticSource?:string;pageProbe?:{source:string;range:RegionRange;output:Awaited<ReturnType<ResidentCompiler['previewRegionPage']>>};neutralLast?:boolean;cancelWork?:()=>void;epoch?:number;cancelled?:boolean;regionKey?:string;edited?:boolean;latestSource?:string;file?:string;input?:IncludedInput;sourceText?:string;otherResources?:string;basis:LocalBasis;range:RegionRange;liveEnd:number;compiledRange:RegionRange;compiler:ResidentCompiler;compositor?:RegionCompositor;ready:boolean;abort:AbortController;diskInputs:DiskInput[];pageMode?:boolean;pageReady?:boolean;pageCostMs?:number;proofPage?:number;sourcePages?:PageSpan;baselineSpan?:PageSpan;continuation?:string;verifyPageRange?:()=>Promise<void>;};
 export interface LocalCandidate {neutralBlock?:{id:string;prior:string[];ranges:{id:string;from:number;to:number;baseFrom:number;baseTo:number}[];locations:ReturnType<typeof flowLocations>;caretY?:number};sourceFile?:string;root:string;baseId:string;editId:string;sourceHash:string;pdf:Uint8Array;page:number;timing:unknown;fragmentPdf?:Uint8Array;fragment?:RegionFragment;inkTopSp?:number;flowOutput?:{blocked?:{x:number;y:number;width:number;height:number}[];stateChanged?:boolean;locations?:ReturnType<typeof flowLocations>;baseRangeTo?:number;caretY?:number;rect:{x:number;y:number;width:number;height:number};leading:number;baselineLeading:number;fragmentRect:{x:number;y:number;width:number;height:number}};rangeFrom:number;rangeTo:number;footprint?:{x:number;y:number;width:number;height:number};pageOutput?:boolean;pageSpan?:PageSpan;sourcePages?:PageSpan;proofPage?:number;cursorPage?:number;cursorPosition?:ReturnType<typeof cursorPosition>;baselineSpan?:PageSpan;continuation?:string;}
 async function selectPages(pdf:Uint8Array,span:PageSpan){
   const partial=await PDFDocument.load(pdf,{throwOnInvalidObject:true}),selected=await PDFDocument.create();
@@ -115,6 +146,7 @@ export class LocalPreview{
   private cursor?:{file:string;at:number};
   private epoch=0;
   private pending?:Request;
+  private boundaryWindow?:{file:string;baseId:string;range:RegionRange};
   private running=false;
   private verifyingWithOwner=false;
   private canPrefetch=false;
@@ -125,6 +157,8 @@ export class LocalPreview{
   // Bound to the prepared compiler and exact confirmed source pair. Plain text
   // may change on either side; definitions and command corrections re-run TeX.
   private recoveryHints=new WeakMap<Slot,{source:string;repaired:string}>();
+  private draftErrors=new WeakSet<Slot>();
+  get hasDraftError(){return !!this.slot?.ready&&this.draftErrors.has(this.slot);}
   private parked:Slot[]=[];
   // Hints only: every revision needs new compiler and raster proofs. Store
   // bounded paragraph text, never an old heap, PDF or source-wide snapshot.
@@ -191,12 +225,16 @@ export class LocalPreview{
       }
     },this.slot?.basis.bundle.id!==this.basis?.bundle.id?150:500);this.idleTimer.unref();
   }
-  constructor(private verify:(basis:LocalBasis,pdf:Uint8Array,page:number,fragmentPdf:Uint8Array,fragment:RegionFragment,footprint:{x:number;y:number;width:number;height:number},calibration:LocalCalibration)=>Promise<LocalVerification>,private publish:(candidate:LocalCandidate)=>Promise<boolean>,private fallback:(editId:string)=>void,private state:(state:string)=>void,private log:(message:string)=>void,private verifyPages?:(basis:LocalBasis,pdf:Uint8Array,span:PageSpan,continuation?:string)=>Promise<boolean>,private placement?:(basis:LocalBasis,page:number,fragmentPdf:Uint8Array,fragment:RegionFragment,calibration:LocalCalibration)=>Promise<LocalVerification>){}
+  constructor(private verify:(basis:LocalBasis,pdf:Uint8Array,page:number,fragmentPdf:Uint8Array,fragment:RegionFragment,footprint:{x:number;y:number;width:number;height:number},calibration:LocalCalibration)=>Promise<LocalVerification>,private publish:(candidate:LocalCandidate)=>Promise<boolean>,private fallback:(editId:string,draftError?:{log:string;file:string;sourceHash:string})=>void,private state:(state:string)=>void,private log:(message:string)=>void,private verifyPages?:(basis:LocalBasis,pdf:Uint8Array,span:PageSpan,continuation?:string)=>Promise<boolean>,private placement?:(basis:LocalBasis,page:number,fragmentPdf:Uint8Array,fragment:RegionFragment,calibration:LocalCalibration)=>Promise<LocalVerification>){}
   stop(){this.neutral=undefined;this.editorSource=undefined;this.editorCursor=undefined;this.visits=[];this.disarm();this.verifyingWithOwner=false;this.publishedCompiler=undefined;this.basis=undefined;this.compositionBase=undefined;}
-  prepareFullVerification(){
+  prepareFullVerification(preserveLocal=false){
     this.cancelIdle();
     const slot=this.slot,compiler=slot?.compiler??this.warmCompiler;
     if(this.running||this.pending||this.speculation||compiler?.busy||slot&&!slot.ready)return false;
+    // A half-typed command must not surrender the only proved paragraph.
+    // Let the controller use its own worker while this checkpoint remains
+    // available for the next (possibly corrected) character.
+    if(preserveLocal&&slot?.ready&&this.draftErrors.has(slot))return true;
     if(!compiler||!this.basis?.returnCompiler?.(compiler))return true;
     // The controller now owns this idle worker. Keep new requests on its full
     // queue until publication offers the converged worker back; creating a
@@ -222,7 +260,7 @@ export class LocalPreview{
     return slot.basis.compilerSource===basis.compilerSource&&slot.otherResources===resourceIdentity((basis.project.resources??[]).filter(([name])=>name!==slot.input!.file));
   }
   private splitPageParagraph(slot:Slot,source:string,at:number){
-    if(!this.lecture||!this.continuous||!slot.pageMode||slot.input||slot.basis.bundle.recovered)return false;
+    if(!this.lecture||!this.continuous||!slot.pageMode||slot.boundaryWindow||slot.input||slot.basis.bundle.recovered)return false;
     const baseline=slot.sourceText??slot.basis.source,prior=paragraphAt(baseline,slot.range.from),current=paragraphAt(source,at);
     // Ordinary typing shifts the old terminator by the source length delta.
     // A new, earlier terminator separates this text from formerly attached
@@ -289,7 +327,7 @@ export class LocalPreview{
   }
   private disarm(keepWarm=false){
     this.cancelIdle();
-    this.epoch++;clearTimeout(this.timer);this.pending=undefined;this.prefetched=undefined;this.canPrefetch=false;
+    this.boundaryWindow=undefined;this.epoch++;clearTimeout(this.timer);this.pending=undefined;this.prefetched=undefined;this.canPrefetch=false;
     const slot=this.slot;
     if(slot){
       // A cursor move retires the old proof immediately. Its compiler RPC is
@@ -312,8 +350,10 @@ export class LocalPreview{
   private async arm(single=false,target?:{file:string;at:number;recent?:boolean}):Promise<void>{
     const background=!!target,basis=this.basis,cursor=target??this.cursor;if(!basis||!cursor)return;
     const selected=this.sourceFor(basis,cursor.file);if(!selected)return;const sourceText=selected.text,input=selected.input;
-    const paragraph=paragraphAt(sourceText,cursor.at),range=this.continuous&&!single&&!this.neutral&&process.env.PERSISTENT_TEX_DISABLE_FLOW_WINDOW!=='1'?flowWindowAt(sourceText,cursor.at):paragraph;if(!range||!paragraph)return;
-    const expanded=range.to!==paragraph.to;
+    const floor=input?0:Math.max(0,lineOffset(sourceText,basis.bodyLine??0));
+    const boundary=this.boundaryWindow?.file===cursor.file&&this.boundaryWindow.baseId===basis.bundle.id?this.boundaryWindow:undefined;
+    const paragraph=paragraphAt(sourceText,boundary?Math.max(boundary.range.from,Math.min(cursor.at,boundary.range.to-1)):cursor.at,floor),range=boundary?.range??(this.continuous&&!single&&!this.neutral&&process.env.PERSISTENT_TEX_DISABLE_FLOW_WINDOW!=='1'?flowWindowAt(sourceText,cursor.at,floor):paragraph);if(!range||!paragraph){if(boundary){const pending=this.pending?.editId;this.boundaryWindow=undefined;this.pending=undefined;if(pending)this.fallback(pending);}return;}
+    const expanded=!boundary&&range.to!==paragraph.to;
     const before=sourceText.slice(0,range.from).split('\n').length-1,after=sourceText.slice(0,range.to).split('\n').length-1;
     const compiledRange=input?{...range}:{from:lineOffset(basis.compilerSource,before),to:lineOffset(basis.compilerSource,after)};
     if(compiledRange.from<0||compiledRange.to<0||(input?sourceText:basis.source).slice(range.from,range.to)!==(input?sourceText:basis.compilerSource).slice(compiledRange.from,compiledRange.to)){this.log('Local paragraph intersects a compilation-only repair: '+JSON.stringify({range,compiledRange,expanded})+'\n');const pending=this.pending?.editId;this.pending=undefined;if(pending)this.fallback(pending);return;}
@@ -326,7 +366,7 @@ export class LocalPreview{
       if(pending)this.fallback(pending);return;
     }
     if(borrowed){this.publishedCompiler=borrowed;this.verifyingWithOwner=false;}
-    const started=performance.now(),epoch=background?this.epoch:++this.epoch,slot:Slot={epoch,basis,file:cursor.file,input,sourceText,otherResources:input?resourceIdentity((basis.project.resources??[]).filter(([name])=>name!==input.file)):undefined,range,liveEnd:range.to,compiledRange,compiler:(background?this.slot?.compiler:undefined)??this.warmCompiler??borrowed??new ResidentCompiler(),ready:false,abort:new AbortController(),diskInputs:[]};if(background)this.backgroundSlot=slot;else{this.warmCompiler=undefined;this.slot=slot;if(this.pending)slot.liveEnd=this.pending.source.length-(sourceText.length-range.to);this.state('warming');}
+    const started=performance.now(),epoch=background?this.epoch:++this.epoch,slot:Slot={boundaryWindow:!!boundary,pageMode:!!boundary,epoch,basis,file:cursor.file,input,sourceText,otherResources:input?resourceIdentity((basis.project.resources??[]).filter(([name])=>name!==input.file)):undefined,range,liveEnd:range.to,compiledRange,compiler:(background?this.slot?.compiler:undefined)??this.warmCompiler??borrowed??new ResidentCompiler(),ready:false,abort:new AbortController(),diskInputs:[]};if(background)this.backgroundSlot=slot;else{this.warmCompiler=undefined;this.slot=slot;this.boundaryWindow=undefined;if(this.pending)slot.liveEnd=this.pending.source.length-(sourceText.length-range.to);this.state('warming');}
     const compilerInitiallyWarm=slot.compiler.initialized;
     const valid=()=>slot.epoch===this.epoch&&!slot.cancelled;
     const cancelled=new Promise<false>(resolve=>{slot.cancelWork=()=>resolve(false);});
@@ -362,7 +402,7 @@ export class LocalPreview{
         slot.sourcePages={first:recordedPage,last:recordedPage};
         // Preserve cheap text composition where it already works. Expensive
         // drawings and blocks with no glyph anchors use their recorded page.
-        slot.pageMode=!!prepared.familyRange||pictureBlock||(preparation?.baselinePageCostMs??0)>200||!anchoredPages.length;
+        slot.pageMode=!!boundary||!!prepared.familyRange||pictureBlock||(preparation?.baselinePageCostMs??0)>200||!anchoredPages.length;
       }else if(anchoredPages.length){slot.pageMode=true;slot.sourcePages={first:Math.min(...anchoredPages),last:Math.max(...anchoredPages)};}
       let original:Awaited<ReturnType<ResidentCompiler['previewRegionNodes']>>|undefined;
       try{if(!slot.pageMode)original=await (this.continuous?slot.compiler.previewRegionFlow(basis.compilerSource,compiledRange,slot.abort.signal,30000,()=>{},project,true,input,this.lecture):slot.compiler.previewRegionNodes(basis.compilerSource,compiledRange,slot.abort.signal,30000,()=>{},project,input));}
@@ -523,12 +563,24 @@ export class LocalPreview{
     if(this.verifyingWithOwner)return false;
     this.cancelIdle();
     const slot=this.slot;
+    if(slot&&!slot.boundaryWindow&&file===(slot.file??slot.basis.options.root)&&this.regionText(slot,source)===undefined&&this.lecture&&this.continuous&&!this.neutral&&!slot.input&&!slot.basis.bundle.recovered&&slot.compiler.initialized&&slot.basis.bundle.id===this.basis?.bundle.id&&(slot.sourceText??slot.basis.source)===slot.basis.compilerSource&&!this.draftErrors.has(slot)&&(slot.pageCostMs??0)<=200&&process.env.PERSISTENT_TEX_BOUNDARY_WINDOW!=='0'){
+      const baseline=slot.sourceText??slot.basis.source,range=adjacentParagraphWindow(baseline,source,slot.range,slot.latestSource??baseline),floor=Math.max(0,lineOffset(baseline,slot.basis.bodyLine??0));
+      if(range&&range.from>=floor){
+        const at=this.cursor?.at??range.from,basis=slot.basis;
+        this.disarm(true);this.boundaryWindow={file,baseId:basis.bundle.id,range};this.pending={source,fullSource,editId,at};this.schedule();
+        this.log('Paragraph boundary queued on the warm page-window compiler.\n');return true;
+      }
+    }
+    if(!slot&&this.boundaryWindow?.file===file&&this.boundaryWindow.baseId===this.basis?.bundle.id){
+      if(this.regionText({basis:this.basis,range:this.boundaryWindow.range},source)!==undefined){this.pending={source,fullSource,editId,at:this.cursor?.at??this.boundaryWindow.range.from};return true;}
+    }
     if(slot&&(file!==(slot.file??slot.basis.options.root)||this.regionText(slot,source)===undefined)){const other=file!==(slot.file??slot.basis.options.root);this.releaseForFull();if(other)this.basis=undefined;return false;}
     if(!slot){
       const basis=this.basis,cursor=this.cursor;
       if(!basis||!cursor||cursor.file!==file){this.releaseForFull();if(cursor&&cursor.file!==file)this.basis=undefined;return false;}
       const selected=this.sourceFor(basis,file);if(!selected){this.releaseForFull();return false;}
-      const range=this.continuous&&!this.neutral?flowWindowAt(selected.text,cursor.at):paragraphAt(selected.text,cursor.at);
+      const floor=selected.input?0:Math.max(0,lineOffset(selected.text,basis.bodyLine??0));
+      const range=this.continuous&&!this.neutral?flowWindowAt(selected.text,cursor.at,floor):paragraphAt(selected.text,cursor.at,floor);
       if(!range||this.regionText({basis,range,sourceText:selected.text,input:selected.input},source)===undefined){this.releaseForFull();return false;}
       // The first keystroke can beat the scheduled preparation after a cursor
       // move. Queue it against the checked baseline instead of cold-building
@@ -644,10 +696,12 @@ export class LocalPreview{
     for(let attempt=0;;attempt++){
       try{
         const output=await this.output(slot,next);
+        if(next.recovery)this.draftErrors.add(slot);else this.draftErrors.delete(slot);
         if(confirmedHint)this.recoveryHints.set(slot,confirmedHint);else this.recoveryHints.delete(slot);
         return {...output,recovery:next.recovery,repairedSource:next.recovery?next.source:undefined,reusedRecovery:reused||known&&!!next.recovery};
       }
       catch(error){
+        if(error instanceof ResidentSourceError)this.draftErrors.add(slot);
         confirmedHint=undefined;reused=false;this.recoveryHints.delete(slot);
         if(error instanceof ResidentSourceError&&this.pending&&this.pending.editId!==request.editId)throw new ResidentSupersededError('A newer draft superseded local recovery.');
         const dirty=this.neutral?.dirty,activeOnly=this.retainedFlowEnabled&&this.neutral?.ids?.length===1&&dirty?.every(b=>b.id===neutralId(slot.range));
@@ -670,6 +724,12 @@ export class LocalPreview{
         this.log('Local recovery: '+repair.message+'\n');
       }
     }
+  }
+  private matchesDraft(slot:Slot,request:Request){
+    if(slot.input||!slot.compiledRange)return false;
+    const text=this.regionText(slot,request.source);if(text===undefined)return false;
+    const compiled=slot.basis.compilerSource,draft=request.fullSource??request.source;
+    return compiled.slice(0,slot.compiledRange.from)+text+compiled.slice(slot.compiledRange.to)===(slot.basis.compilerInput?.(draft)??draft);
   }
   private async drain(){
     this.running=true;
@@ -714,13 +774,12 @@ export class LocalPreview{
             if(candidate.pageLocations)candidate.pageLocations=candidate.pageLocations.map(p=>({...p,...recoveryLocations(p.locations,request.source,result.repairedSource!)}));
           }else candidate.pageLocations=undefined;
         }
-        // A successful state-preserving region can establish that all root
-        // repairs are gone only when the actual compiler input now equals the
-        // complete editor draft. A remote skipped command prevents equality.
-        if(!slot.input&&!result.recovery&&result.kind==='flow'&&slot.compiledRange){
-          const compiled=slot.basis.compilerSource;
-          candidate.sourceMatchesDraft=compiled.slice(0,slot.compiledRange.from)+text+compiled.slice(slot.compiledRange.to)===(request.fullSource??request.source);
-          candidate.sourceHealthy=candidate.sourceMatchesDraft&&!result.flow.stateChanged;
+        // Clear root diagnostics only when the successful, unmodified compiler
+        // input equals the complete editor draft. A remote skip prevents
+        // equality; state convergence remains a separate flow-only proof.
+        if(!slot.input&&!result.recovery&&(result.kind==='flow'||result.kind==='page'||result.kind==='paragraph')&&slot.compiledRange){
+          candidate.sourceMatchesDraft=this.matchesDraft(slot,request);
+          candidate.sourceHealthy=candidate.sourceMatchesDraft&&result.kind==='flow'&&!result.flow.stateChanged;
           if(candidate.sourceMatchesDraft){candidate.recoveryCleared=!!slot.basis.bundle.recovered;candidate.recoveredBasis=false;}
         }
         if(slot.compositor)candidate.inkBleedBp=slot.compositor.inkBleedBp;
@@ -733,7 +792,12 @@ export class LocalPreview{
           candidate.unchangedRecovery=carryRecoveryDiagnostics(outside,slot.basis.options.root,original,request.source,candidate.sourceHash,request.editId);
         }
         const accepted=await this.publish(candidate);
-        if(!accepted)throw new Error('The local page could not be displayed.');
+        if(!accepted){
+          // Rejecting an approximate repair is not a failure of the last good
+          // checkpoint. A corrected next character should still resume it.
+          if(result.recovery)throw new ResidentSourceError('The temporary TeX repair could not be displayed. The last good preview is retained.');
+          throw new Error('The local page could not be displayed.');
+        }
         // Advance only after accepted diagnostic projection. Comparing each
         // ordinary edit with the immutable initial text would include untouched
         // math between two edit locations and unnecessarily force full builds.
@@ -751,7 +815,8 @@ export class LocalPreview{
           // Lecture mode suppresses ordinary idle verification. A failed draft
           // needs an explicit recovery request, otherwise it stays invisible
           // indefinitely while the UI still says it is updating.
-          this.fallback(this.newestId(request.editId));
+          const newest=this.newestId(request.editId);
+          this.fallback(newest,newest===request.editId?{log:String(error),file:slot.file??slot.basis.options.root,sourceHash:hash((request.fullSource??request.source).replace(/\r\n/g,'\n'))}:undefined);
         }else{
           const newest=this.newestId(request.editId);this.log('Broader layout required: '+String(error)+'\n');
           // A failed layout proof retires the local frame, not a healthy TeX

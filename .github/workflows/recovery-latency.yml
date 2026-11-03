@@ -1,0 +1,47 @@
+name: Windows temporary-error recovery
+on:
+  workflow_call:
+permissions:
+  contents: read
+jobs:
+  recovery:
+    runs-on: windows-2025
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '24'
+      - shell: pwsh
+        run: |
+          $root=Join-Path $env:RUNNER_TEMP 'recovery-latency'
+          New-Item -ItemType Directory -Path "$root/temporary","$root/artifacts" -Force|Out-Null
+          "PERSISTENT_TEX_TEST_ARTIFACTS=$root/artifacts" >> $env:GITHUB_ENV
+          "PERSISTENT_TEX_TEST_FORMAT_CACHE=$root/formats" >> $env:GITHUB_ENV
+          "PERSISTENT_TEX_TEST_RESOURCE_FILE=$root/formats/resources.json" >> $env:GITHUB_ENV
+          "TEMP=$root/temporary" >> $env:GITHUB_ENV
+          "TMP=$root/temporary" >> $env:GITHUB_ENV
+          "npm_config_cache=$root/npm" >> $env:GITHUB_ENV
+          "COMPATIBILITY_ROOT=$root" >> $env:GITHUB_ENV
+      - run: npm ci --no-audit --no-fund
+      - run: npm run build
+      - run: node --test test/local-recovery.test.cjs test/preview-recovery.test.cjs test/local-preview.test.cjs test/recovery-navigation.test.cjs test/recovery-supersession.test.cjs
+      - shell: pwsh
+        run: |
+          & scripts/install-test-texlive.ps1 -Year 2026 -WorkRoot "$env:COMPATIBILITY_ROOT/installation"
+          if($LASTEXITCODE -ne 0){exit $LASTEXITCODE}
+          "$env:COMPATIBILITY_ROOT/installation/texlive/bin/windows" >> $env:GITHUB_PATH
+      - run: node scripts/retained-test-format.cjs
+      - run: node scripts/math-deletion-test.cjs
+      - run: node scripts/recovery-latency-test.cjs
+      - name: Save bounded recovery evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: recovery-latency-report
+          retention-days: 7
+          path: |
+            ${{ env.PERSISTENT_TEX_TEST_ARTIFACTS }}/**/result.json
+            ${{ env.PERSISTENT_TEX_TEST_ARTIFACTS }}/**/build.log

@@ -6,7 +6,12 @@ on:
         description: Test suite
         type: choice
         default: compatibility
-        options: [compatibility, retained-preview, editing-position, diagnostics, miktex, miktex-fast, desktop-portability, desktop-installation, mac-release-rehearsal, mac-release-candidate, publish-desktop-preview]
+        options: [read-ahead-portable-miktex, read-ahead-release, preamble-read-ahead, paragraph-burst, paragraph-window, lecture-tail, canvas-protocol, compatibility, retained-preview, editing-position, diagnostics, miktex, miktex-fast, desktop-portability, desktop-installation, mac-release-rehearsal, mac-release-candidate, publish-desktop-preview, recovery-latency, tail-latency, page-transport]
+      tail_samples:
+        description: Edits per tail-latency scenario
+        type: choice
+        default: '256'
+        options: ['256', '4096']
       package_retained:
         description: Build and test a portable after the retained suite passes
         type: boolean
@@ -17,6 +22,54 @@ concurrency:
   group: texlive-compatibility-${{ github.ref }}-${{ inputs.suite }}
   cancel-in-progress: false
 jobs:
+  read-ahead-portable-miktex:
+    if: ${{ inputs.suite == 'read-ahead-portable-miktex' }}
+    permissions:
+      contents: read
+      actions: read
+    uses: ./.github/workflows/read-ahead-portable-miktex.yml
+  read-ahead-release:
+    permissions:
+      contents: read
+      actions: read
+    if: ${{ inputs.suite == 'read-ahead-release' }}
+    uses: ./.github/workflows/read-ahead-release.yml
+  preamble-read-ahead:
+    if: ${{ inputs.suite == 'preamble-read-ahead' }}
+    uses: ./.github/workflows/preamble-read-ahead.yml
+  canvas-protocol:
+    if: ${{ inputs.suite == 'canvas-protocol' }}
+    uses: ./.github/workflows/canvas-reuse-protocol.yml
+  page-transport:
+    permissions:
+      contents: read
+      actions: read
+    if: ${{ inputs.suite == 'page-transport' }}
+    uses: ./.github/workflows/page-transport.yml
+  paragraph-burst:
+    if: ${{ inputs.suite == 'paragraph-burst' }}
+    uses: ./.github/workflows/tail-latency.yml
+    with:
+      scenarios: '["paragraph-burst"]'
+  paragraph-window:
+    if: ${{ inputs.suite == 'paragraph-window' }}
+    uses: ./.github/workflows/tail-latency.yml
+    with:
+      scenarios: '["paragraph-window"]'
+  lecture-tail:
+    if: ${{ inputs.suite == 'lecture-tail' }}
+    uses: ./.github/workflows/tail-latency.yml
+    with:
+      samples: ${{ inputs.tail_samples }}
+      scenarios: '["lecture","lecture-standard"]'
+  tail-latency:
+    if: ${{ inputs.suite == 'tail-latency' }}
+    uses: ./.github/workflows/tail-latency.yml
+    with:
+      samples: ${{ inputs.tail_samples }}
+  recovery-latency:
+    if: ${{ inputs.suite == 'recovery-latency' }}
+    uses: ./.github/workflows/recovery-latency.yml
   publish-desktop-preview:
     if: ${{ inputs.suite == 'publish-desktop-preview' }}
     permissions:
@@ -45,6 +98,9 @@ jobs:
     if: ${{ inputs.suite == 'desktop-portability' }}
     uses: ./.github/workflows/desktop-portability.yml
   miktex:
+    permissions:
+      contents: read
+      actions: read
     if: ${{ inputs.suite == 'miktex' || inputs.suite == 'miktex-fast' }}
     uses: ./.github/workflows/miktex-compatibility.yml
     with:
@@ -197,7 +253,7 @@ jobs:
         run: |
           npm run build
           if($LASTEXITCODE -ne 0){exit $LASTEXITCODE}
-          node --test --test-concurrency=1 test/retained-layout.test.cjs test/retained-navigation.test.cjs test/contraction-probe.test.cjs test/window-page-fallback.test.cjs test/paragraph-split.test.cjs test/region-navigation-cache.test.cjs test/local-preview.test.cjs test/raster-bytes.test.cjs test/ink-bounds.test.cjs test/local-recovery.test.cjs test/preview-recovery.test.cjs test/pdf-work-queue.test.cjs test/performance-report.test.cjs test/recovery-navigation.test.cjs test/vertical-placement.test.cjs
+          node --test --test-concurrency=1 test/preamble-read-ahead.test.cjs test/paragraph-window.test.cjs test/raster-canvas-reuse.test.cjs test/async-wait.test.cjs test/pdf-page-identity.test.cjs test/retained-layout.test.cjs test/retained-navigation.test.cjs test/contraction-probe.test.cjs test/window-page-fallback.test.cjs test/paragraph-split.test.cjs test/region-navigation-cache.test.cjs test/local-preview.test.cjs test/raster-bytes.test.cjs test/ink-bounds.test.cjs test/local-recovery.test.cjs test/preview-recovery.test.cjs test/pdf-work-queue.test.cjs test/performance-report.test.cjs test/recovery-navigation.test.cjs test/vertical-placement.test.cjs test/recovery-supersession.test.cjs
           if($LASTEXITCODE -ne 0){exit $LASTEXITCODE}
           node scripts/retained-layout-test.cjs
           exit $LASTEXITCODE
@@ -214,6 +270,16 @@ jobs:
       - name: Native retained ownership and unsupported math fallback
         id: native_retained
         run: node --test --test-concurrency=1 test/retained-preview.test.cjs
+      - name: Ten-page first-line edit-to-canvas comparison
+        env:
+          PERSISTENT_TEX_READAHEAD_PAGES: '10'
+        run: node scripts/preamble-read-ahead-viewer.cjs
+      - name: Fixed-size paragraph joins, canonical pixels and recovery
+        run: node scripts/paragraph-window-benchmark.cjs
+      - name: Alternating cached-canvas latency and actual viewer pixels
+        run: node scripts/canvas-reuse-benchmark.cjs
+      - name: Exact pixels for sparse high-DPI page rasterization
+        run: node scripts/page-ink-raster-test.cjs
       - name: Default-mode report privacy, menu and canonical handoff
         run: node scripts/performance-report-test.cjs
       - name: Repaired preview navigation, actionable errors and correction
@@ -226,6 +292,8 @@ jobs:
         run: node scripts/recovery-idle-test.cjs
       - name: Automatically continue and clear local errors across paragraphs
         run: node scripts/automatic-recovery-test.cjs
+      - name: Recover theorem math after deleting both dollar signs under memory pressure
+        run: node scripts/math-deletion-test.cjs
       - name: Early-page typing, display baselines and automatic failed-frame recovery
         if: ${{ inputs.suite != 'diagnostics' }}
         run: node scripts/editing-position-test.cjs
@@ -320,8 +388,11 @@ jobs:
           if ('${{ inputs.suite }}' -eq 'diagnostics') {
             $env:PERSISTENT_TEX_MULTI_BLOCK='0'
             $env:PERSISTENT_TEX_RETAINED_FLOW='0'
-            foreach($test in @('performance-report','recovery-navigation','status-bar','compact-fit','recovery-idle','automatic-recovery')) {
-              node "scripts/$test-test.cjs"
+            $env:PERSISTENT_TEX_READAHEAD_PAGES='10'
+            node scripts/preamble-read-ahead-viewer.cjs
+            if($LASTEXITCODE -ne 0){exit $LASTEXITCODE}
+            foreach($test in @('paragraph-window-benchmark','canvas-reuse-benchmark','page-ink-raster','performance-report','recovery-navigation','status-bar','compact-fit','recovery-idle','automatic-recovery','recovery-latency','math-deletion')) {
+              if($test -like '*-benchmark'){node "scripts/$test.cjs"}else{node "scripts/$test-test.cjs"}
               if($LASTEXITCODE -ne 0){exit $LASTEXITCODE}
             }
             exit 0

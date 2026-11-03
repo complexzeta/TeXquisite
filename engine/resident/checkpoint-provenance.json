@@ -1,0 +1,13 @@
+{
+  "source": "eb0d9aefaf36cd025d10fdd33b1d1fafa4ef6e79",
+  "sdk": "3.1.46",
+  "sdkSource": "93360d3670018769b424e4e8f1d3d9b26d32c977",
+  "upstream": "87dfb950eb9c8e9dcd4ee2a3ac97fbbbacfc618a",
+  "archive": "0beac6bbf8913d41574d80f55b34179ed023ef146878421a955a7ba3b4c37247",
+  "js": "5d2f42d8852796a66a1afa04890878915173e2651ebdd45f94ed36394fe3e3d9",
+  "wasm": "fc7c3b405b57e6c9fa94e6d7d27d54ec3136b229a20e4b5fbd3e2aadbeabf5de",
+  "buildRun": 41725897902,
+  "buildUrl": "https://github.com/complexzeta/TeXquisite/actions/runs/41725897902",
+  "preambleReadAheadGuard": 1,
+  "bundledFormat": "Unchanged TeX Live 2025 format; per-installation formats remain fingerprinted and engine-bound."
+}

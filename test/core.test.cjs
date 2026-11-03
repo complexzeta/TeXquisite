@@ -43,6 +43,23 @@ for(const automatic of [false,true])test(automatic?'Automatic full work coalesce
  const expected=automatic?[a,c]:[a,b,c];assert.deepEqual(calls,expected);assert.deepEqual(commits,expected.map(hash));
 });
 
+test('Continuous input cannot repeatedly kill resident startup at the obsolete-draft deadline',async t=>{
+ const s=await store(),project=path.join(s.directory,'source');await fs.mkdir(project,{recursive:true});const root=path.join(project,'main.tex');
+ const source='\\documentclass{article}\n\\begin{document}\nVERSION\n\\end{document}\n';await fs.writeFile(root,source);
+ const bytes=Buffer.from(await pdf()),calls=[],commits=[];let entered,release,signal;
+ const began=new Promise(r=>entered=r),gate=new Promise(r=>release=r);
+ const controller=new BuildController(s,{prepare:async()=>{},commit:b=>commits.push(b.sourceHash),discard:()=>{}},()=>{},()=>{});t.after(async()=>{release();await controller.dispose();});
+ controller.resident.compile=async(text,abort)=>{calls.push(text);if(calls.length===1){signal=abort;entered();await gate;}return bytes;};
+ const options={root,engine:'pdflatex',executable:'latexmk',timeoutMs:30000,automatic:true},a=source.replace('VERSION','Alpha'),b=source.replace('VERSION','Beta'),c=source.replace('VERSION','Gamma');
+ const first=controller.request({...options,sourceText:a});await began;
+ t.mock.timers.enable({apis:['setTimeout']});
+ const second=controller.request({...options,sourceText:b});t.mock.timers.tick(1001);
+ const third=controller.request({...options,sourceText:c});t.mock.timers.tick(1001);
+ assert.equal(signal.aborted,false,'An in-flight resident worker must retain its startup progress');
+ t.mock.timers.reset();release();await Promise.all([first,second,third]);
+ assert.deepEqual(calls,[a,c]);assert.deepEqual(commits,[a,c].map(hash));
+});
+
 for(const automatic of [false,true])test(automatic?'Automatic chapter work retains the newest pending buffers':'Manual chapter prefetch publishes each captured resource revision once',{timeout:30000},async t=>{
  const s=await store(),project=path.join(s.directory,'source');await fs.mkdir(project,{recursive:true});const root=path.join(project,'main.tex'),chapter=path.join(project,'chapter.tex');
  const source='\\documentclass{article}\n\\begin{document}\n\\input{chapter}\n\\end{document}\n';await fs.writeFile(root,source);await fs.writeFile(chapter,'Disk.');
