@@ -246,7 +246,7 @@ function restore(state:Checkpoint){
 function capturePreamble(bytes:Buffer,stream:any,base?:Checkpoint,reuse?:{pages:Buffer[]}):Checkpoint{
   const line=checkpointInputLine(bytes,stream.position),streams=FS.streams.filter((s:any)=>s?.path==='/work/'+currentJob+'.tex');
   let offset=-1;readAheadMarkCode=-7;
-  if(!readAheadSuppressed&&process.env.PERSISTENT_TEX_PREAMBLE_READAHEAD==='1'&&line&&streams.length===1&&streams[0]===stream&&Module._persistentPreambleMark&&Module._persistentPreambleReload){
+  if(!readAheadSuppressed&&process.env.PERSISTENT_TEX_PREAMBLE_READAHEAD!=='0'&&line&&streams.length===1&&streams[0]===stream&&Module._persistentPreambleMark&&Module._persistentPreambleReload){
     prefixProbeSource=bytes;
     try{offset=Module._persistentPreambleMark(line.start,line.visibleLength,line.readEnd);readAheadMarkCode=offset;}finally{prefixProbeSource=undefined;}
   }
