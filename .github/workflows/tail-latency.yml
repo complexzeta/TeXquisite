@@ -47,12 +47,14 @@ jobs:
           "$env:COMPATIBILITY_ROOT/installation/texlive/bin/windows" >> $env:GITHUB_PATH
       - run: node scripts/retained-test-format.cjs
       - run: node scripts/tail-latency-test.cjs
-        if: ${{ matrix.scenario != 'paragraph-window' }}
+        if: ${{ matrix.scenario != 'paragraph-window' && matrix.scenario != 'paragraph-burst' }}
         env:
           TAIL_SCENARIO: ${{ matrix.scenario }}
           TAIL_SAMPLES: ${{ inputs.samples }}
       - run: node scripts/paragraph-window-benchmark.cjs
         if: ${{ matrix.scenario == 'paragraph-window' }}
+      - run: node scripts/paragraph-window-burst.cjs
+        if: ${{ matrix.scenario == 'paragraph-burst' }}
       - name: Save bounded tail-latency evidence
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02

@@ -6,7 +6,7 @@ on:
         description: Test suite
         type: choice
         default: compatibility
-        options: [paragraph-window, lecture-tail, canvas-protocol, compatibility, retained-preview, editing-position, diagnostics, miktex, miktex-fast, desktop-portability, desktop-installation, mac-release-rehearsal, mac-release-candidate, publish-desktop-preview, recovery-latency, tail-latency, page-transport]
+        options: [paragraph-burst, paragraph-window, lecture-tail, canvas-protocol, compatibility, retained-preview, editing-position, diagnostics, miktex, miktex-fast, desktop-portability, desktop-installation, mac-release-rehearsal, mac-release-candidate, publish-desktop-preview, recovery-latency, tail-latency, page-transport]
       tail_samples:
         description: Edits per tail-latency scenario
         type: choice
@@ -31,6 +31,11 @@ jobs:
       actions: read
     if: ${{ inputs.suite == 'page-transport' }}
     uses: ./.github/workflows/page-transport.yml
+  paragraph-burst:
+    if: ${{ inputs.suite == 'paragraph-burst' }}
+    uses: ./.github/workflows/tail-latency.yml
+    with:
+      scenarios: '["paragraph-burst"]'
   paragraph-window:
     if: ${{ inputs.suite == 'paragraph-window' }}
     uses: ./.github/workflows/tail-latency.yml
