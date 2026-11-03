@@ -170,14 +170,14 @@ export function matchCrossPageRaster(a:Uint8ClampedArray,b:Uint8ClampedArray,wid
  for(const row of rows){
   if(!Object.values(row).every(Number.isFinite)||Math.abs(row.x-rect.x)>.001||Math.abs(row.width-rect.width)>.001||Math.abs(row.y-edge)>.001||row.height<=0||row.height>64*factor)return{ok:false};edge=row.y+row.height;
   const top=Math.max(0,Math.floor(row.y)),bottom=Math.min(height,Math.ceil(edge)),left=Math.max(0,Math.floor(row.x)),right=Math.min(width,Math.ceil(row.x+row.width));
-  const rowGlyphs=glyphs.filter(g=>g.y+g.height+1>=top&&g.y-1<=bottom),step=Math.max(1,Math.floor(4*factor));
-  for(let x=left;x<right;x+=step){
-   const end=Math.min(right,x+step),near=rowGlyphs.filter(g=>g.x+g.width+1>=x&&g.x-1<=end);
+  const rowGlyphs=glyphs.filter(g=>g.y+g.height+1>=top&&g.y-1<=bottom),step=Math.max(1,Math.floor(4*factor)),rowStep=Math.max(1,Math.floor(2*factor));
+  for(let cy=top;cy<bottom;cy+=rowStep)for(let x=left;x<right;x+=step){
+   const end=Math.min(right,x+step),cyEnd=Math.min(bottom,cy+rowStep),near=rowGlyphs.filter(g=>g.x+g.width+1>=x&&g.x-1<=end&&g.y+g.height+1>=cy&&g.y-1<=cyEnd);
    // Vector identity alone does not excuse a changed fill or missing stroke.
    // Every differing pixel must be opaque grayscale, close in coverage, and
    // inside an independently matched glyph. Non-text drawing stays exact.
-   for(let y=top;y<bottom;y++)for(let xx=x;xx<end;xx++){const p=(y*width+xx)*4;if(a[p]===b[p]&&a[p+1]===b[p+1]&&a[p+2]===b[p+2]&&a[p+3]===b[p+3])continue;if(a[p+3]!==255||b[p+3]!==255||a[p]!==a[p+1]||a[p]!==a[p+2]||b[p]!==b[p+1]||b[p]!==b[p+2]||Math.abs(a[p]-b[p])>32||!near.some(g=>xx>=Math.floor(g.x)-1&&xx<=Math.ceil(g.x+g.width)+1&&y>=Math.floor(g.y)-1&&y<=Math.ceil(g.y+g.height)+1))return{ok:false,reason:'unproved-coverage',x:xx,y};}
-   const checked=matchRaster(a,b,width,height,{x,y:top,width:end-x,height:bottom-top},true,near,factor,64);if(!checked.ok)return checked;count+=checked.differingPixels;maxDifference=Math.max(maxDifference,checked.maxDifference);if(++cells>16384)return{ok:false};
+   for(let y=cy;y<cyEnd;y++)for(let xx=x;xx<end;xx++){const p=(y*width+xx)*4;if(a[p]===b[p]&&a[p+1]===b[p+1]&&a[p+2]===b[p+2]&&a[p+3]===b[p+3])continue;if(a[p+3]!==255||b[p+3]!==255||a[p]!==a[p+1]||a[p]!==a[p+2]||b[p]!==b[p+1]||b[p]!==b[p+2]||Math.abs(a[p]-b[p])>32||!near.some(g=>xx>=Math.floor(g.x)-1&&xx<=Math.ceil(g.x+g.width)+1&&y>=Math.floor(g.y)-1&&y<=Math.ceil(g.y+g.height)+1))return{ok:false,reason:'unproved-coverage',x:xx,y};}
+   const checked=matchRaster(a,b,width,height,{x,y:cy,width:end-x,height:cyEnd-cy},true,near,factor,64);if(!checked.ok)return checked;count+=checked.differingPixels;maxDifference=Math.max(maxDifference,checked.maxDifference);if(++cells>65536)return{ok:false};
   }
  }
  if(Math.abs(edge-rect.y-rect.height)>.001)return{ok:false};return{ok:true,differingPixels:count,maxDifference,verifiedLines:rows.length,verifiedCells:cells};
