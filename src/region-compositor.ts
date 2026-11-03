@@ -53,9 +53,6 @@ function glyphData(raw:string):GlyphData{
 function glyphs(raw:string,page?:number){const rows=glyphData(raw).rows;return page===undefined?rows:rows.filter(row=>row[3]===page);}
 const key=(g:Glyph)=>JSON.stringify([g[0],g[1],g[2],g[8],g[9]??1]);
 function glyphIndex(raw:string){const data=glyphData(raw);if(!data.index){data.index=new Map();for(const row of data.rows){const k=key(row),list=data.index.get(k)??[];list.push(row);data.index.set(k,list);}}return data.index;}
-export function matchedParagraphGlyphs(navigation:string,original:ParagraphOutput){
-  const index=glyphIndex(navigation);return glyphs(original.navigation,original.fragment.page).map(fragment=>{const full=index.get(key(fragment));if(full?.length!==1)throw Error('Paragraph source anchors are ambiguous.');return {full:full[0],fragment};});
-}
 export function paragraphPages(navigation:string,original:ParagraphOutput):PageSpan{
   const byKey=glyphIndex(navigation);
   const pages:number[]=[];for(const row of glyphs(original.navigation,original.fragment.page)){const matches=byKey.get(key(row));if(matches?.length!==1)throw new Error('Paragraph source anchors are ambiguous.');pages.push(matches[0][3]);}

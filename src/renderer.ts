@@ -1,6 +1,6 @@
 import {queueEditorEdit} from './editor-dispatch';
 import {decodeNavigation} from './navigation-codec';
-import {matchLocalPatchRaster,matchCrossPageRaster,crossPageClearOutside,proofDensityRetry,LOCAL_INK_BLEED_BP} from './local-raster';
+import {matchLocalPatchRaster,proofDensityRetry,LOCAL_INK_BLEED_BP} from './local-raster';
 import {placementCorrection,GlyphLookup} from './local-raster';
 import {mathSpans,isMath,nearestMathCaret,mathCaretBox,moveMath,moveMathAcross,changeMath,parseMath,MathFormula,MathSpan,MathAction} from './math-edit';
 import {EditorView,basicSetup} from 'codemirror';
@@ -786,8 +786,8 @@ const pageProofKey=(message:any)=>{const span=message.baselineSpan??message.page
 function mayShowLocal(message:any){
   const file=message.sourceFile??message.root,input=localInputs.get(message.editId),latest=latestEdit&&localInputs.get(latestEdit.id),text=model.docs.find((doc:any)=>doc.path===file)?.text;
   if(!input||input.file!==file||latest?.file!==file||input.sequence<=displayedSequence||message.root!==model.root||model.previewEditing||!model.onSave||typeof text!=='string')return false;
-  if(!message.sourceFile&&current?.canvas.dataset.sourceHash===message.sourceHash&&!message.crossPageOutput&&!message.flowOutput&&!message.neutralBlock)return false;
-  if(!model.followPreview&&!message.crossPageOutput&&!message.flowOutput&&!(model.continuousPreview&&(message.pageOutput||message.neutralBlock))){const s=message.pageOutput?message.sourcePages:undefined;if(s?(pageNumber<s.first||pageNumber>s.last):pageNumber!==message.page)return false;}
+  if(!message.sourceFile&&current?.canvas.dataset.sourceHash===message.sourceHash&&!message.flowOutput&&!message.neutralBlock)return false;
+  if(!model.followPreview&&!message.flowOutput&&!(model.continuousPreview&&(message.pageOutput||message.neutralBlock))){const s=message.pageOutput?message.sourcePages:undefined;if(s?(pageNumber<s.first||pageNumber>s.last):pageNumber!==message.page)return false;}
   const {rangeFrom:from,rangeTo:to}=message;if(!Number.isSafeInteger(from)||!Number.isSafeInteger(to)||from<0||to<from||to>input.text.length)return false;
   const prefix=input.text.slice(0,from),suffix=input.text.slice(to);return text.length>=prefix.length+suffix.length&&text.startsWith(prefix)&&text.endsWith(suffix);
 }
@@ -815,10 +815,9 @@ async function localCorrection(message:any,base:any,fragment:any){
   const fullOutlines=new Map<PdfCharacter,string|undefined>(fullProofs.map((p:any)=>[p.glyph,p.outline] as const)),fragmentOutlines=new Map<PdfCharacter,string|undefined>(fragmentProofs.map((p:any)=>[p.glyph,p.outline] as const));
   const fullLookup=new GlyphLookup<PdfCharacter>(fullGlyphs),fragmentLookup=new GlyphLookup<PdfCharacter>(fragmentGlyphs);
   const offsets:{x:number;y:number;full:PdfCharacter;fragment:PdfCharacter}[]=[];
-  const slices=message.calibration?.slices as {from:number;to:number;dy:number;dx?:number}[]|undefined;
-  const horizontal=(y:number)=>slices?.find(s=>y>=s.from&&y<s.to)?.dx??message.calibration.x;
+  const slices=message.calibration?.slices as {from:number;to:number;dy:number}[]|undefined;
   const vertical=(y:number)=>slices?.find(s=>y>=s.from&&y<s.to)?.dy??message.calibration.y;
-  for(const a of message.calibration?.anchors??[]){const full=fullLookup.nearest(a.code,a.full),local=fragmentLookup.nearest(a.code,a.fragment);if(full&&local)offsets.push({x:full[1]-local[1]-horizontal(local[2])+message.calibration.x,y:full[2]-local[2]-vertical(local[2])+message.calibration.y,full,fragment:local});}
+  for(const a of message.calibration?.anchors??[]){const full=fullLookup.nearest(a.code,a.full),local=fragmentLookup.nearest(a.code,a.fragment);if(full&&local)offsets.push({x:full[1]-local[1],y:full[2]-local[2]-vertical(local[2])+message.calibration.y,full,fragment:local});}
   const proposal=placementCorrection(offsets,message.calibration,true);
   if(!message.calibration||![message.calibration.x,message.calibration.y].every(Number.isFinite))return false;
   // Translation requires an anchor consensus. Independently matched vector
@@ -829,20 +828,15 @@ async function localCorrection(message:any,base:any,fragment:any){
   // for bounded antialiasing coverage. Do not repeat an identical proposal
   // after those boxes have already failed their raster check.
   if(correction.dx===0&&correction.dy===0&&message.calibration?.calibratedGlyphs?.length)return false;
-  const vectorMatched=new Set<PdfCharacter>();
-  const calibratedGlyphs:{x:number;y:number;width:number;height:number;outline?:boolean}[]=[];
+  const x=message.calibration.x+correction.dx,y=message.calibration.y+correction.dy,calibratedGlyphs:{x:number;y:number;width:number;height:number;outline?:boolean}[]=[];
   for(const g of fragmentGlyphs){
-    const gx=horizontal(g[2])+correction.dx,gy=vertical(g[2])+correction.dy,full=fullLookup.nearest(g[0],[g[1]+gx,g[2]+gy,g[3],g[4]]);if(!full)continue;
-    if(Math.abs(full[1]-g[1]-gx)<=.02&&Math.abs(full[2]-g[2]-gy)<=.02&&Math.abs(full[3]-g[3])<=.02&&Math.abs(full[4]-g[4])<=.02){const outline=fullOutlines.get(full);if(typeof outline==='string'&&outline.length===64&&outline===fragmentOutlines.get(g))vectorMatched.add(full);calibratedGlyphs.push({x:full[1],y:full[2],width:full[3],height:full[4],outline:typeof outline==='string'&&outline.length===64&&outline===fragmentOutlines.get(g)});}
+    const gy=vertical(g[2])+correction.dy,full=fullLookup.nearest(g[0],[g[1]+x,g[2]+gy,g[3],g[4]]);if(!full)continue;
+    if(Math.abs(full[1]-g[1]-x)<=.02&&Math.abs(full[2]-g[2]-gy)<=.02&&Math.abs(full[3]-g[3])<=.02&&Math.abs(full[4]-g[4])<=.02){const outline=fullOutlines.get(full);calibratedGlyphs.push({x:full[1],y:full[2],width:full[3],height:full[4],outline:typeof outline==='string'&&outline.length===64&&outline===fragmentOutlines.get(g)});}
   }
   const outlines=calibratedGlyphs.filter(g=>g.outline).length;
   if(!proposal&&outlines<3)return false;
   console.debug('Local glyph calibration',JSON.stringify({glyphs:calibratedGlyphs.length,outlines,translationConsensus:!!proposal,dx:correction.dx,dy:correction.dy}));
-  const box=message.footprint;
-  const ownedGlyphs=box?fullGlyphs.filter(g=>g[1]<box.x+box.width&&g[1]+g[3]>box.x&&g[2]<box.y+box.height&&g[2]+g[4]>box.y):[];
-  const crossPageVectorComplete=!!message.calibration?.crossPageGuard&&!!box&&calibratedGlyphs.every(g=>g.outline===true)&&ownedGlyphs.every(g=>vectorMatched.has(g));
-  if(message.calibration?.crossPageGuard)console.debug('Cross-page vector coverage',JSON.stringify({complete:crossPageVectorComplete,owned:ownedGlyphs.length,matched:vectorMatched.size,unmatched:ownedGlyphs.filter(g=>!vectorMatched.has(g)).slice(0,6)}));
-  return {...correction,calibratedGlyphs,crossPageVectorComplete};
+  return {...correction,calibratedGlyphs};
 }
 api.on(async message=>{
   if(message.type==='toolchainStatus'){model.toolchain=message.report;renderToolchain(message.report,true);return;}
@@ -883,7 +877,6 @@ api.on(async message=>{
     }catch{ok=false;}finally{baseline.release();void task.destroy().catch(()=>{});await api.call('localAck',message.token,ok);}return;
   }
   if(message.type==='localVerify'){
-    const crossPageProof=!!message.calibration?.crossPageGuard;
     const proofStarted=performance.now();let loadedAt=proofStarted,readAt=proofStarted,comparedAt=proofStarted,tileAt=proofStarted;
     let ok=false,reply:boolean|{dx:number;dy:number}=false;const proofToken=localProofToken,key=proofKey(message),baseline=acceptedBaseline(message),tasks=[loadPdf(message.pdf,true),loadPdf(message.fragmentPdf,true)];
     let cached:Awaited<ReturnType<typeof baseline.page>>|undefined;
@@ -893,22 +886,16 @@ api.on(async message=>{
       // Submit the independent proof reads together. Otherwise an idle page
       // render can start between each round trip and delay the same proof
       // repeatedly. PDFium still executes each request serially.
-      const reads=[baseline.page(message.page).then(frame=>cached=frame),composed.renderPixels(1,scale,window.devicePixelRatio||1),localInkFits(message,fragment),crossPageProof?Promise.resolve(undefined):composed.regionPixels(1,message.footprint,scale,window.devicePixelRatio||1)] as const;
+      const reads=[baseline.page(message.page).then(frame=>cached=frame),composed.renderPixels(1,scale,window.devicePixelRatio||1),localInkFits(message,fragment),composed.regionPixels(1,message.footprint,scale,window.devicePixelRatio||1)] as const;
       const [frame,composedRaster,ink,tile]=await Promise.all(reads).catch(async error=>{await Promise.allSettled(reads);throw error;});
       readAt=performance.now();
       const a=frame.value.canvas,pa=frame.value.pixels,pb=composedRaster.pixels;
-      const factor=scale*(window.devicePixelRatio||1),box=message.footprint;let result=matchLocalPatchRaster(pa,pb,a.width,a.height,{x:box.x*factor,y:box.y*factor,width:box.width*factor,height:box.height*factor},(message.calibration?.calibratedGlyphs??[]).map((g:any)=>({x:g.x*factor,y:g.y*factor,width:g.width*factor,height:g.height*factor,outline:g.outline===true})),factor);
-      if(!result.ok&&message.calibration?.crossPageVectorComplete){
-        const pixels=(r:any)=>({x:r.x*factor,y:r.y*factor,width:r.width*factor,height:r.height*factor,...('outline' in r?{outline:r.outline===true}:{})});
-        const checked=matchCrossPageRaster(pa,pb,a.width,a.height,pixels(box),(message.calibration.crossPageRows??[]).map(pixels),(message.calibration.calibratedGlyphs??[]).map(pixels),factor,true);
-        console.debug('Cross-page line proof',JSON.stringify(checked));if(checked.ok)result={ok:true,differingPixels:checked.differingPixels??0,maxDifference:checked.maxDifference??0};
-      }
-      const owned=!message.calibration?.crossPageGuard||crossPageClearOutside(pa,a.width,a.height,message.calibration.crossPageGuard,factor,detail=>console.debug('Cross-page unowned ink',JSON.stringify({detail,guard:message.calibration.crossPageGuard,factor})));
-      ok=owned&&ink&&a.width===composedRaster.width&&a.height===composedRaster.height&&result.ok;
+      const factor=scale*(window.devicePixelRatio||1),box=message.footprint,result=matchLocalPatchRaster(pa,pb,a.width,a.height,{x:box.x*factor,y:box.y*factor,width:box.width*factor,height:box.height*factor},(message.calibration?.calibratedGlyphs??[]).map((g:any)=>({x:g.x*factor,y:g.y*factor,width:g.width*factor,height:g.height*factor,outline:g.outline===true})),factor);
+      ok=ink&&a.width===composedRaster.width&&a.height===composedRaster.height&&result.ok;
       // Tiny matched math glyphs can be entirely gray at display resolution.
       // Repeat the COMPLETE proof at a bounded higher density instead of
       // waiving its dark-core, color, ink, geometry or coverage requirements.
-      const proofFactor=!crossPageProof&&owned&&ink&&a.width===composedRaster.width&&a.height===composedRaster.height?proofDensityRetry(result,factor,a.width,a.height):undefined;
+      const proofFactor=ink&&a.width===composedRaster.width&&a.height===composedRaster.height?proofDensityRetry(result,factor,a.width,a.height):undefined;
       if(!ok&&proofFactor){
         const bounds=localInkBounds(message),multiple=proofFactor/factor;
         const checks=[base.renderPixels(message.page,proofFactor,1),composed.renderPixels(1,proofFactor,1),fragment.inkFits(message.fragment.page,{left:bounds.left*multiple,top:bounds.top*multiple,right:bounds.right*multiple,bottom:bounds.bottom*multiple},proofFactor,1),composed.regionPixels(1,box,proofFactor,1)] as const;
@@ -918,12 +905,9 @@ api.on(async message=>{
         console.debug('Local higher-density proof',JSON.stringify({factor:proofFactor,ink:inkHi.safe,...high,ok}));
       }
       comparedAt=performance.now();
-      // Cross-page flow displays a checked whole-fragment bitmap, not a crop
-      // rendered from this composed page. Its baseline witness is the FULL
-      // page raster above. The ordinary patch route still proves its crop.
-      if(ok&&!crossPageProof)ok=await tileMatchesFull(composed,message.footprint,composedRaster,pb,tile);
+      if(ok)ok=await tileMatchesFull(composed,message.footprint,composedRaster,pb,tile);
       tileAt=performance.now();
-      console.debug('Local raster verification',JSON.stringify({ink,owned,...result,scale,ratio:window.devicePixelRatio}));
+      console.debug('Local raster verification',JSON.stringify({ink,...result,scale,ratio:window.devicePixelRatio}));
       ok=ok&&proofToken===localProofToken&&key===proofKey(message)&&message.root===model.root;
       if(ok){
         // Page verification may have completed in parallel. Evict only the
@@ -931,9 +915,9 @@ api.on(async message=>{
         if(localProofs.size>=8&&!localProofs.has(key)){const oldest=localProofs.keys().next().value!;localProofs.get(oldest)!.release();localProofs.delete(oldest);}
         localProofs.get(key)?.release();localProofs.set(key,{canvas:a,page:message.page,release:frame.release,retain:baseline.retain});cached=undefined;
       }
-      reply=ok?true:owned&&ink&&proofToken===localProofToken&&key===proofKey(message)?await localCorrection(message,base,fragment):false;
+      reply=ok?true:ink&&proofToken===localProofToken&&key===proofKey(message)?await localCorrection(message,base,fragment):false;
       console.debug('Local paragraph proof',JSON.stringify({loadMs:loadedAt-proofStarted,readMs:readAt-loadedAt,compareMs:comparedAt-readAt,tileMs:tileAt-comparedAt,correctionMs:performance.now()-tileAt,totalMs:performance.now()-proofStarted,ok,correction:typeof reply==='object'}));
-    }}catch(error){console.debug('Local proof rejected',String(error));reply=false;}finally{cached?.release();baseline.release();void Promise.all(tasks.map(task=>task.destroy())).catch(()=>{});await api.call('localAck',message.token,reply);}
+    }}catch{reply=false;}finally{cached?.release();baseline.release();void Promise.all(tasks.map(task=>task.destroy())).catch(()=>{});await api.call('localAck',message.token,reply);}
     return;
   }
   if(message.type==='localPage'){
@@ -941,32 +925,8 @@ api.on(async message=>{
     if(!mayShowLocal(message)){await api.call('localAck',message.token,!message.neutralBlock);return;}
     const input=localInputs.get(message.editId)!,inputAt=input.startedAt;
     const receivedAt=performance.now();
-    const task=message.flowOutput||message.crossPageOutput?undefined:loadPdf(message.pdf,true,true);let keepTask=false,flowImage:ImageBitmap|undefined;
+    const task=message.flowOutput?undefined:loadPdf(message.pdf,true,true);let keepTask=false,flowImage:ImageBitmap|undefined;
     try{
-      if(message.crossPageOutput){
-        if(!model.continuousPreview)throw Error('Continuous preview was turned off.');
-        const plan=message.crossPageOutput,proofs=Array.from({length:plan.span.last-plan.span.first+1},(_,i)=>localProofs.get(proofKey({...message,page:plan.span.first+i})));
-        if(proofs.some(p=>!p))throw Error('Cross-page baseline is unavailable.');
-        const tile=await renderCheckedPdfRegion(message.pdf,message.fragment.page,plan.fragmentRect,localInkBounds(message),scale,window.devicePixelRatio||1);flowImage=tile.image;
-        if(!tile.safe)throw Error('Cross-page paragraph ink exceeds its bounds.');
-        await continuousSetup;if(token!==localRenderToken||!mayShowLocal(message))return;
-        const proof=proofs[0]!;
-        if(continuousView.id!==message.baseId||!continuousView.matchesScale(scale,window.devicePixelRatio||1)){
-          const held=proof.retain(),baseline=await held.document;releaseContinuousLease();continuousLease={id:message.baseId,task:{destroy:async()=>held.release()}};
-          const copy=document.createElement('canvas');copy.width=proof.canvas.width;copy.height=proof.canvas.height;copy.getContext('2d')!.drawImage(proof.canvas,0,0);continuousBasis=continuousBases.get(message.baseId);
-          continuousSetup=continuousView.show(message.baseId,baseline,copy,plan.span.first,scale,window.devicePixelRatio||1);await continuousSetup;
-        }
-        if(token!==localRenderToken||!mayShowLocal(message))return;
-        clearNeutralMetadata();const pieces=continuousView.patchCrossPages(plan.span,proofs.map(p=>p!.canvas),plan,tile),canvas=pieces.block;
-        localCanvas=canvas;localPatch=undefined;liveFlow=undefined;displayedSequence=input.sequence;
-        livePages={root:message.root,file:message.sourceFile??message.root,baseId:message.baseId,editId:message.editId,sourceHash:message.sourceHash,text:input.text,from:0,to:input.text.length,pages:[{page:plan.span.first,canvas:pieces.prefix,...plan.prefix},{page:plan.span.first,canvas,...plan.block},{page:plan.span.last,canvas:pieces.suffix,...plan.suffix}]};
-        const baselineText=continuousBasis?.texts?.[input.file]??(input.file===model.root?continuousBasis?.text:undefined);
-        if(continuousBasis&&baselineText!==undefined)livePages.pages.push(...unchangedPageLocations(continuousBasis.navigation,input.file,baselineText,input.text,plan.span));
-        for(const c of Object.values(pieces)){c.dataset.renderScope='local';c.dataset.localLayout='cross-page-flow';c.dataset.localSourceHash=message.sourceHash;c.dataset.localEditId=message.editId;c.dataset.localRecovered=String(!!message.recovery);c.dataset.localPipeline=JSON.stringify({compiler:message.timing,receiveMs:receivedAt-inputAt,loadRenderMs:performance.now()-receivedAt});}
-        if(model.followPreview&&Number.isFinite(plan.caretY))continuousView.reveal(canvas,plan.caretY);
-        const finish=()=>{if(token!==localRenderToken||localCanvas!==canvas)return;const latency=Math.ceil(performance.now()-inputAt);input.displayedLatencyMs??=latency;for(const c of Object.values(pieces)){c.dataset.localLatencyMs=String(latency);c.dataset.localLatencyEditId=message.editId;}recordDisplayedFrame(message.editId,message.sourceHash,'cross-page-flow');void api.call('localWarm',message.root,message.baseId,message.editId,latency,'cross-page-flow').catch(()=>{});localStatus=`Paragraph updated in ${latency} ms from edit. Full PDF updates on Build or Export.`;refreshPreviewStatus();};
-        if(message.visible)requestAnimationFrame(()=>requestAnimationFrame(finish));else finish();return;
-      }
       if(message.flowOutput){
         if(!message.retainedFlow)clearNeutralMetadata();
         if(!model.continuousPreview)throw Error('Continuous preview was turned off.');

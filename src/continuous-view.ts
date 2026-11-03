@@ -6,7 +6,7 @@ import {LOCAL_INK_BLEED_BP,matchingPageGeometry} from './local-raster';
 // PDF pages are lazy images here, not units of live pagination.
 export class ContinuousView{
   id='';private epoch=0;private observer?:IntersectionObserver;
-  private entries=new Map<number,{retained?:RetainedPage;element:HTMLDivElement;canvas?:HTMLCanvasElement;neutral?:Map<string,{x:number;y:number;width:number;height:number}>;pieces?:HTMLCanvasElement[];prefixInkBottom?:number;block?:HTMLCanvasElement;top?:number;bottom?:number;size:any;busy?:boolean;patched?:boolean;band?:HTMLCanvasElement[];cross?:{key:string;canvases:HTMLCanvasElement[]};coveredBy?:number}>();
+  private entries=new Map<number,{retained?:RetainedPage;element:HTMLDivElement;canvas?:HTMLCanvasElement;neutral?:Map<string,{x:number;y:number;width:number;height:number}>;pieces?:HTMLCanvasElement[];prefixInkBottom?:number;block?:HTMLCanvasElement;top?:number;bottom?:number;size:any;busy?:boolean;patched?:boolean;band?:HTMLCanvasElement[];coveredBy?:number}>();
   private pdf:any;private scale=1;private ratio=1;
   constructor(private host:HTMLElement,private viewport:HTMLElement){}
   // Capture immediately before a layout swap, so scrolling while a PDF is
@@ -22,8 +22,8 @@ export class ContinuousView{
     this.viewport.scrollLeft=position.left;
   }
   get visiblePage(){return this.position().page;}
-  ownsCanvas(page:number,canvas:HTMLCanvasElement){const e=this.entries.get(page);return !!e&&(e.canvas===canvas||!!e.cross?.canvases.includes(canvas)||!!e.retained?.owns(canvas));}
-  private dispose(entries:typeof this.entries,keep?:HTMLCanvasElement){for(const e of entries.values()){e.retained?.dispose();for(const c of [...(e.cross?.canvases??[]),...(e.band??[]),...(e.pieces??[]),...(e.canvas?[e.canvas]:[]),...(e.block?[e.block]:[])])if(c!==keep)c.width=c.height=0;}}
+  ownsCanvas(page:number,canvas:HTMLCanvasElement){const e=this.entries.get(page);return !!e&&(e.canvas===canvas||!!e.retained?.owns(canvas));}
+  private dispose(entries:typeof this.entries,keep?:HTMLCanvasElement){for(const e of entries.values()){e.retained?.dispose();for(const c of [...(e.band??[]),...(e.pieces??[]),...(e.canvas?[e.canvas]:[]),...(e.block?[e.block]:[])])if(c!==keep)c.width=c.height=0;}}
   clear(){this.epoch++;this.id='';this.observer?.disconnect();this.dispose(this.entries);this.entries.clear();}
   retainedProjection=(page:number,y:number,id?:string)=>{const e=this.entries.get(page);if(!e)return;const factor=this.scale*this.ratio;return e.retained?((value)=>value===undefined?undefined:value/factor)(e.retained.layout.forward(y*factor,id)):id===undefined?y:undefined;};
   canvasPoint(page:number,canvas:HTMLCanvasElement,x:number,y:number){const e=this.entries.get(page);if(!e||!this.ownsCanvas(page,canvas))return;const rect=e.element.getBoundingClientRect();return {x:(x-rect.left)/this.scale,y:(y-rect.top)/this.scale};}
@@ -39,8 +39,8 @@ export class ContinuousView{
       e.element.dataset.scale=String(scale);
       e.retained?.rescale(this.ratio);
       e.element.style.width=e.size.originalWidth*scale+'px';
-      if(!e.cross&&!e.block&&!e.band&&!e.retained)e.element.style.minHeight=e.size.originalHeight*scale+'px';
-      for(const canvas of new Set([...(e.cross?.canvases??[]),...(e.band??[]),...(e.pieces??[]),...(e.canvas?[e.canvas]:[]),...(e.block?[e.block]:[])])){
+      if(!e.block&&!e.band&&!e.retained)e.element.style.minHeight=e.size.originalHeight*scale+'px';
+      for(const canvas of new Set([...(e.band??[]),...(e.pieces??[]),...(e.canvas?[e.canvas]:[]),...(e.block?[e.block]:[])])){
         canvas.style.width=e.size.originalWidth*scale+'px';canvas.style.height=canvas.height/this.ratio+'px';
       }
     }
@@ -96,8 +96,8 @@ export class ContinuousView{
     const position=this.position();
     for(const [i,e]of entries.entries()){
       e.retained?.dispose();e.retained=undefined;
-      const old=[...(e.cross?.canvases??[]),...(e.band??[]),...(e.pieces??[]),...(e.canvas?[e.canvas]:[]),...(e.block?[e.block]:[])];
-      e.canvas=canvases[i];e.neutral=undefined;e.patched=true;e.cross=undefined;e.band=undefined;e.coveredBy=undefined;e.element.hidden=false;e.pieces=undefined;e.block=undefined;e.top=e.bottom=undefined;
+      const old=[...(e.band??[]),...(e.pieces??[]),...(e.canvas?[e.canvas]:[]),...(e.block?[e.block]:[])];
+      e.canvas=canvases[i];e.neutral=undefined;e.patched=true;e.band=undefined;e.coveredBy=undefined;e.element.hidden=false;e.pieces=undefined;e.block=undefined;e.top=e.bottom=undefined;
       e.element.style.minHeight=e.size.originalHeight*this.scale+'px';e.element.replaceChildren(canvases[i]);this.observer?.unobserve(e.element);
       for(const canvas of old)if(canvas!==canvases[i])canvas.width=canvas.height=0;
     }
@@ -115,40 +115,17 @@ export class ContinuousView{
     const position=this.position();
     if(position.page!==undefined&&position.page>=span.first&&position.page<=span.last){position.page=span.first;position.offset=first.element.getBoundingClientRect().top-this.viewport.getBoundingClientRect().top;}
     for(const [i,item]of entries.entries()){
-      const e=item!,old=[...(e.cross?.canvases??[]),...(e.band??[]),...(e.pieces??[]),...(e.canvas?[e.canvas]:[]),...(e.block?[e.block]:[])];
+      const e=item!,old=[...(e.band??[]),...(e.pieces??[]),...(e.canvas?[e.canvas]:[]),...(e.block?[e.block]:[])];
       e.retained?.dispose();e.retained=undefined;
-      e.canvas=undefined;e.cross=undefined;e.neutral=undefined;e.band=undefined;e.pieces=undefined;e.block=undefined;e.top=e.bottom=undefined;e.patched=true;e.coveredBy=i?span.first:undefined;
+      e.canvas=undefined;e.neutral=undefined;e.band=undefined;e.pieces=undefined;e.block=undefined;e.top=e.bottom=undefined;e.patched=true;e.coveredBy=i?span.first:undefined;
       e.element.hidden=i>0;e.element.replaceChildren();this.observer?.unobserve(e.element);
       for(const c of old)if(!canvases.includes(c))c.width=c.height=0;
     }
     first.canvas=canvases[0];first.band=[...canvases];first.element.style.minHeight='0';first.element.replaceChildren(...canvases);this.restore(position);
   }
-  patchCrossPages(span:{first:number;last:number},bases:HTMLCanvasElement[],plan:{key:string;x:number;prefixY:number;suffixY:number},tile:any){
-    const entries=Array.from({length:span.last-span.first+1},(_,i)=>this.entries.get(span.first+i)),first=entries[0],factor=this.scale*this.ratio;
-    try{
-      if(entries.length<2||entries.length>3||!first||bases.length!==entries.length||entries.some((e,i)=>!e||!matchingPageGeometry(bases[i],e.size,this.scale)))throw Error('Cross-page baseline changed.');
-      const top=Math.floor(plan.prefixY*factor),bottom=Math.ceil(plan.suffixY*factor),x=Math.floor(plan.x*factor),last=bases.at(-1)!;
-      if(![top,bottom,x,tile.patchWidth,tile.patchHeight].every(Number.isSafeInteger)||top<0||top>bases[0].height||bottom<0||bottom>last.height||x<0||tile.patchWidth<1||tile.patchHeight<1||x+tile.patchWidth>bases[0].width||bases[0].width*tile.patchHeight>16000000)throw Error('Invalid cross-page geometry.');
-      if(!first.cross&&entries.some(e=>e!.patched||e!.coveredBy!==undefined))throw Error('Cross-page display has another live owner.');
-      if(first.cross&&first.cross.key!==plan.key)throw Error('Cross-page baseline changed.');
-      const make=(height:number)=>{const c=document.createElement('canvas');c.width=bases[0].width;c.height=height;c.style.width=first.size.originalWidth*this.scale+'px';c.style.height=height/this.ratio+'px';return c;};
-      const position=this.position();
-      if(position.page!==undefined&&position.page>=span.first&&position.page<=span.last){position.page=span.first;position.offset=first.element.getBoundingClientRect().top-this.viewport.getBoundingClientRect().top;}
-      let prefix=first.cross?.canvases[0],suffix=first.cross?.canvases[2],old=first.cross?.canvases[1];
-      if(!prefix){prefix=make(top);suffix=make(last.height-bottom);if(top)prefix.getContext('2d')!.drawImage(bases[0],0,0,prefix.width,top,0,0,prefix.width,top);if(suffix.height)suffix.getContext('2d')!.drawImage(last,0,bottom,suffix.width,suffix.height,0,0,suffix.width,suffix.height);}
-      const block=old&&old.height===tile.patchHeight?old:make(tile.patchHeight),ctx=block.getContext('2d')!;
-      ctx.fillStyle='white';ctx.fillRect(0,0,block.width,block.height);
-      const draw=(image:CanvasImageSource)=>ctx.drawImage(image,tile.sourceX,tile.sourceY,tile.patchWidth,tile.patchHeight,x,0,tile.patchWidth,tile.patchHeight);
-      if(tile.image)draw(tile.image);else{const image=document.createElement('canvas');image.width=tile.width;image.height=tile.height;image.getContext('2d')!.putImageData(new ImageData(new Uint8ClampedArray(tile.data.buffer,tile.data.byteOffset,tile.data.byteLength),tile.width,tile.height),0,0);draw(image);image.width=image.height=0;}
-      if(!first.cross)for(const [i,item]of entries.entries()){const e=item!;e.retained?.dispose();e.retained=undefined;for(const c of new Set([...(e.band??[]),...(e.pieces??[]),...(e.canvas?[e.canvas]:[]),...(e.block?[e.block]:[])]))c.width=c.height=0;e.canvas=undefined;e.band=undefined;e.pieces=undefined;e.block=undefined;e.neutral=undefined;e.patched=true;e.coveredBy=i?span.first:undefined;e.element.hidden=i>0;e.element.replaceChildren();this.observer?.unobserve(e.element);}
-      first.cross={key:plan.key,canvases:[prefix,block,suffix!]};first.element.style.minHeight='0';
-      if(old?.parentElement===first.element){if(old!==block)old.replaceWith(block);}else first.element.replaceChildren(prefix,block,suffix!);
-      this.restore(position);if(old&&old!==block)old.width=old.height=0;return{prefix:prefix!,block,suffix:suffix!};
-    }finally{tile.image?.close();}
-  }
   patchRetained(page:number,base:HTMLCanvasElement,tile:any,flow:any,id:string){
     const e=this.entries.get(page),factor=this.scale*this.ratio;
-    if(!e||e.cross||e.block||e.band||e.neutral||e.coveredBy!==undefined)throw Error('Retained flow baseline changed.');
+    if(!e||e.block||e.band||e.neutral||e.coveredBy!==undefined)throw Error('Retained flow baseline changed.');
     const start=Math.max(0,Math.floor(flow.rect.y*factor)),end=Math.min(base.height,Math.ceil((flow.rect.y+flow.rect.height)*factor));
     const x=Math.floor(flow.rect.x*factor),requested=Math.ceil(flow.leading*factor),prefixHeight=Math.min(end-start,Math.ceil((flow.rect.y+flow.baselineLeading)*factor)-start);
     if(![flow.leading,flow.baselineLeading].every(v=>Number.isFinite(v)&&v>=0&&v<200)||![start,end,x,prefixHeight,tile.patchWidth,tile.patchHeight].every(Number.isSafeInteger)||end<=start||x<0||x+tile.patchWidth>base.width||tile.patchWidth<1||tile.patchHeight<1)throw Error('Invalid retained flow geometry.');
@@ -172,7 +149,7 @@ export class ContinuousView{
   }
   retainedCanvases(){return [...this.entries.values()].flatMap(e=>e.retained?.canvases??[]);}
   patch(page:number,base:HTMLCanvasElement,tile:any,flow:any){
-    const e=this.entries.get(page);if(!e||e.cross)throw new Error('Continuous baseline is unavailable.');
+    const e=this.entries.get(page);if(!e)throw new Error('Continuous baseline is unavailable.');
     const factor=this.scale*this.ratio,start=Math.max(0,Math.floor(flow.rect.y*factor)),end=Math.min(base.height,Math.ceil((flow.rect.y+flow.rect.height)*factor));
     if(end<=start||start>=base.height)throw new Error('Continuous block is outside its baseline.');
     if(!Number.isFinite(flow.baselineLeading)||flow.baselineLeading<0||flow.baselineLeading>=200||!Number.isFinite(flow.leading)||flow.leading<0||flow.leading>=200)throw new Error('Invalid continuous block leading.');
@@ -251,7 +228,7 @@ export class ContinuousView{
   }
   canvasForPage(page:number){return this.entries.get(page)?.canvas;}
   markCanvas(canvas:HTMLCanvasElement,box:{x:number;y:number;width:number;height:number},highlight=true){
-    const entry=[...this.entries.values()].find(e=>e.canvas===canvas||e.cross?.canvases.includes(canvas)||e.band?.includes(canvas));
+    const entry=[...this.entries.values()].find(e=>e.canvas===canvas||e.band?.includes(canvas));
     if(!entry||!canvas.isConnected)return false;
     this.host.querySelectorAll('.navigation-marker').forEach(e=>e.remove());
     const c=canvas.getBoundingClientRect(),p=entry.element.getBoundingClientRect();

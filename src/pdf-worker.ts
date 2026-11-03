@@ -1,4 +1,3 @@
-import {ligaturePathCode} from './pdf-ligatures';
 import {PDFiumLibrary,PDFiumDocument} from '@hyzyla/pdfium';
 import {renderInkPage} from './page-ink-raster';
 import {pdfPageIdentities} from './pdf-page-identity';
@@ -149,19 +148,11 @@ worker.onmessage=event=>{
               if(code===0xfffd||m._FPDFText_HasUnicodeMapError(text,index)!==0)return;
               const object=m._FPDFText_GetTextObject(text,index),font=object&&m._FPDFTextObj_GetFont(object),size=m._FPDFText_GetFontSize(text,index);
               if(!font||m._FPDFFont_GetIsEmbedded(font)!==1||m._FPDFTextObj_GetTextRenderMode(object)!==0||!m._FPDFPageObj_GetFillColor(object,buffer+64,buffer+68,buffer+72,buffer+76)||!m._FPDFPageObj_GetMatrix(object,buffer+80))return;
-              let pathCode=code;
-              if(code===102||code===383||code===115){
-                const cluster=[];for(let n=index;n<Math.min(count,index+3);n++){
-                  if(!m._FPDFText_GetCharBox(text,n,buffer,buffer+8,buffer+16,buffer+24))break;
-                  cluster.push({code:m._FPDFText_GetUnicode(text,n),object:m._FPDFText_GetTextObject(text,n),box:Array.from(new Float64Array(m.HEAPU8.buffer,buffer,4))});
-                }
-                pathCode=ligaturePathCode(cluster)??code;
-              }
-              const fill=Array.from(new Uint32Array(m.HEAPU8.buffer,buffer+64,4)),matrix=Array.from(new Float32Array(m.HEAPU8.buffer,buffer+80,4)),key=JSON.stringify([font,pathCode,size,fill,matrix]);
+              const fill=Array.from(new Uint32Array(m.HEAPU8.buffer,buffer+64,4)),matrix=Array.from(new Float32Array(m.HEAPU8.buffer,buffer+80,4)),key=JSON.stringify([font,code,size,fill,matrix]);
               if(outlines.has(key))return outlines.get(key);
               if(outlines.size>=2048)return;
               const promise=(async()=>{
-                const path=m._FPDFFont_GetGlyphPath(font,pathCode,size),length=path&&m._FPDFGlyphPath_CountGlyphSegments(path),segments:number[][]=[];
+                const path=m._FPDFFont_GetGlyphPath(font,code,size),length=path&&m._FPDFGlyphPath_CountGlyphSegments(path),segments:number[][]=[];
                 if(!Number.isSafeInteger(length)||length<1||length>4096)return;
                 for(let i=0;i<length;i++){
                   const segment=m._FPDFGlyphPath_GetGlyphPathSegment(path,i);if(!segment||!m._FPDFPathSegment_GetPoint(segment,buffer+112,buffer+116))return;

@@ -119,7 +119,7 @@ const localPreview=new LocalPreview(
   (basis,pdf,page,fragmentPdf,fragment,footprint,calibration)=>localMessage({type:'localVerify',root:basis.options.root,baseId:basis.bundle.id,basePdf:new Uint8Array(basis.pdf),pdf:new Uint8Array(pdf),page,fragmentPdf:new Uint8Array(fragmentPdf),fragment,footprint,calibration}),
   candidate=>{
     const timing=candidate.timing as {roundTripMs?:number;typesetMs?:number;reprocessedSourceBytes?:number}|undefined;
-    tracePreview({event:'local-output',editId:candidate.editId,layout:candidate.crossPageOutput?'cross-page-flow':candidate.pageOutput?'pages':candidate.flowOutput?'flow':'paragraph',stateChanged:!!candidate.flowOutput?.stateChanged,reusedRecovery:!!candidate.reusedRecovery,sourceMatchesDraft:!!candidate.sourceMatchesDraft,compilerMs:timing?.roundTripMs,typesetMs:timing?.typesetMs,reprocessedSourceBytes:timing?.reprocessedSourceBytes});
+    tracePreview({event:'local-output',editId:candidate.editId,layout:candidate.pageOutput?'pages':candidate.flowOutput?'flow':'paragraph',stateChanged:!!candidate.flowOutput?.stateChanged,reusedRecovery:!!candidate.reusedRecovery,sourceMatchesDraft:!!candidate.sourceMatchesDraft,compilerMs:timing?.roundTripMs,typesetMs:timing?.typesetMs,reprocessedSourceBytes:timing?.reprocessedSourceBytes});
     // A successful compiler result can clear diagnostics before GPU/raster
     // publication. This changes no display, navigation or export proof.
     const priorErrors=[...currentProblems,...(currentDiagnostic?[currentDiagnostic]:[])].filter(issue=>issue.severity!=='warning');
