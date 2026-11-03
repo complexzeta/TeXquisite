@@ -1,8 +1,10 @@
+import {RasterCanvasReuse} from './raster-canvas-reuse';
 import type {PdfCharacter} from './preview-edit';
 export interface PdfGlyphProof {glyph:PdfCharacter;outline?:string;}
 const worker=new Worker(new URL('./pdf-worker.js',location.href),{type:'module'});
 let sequence=0,failure:Error|undefined;
 const pending=new Map<number,{resolve:(value:any)=>void;reject:(error:Error)=>void;timer:ReturnType<typeof setTimeout>}>();
+const reusableCanvases=new RasterCanvasReuse<HTMLCanvasElement>();
 const proofPixels=new WeakMap<HTMLCanvasElement,Uint8ClampedArray>();
 export function copyPdfRaster(canvas:HTMLCanvasElement){
   const pixels=proofPixels.get(canvas);if(!pixels||!canvas.width||pixels.length!==canvas.width*canvas.height*4)return;
@@ -38,9 +40,18 @@ export function loadPdf(bytes:Uint8Array,interactive=false,live=false){
     const glyphProofCache=new Map<number,Promise<PdfGlyphProof[]>>();
     let pageSizes:Promise<any>|undefined;
     // Proofs consume the worker raster directly, avoiding a GPU canvas readback.
-    const rasterize=async(page:number,scale:number,ratio:number,retainPixels=false,includePixels=false,urgent=false)=>{
+    const rasterize=async(page:number,scale:number,ratio:number,retainPixels=false,includePixels=false,urgent=false,previous?:HTMLCanvasElement)=>{
         if(closed)throw new Error('PDF was closed.');
-        const started=performance.now(),bitmap=await call('render',{documentId,page,scale:scale*ratio,imageBitmap:!retainPixels,interactive:retainPixels||includePixels,includePixels,live:urgent});
+        const started=performance.now(),args={documentId,page,scale:scale*ratio,imageBitmap:!retainPixels,interactive:retainPixels||includePixels,includePixels,live:urgent};
+        const reuseRasterId=!retainPixels&&!includePixels?reusableCanvases.token(previous):undefined;
+        let bitmap=await call('render',{...args,reuseRasterId});
+        if(bitmap.rasterReuse){
+          const canvas=reusableCanvases.accept(previous,bitmap);
+          if(canvas){canvas.style.width=bitmap.originalWidth*scale+'px';canvas.style.height=bitmap.originalHeight*scale+'px';canvas.dataset.pdfCanvasReused='true';canvas.dataset.rasterCacheHit='true';canvas.dataset.rasterMs='0';canvas.dataset.workerMs=String(bitmap.workerMs);canvas.dataset.renderMs=String(performance.now()-started);return{canvas,pixels:undefined};}
+          // The view can retire or resize an offered canvas while the worker
+          // checks it. Request pixels normally; never display an empty token.
+          bitmap=await call('render',args);
+        }
         const canvas=document.createElement('canvas');canvas.width=bitmap.width;canvas.height=bitmap.height;
         canvas.style.width=bitmap.originalWidth*scale+'px';canvas.style.height=bitmap.originalHeight*scale+'px';
         canvas.dataset.pdfPageWidth=String(bitmap.pageWidth);canvas.dataset.pdfPageHeight=String(bitmap.pageHeight);
@@ -49,6 +60,7 @@ export function loadPdf(bytes:Uint8Array,interactive=false,live=false){
         const pixels=bitmap.data?new Uint8ClampedArray(bitmap.data.buffer,bitmap.data.byteOffset,bitmap.data.byteLength):undefined;
         if(pixels&&!bitmap.image){canvas.getContext('2d')!.putImageData(new ImageData(pixels,bitmap.width,bitmap.height),0,0);}
         if(includePixels&&pixels)proofPixels.set(canvas,pixels);
+        reusableCanvases.remember(canvas,bitmap.rasterId);canvas.dataset.pdfCanvasReused='false';
         canvas.dataset.rasterCacheHit=String(bitmap.rasterCacheHit===true);canvas.dataset.rasterMs=String(bitmap.rasterMs);canvas.dataset.workerMs=String(bitmap.workerMs);canvas.dataset.renderMs=String(performance.now()-started);
         return {canvas,pixels};
       };
@@ -75,7 +87,7 @@ export function loadPdf(bytes:Uint8Array,interactive=false,live=false){
         const bitmap=await call('render',{documentId,page,scale:scale*ratio,imageBitmap:false,interactive:true});
         return {width:bitmap.width,height:bitmap.height,pixels:new Uint8ClampedArray(bitmap.data.buffer,bitmap.data.byteOffset,bitmap.data.byteLength)};
       },
-      async render(page:number,scale:number,ratio:number,includePixels=false,urgent=false){return (await rasterize(page,scale,ratio,false,includePixels,urgent)).canvas;},
+      async render(page:number,scale:number,ratio:number,includePixels=false,urgent=false,previous?:HTMLCanvasElement){return (await rasterize(page,scale,ratio,false,includePixels,urgent,previous)).canvas;},
       async renderWithPixels(page:number,scale:number,ratio:number){const frame=await rasterize(page,scale,ratio,true);if(!frame.pixels)throw new Error('PDF proof pixels are unavailable.');return {canvas:frame.canvas,pixels:frame.pixels};}
     };
   });

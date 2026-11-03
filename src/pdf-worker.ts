@@ -11,6 +11,7 @@ const documents=new Map<number,PDFiumDocument>();
 let nextDocument=0;
 const identities=new Map<number,Promise<(Uint8Array|undefined)[]>>();
 const rasterCache=new PageRasterCache<any>();
+let nextRasterId=0;
 const work=new PdfWorkQueue();
 const worker=globalThis as unknown as {onmessage:(event:MessageEvent)=>void;postMessage:(value:unknown,transfer?:Transferable[])=>void};
 worker.onmessage=event=>{
@@ -38,9 +39,9 @@ worker.onmessage=event=>{
           if(args.imageBitmap&&!args.includePixels&&!args.fullRaster&&typeof OffscreenCanvas!=='undefined'){
             const identity=args.live?(await identities.get(args.documentId))?.[args.page-1]:undefined;
             const cached=identity?rasterCache.get(identity,args.scale):undefined;
-            if(cached){try{const image=await createImageBitmap(cached.image);worker.postMessage({id,result:{...cached,image,rasterCacheHit:true,rasterMs:0,workerMs:performance.now()-started}},[image]);return;}catch{rasterCache.clear();}}
+            if(cached){if(Number.isSafeInteger(args.reuseRasterId)&&args.reuseRasterId>0&&args.reuseRasterId===cached.rasterId){const {image,...metadata}=cached;worker.postMessage({id,result:{...metadata,rasterReuse:true,rasterCacheHit:true,rasterMs:0,workerMs:performance.now()-started}});return;}try{const image=await createImageBitmap(cached.image);worker.postMessage({id,result:{...cached,image,rasterCacheHit:true,rasterMs:0,workerMs:performance.now()-started}},[image]);return;}catch{rasterCache.clear();}}
             const diagnostic:{reason?:string}={};const ink=renderInkPage(page,args.scale,diagnostic);inkFallbackReason=diagnostic.reason;
-            if(ink){if(identity){try{const image=await createImageBitmap(ink.image);rasterCache.set(identity,args.scale,{...ink,image,pageWidth:ink.originalWidth,pageHeight:ink.originalHeight});}catch{rasterCache.clear();}}worker.postMessage({id,result:{...ink,pageWidth:ink.originalWidth,pageHeight:ink.originalHeight,rasterMs:performance.now()-started,workerMs:performance.now()-started}},[ink.image]);return;}
+            if(ink){const rasterId=identity?++nextRasterId:undefined;if(identity){try{const image=await createImageBitmap(ink.image);rasterCache.set(identity,args.scale,{...ink,image,rasterId,pageWidth:ink.originalWidth,pageHeight:ink.originalHeight});}catch{rasterCache.clear();}}worker.postMessage({id,result:{...ink,rasterId,pageWidth:ink.originalWidth,pageHeight:ink.originalHeight,rasterMs:performance.now()-started,workerMs:performance.now()-started}},[ink.image]);return;}
           }
           const bitmap=await page.render({scale:args.scale,colorSpace:'RGBA',transparent:false});
           const geometry=page.getOriginalSize(),pageWidth=geometry.originalWidth,pageHeight=geometry.originalHeight;

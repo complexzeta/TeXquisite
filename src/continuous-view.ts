@@ -92,13 +92,13 @@ export class ContinuousView{
     }catch{/* The next accepted document can retry an unavailable image. */}finally{e.busy=false;}
   }
   patchPages(first:number,canvases:HTMLCanvasElement[]){
-    const entries=canvases.map((canvas,i)=>{const e=this.entries.get(first+i);if(!e||!matchingPageGeometry(canvas,e.size,this.scale))throw new Error('Affected page geometry changed.');return e;});
+    const entries=canvases.map((canvas,i)=>{const e=this.entries.get(first+i);if(!e||canvas.width<1||canvas.height<1||!matchingPageGeometry(canvas,e.size,this.scale))throw new Error('Affected page geometry changed.');return e;});
     const position=this.position();
     for(const [i,e]of entries.entries()){
       e.retained?.dispose();e.retained=undefined;
       const old=[...(e.band??[]),...(e.pieces??[]),...(e.canvas?[e.canvas]:[]),...(e.block?[e.block]:[])];
       e.canvas=canvases[i];e.neutral=undefined;e.patched=true;e.band=undefined;e.coveredBy=undefined;e.element.hidden=false;e.pieces=undefined;e.block=undefined;e.top=e.bottom=undefined;
-      e.element.style.minHeight=e.size.originalHeight*this.scale+'px';e.element.replaceChildren(canvases[i]);this.observer?.unobserve(e.element);
+      e.element.style.minHeight=e.size.originalHeight*this.scale+'px';if(e.element.childNodes.length!==1||e.element.firstChild!==canvases[i])e.element.replaceChildren(canvases[i]);this.observer?.unobserve(e.element);
       for(const canvas of old)if(canvas!==canvases[i])canvas.width=canvas.height=0;
     }
     this.restore(position);
@@ -110,7 +110,7 @@ export class ContinuousView{
     // Keep ordinary one-canvas-per-page wrappers when pagination is unchanged.
     // This also restores wrappers covered by an earlier expanded live band.
     if(canvases.length===entries.length){this.patchPages(span.first,canvases);return;}
-    const valid=(c:HTMLCanvasElement)=>matchingPageGeometry(c,first.size,this.scale);
+    const valid=(c:HTMLCanvasElement)=>c.width>0&&c.height>0&&matchingPageGeometry(c,first.size,this.scale);
     if(entries.some(e=>!e||Math.abs(e.size.originalWidth-first.size.originalWidth)>.01||Math.abs(e.size.originalHeight-first.size.originalHeight)>.01)||canvases.some(c=>!valid(c)))throw new Error('Page band geometry changed.');
     const position=this.position();
     if(position.page!==undefined&&position.page>=span.first&&position.page<=span.last){position.page=span.first;position.offset=first.element.getBoundingClientRect().top-this.viewport.getBoundingClientRect().top;}

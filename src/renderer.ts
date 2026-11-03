@@ -739,8 +739,8 @@ el('pages').addEventListener('click',event=>void command(async()=>{
   }catch(e){explainNavigation(String(e).replace(/^.*Error: /,'')+' Source changes are checked automatically while Live is on.');}
 }));
 function copyCanvasMetadata(canvas:HTMLCanvasElement,source:HTMLCanvasElement){for(const [key,value] of Object.entries(source.dataset))if(value!==undefined&&!['renderScale','renderRatio','pageWidth','pageHeight','pdfPageWidth','pdfPageHeight','rasterMs','workerMs','renderMs'].includes(key))canvas.dataset[key]=value;}
-async function render(pdf:any,page:number,includePixels=false,urgent=false){
-  const zoom=scale,ratio=window.devicePixelRatio||1,canvas=await pdf.render(page,zoom,ratio,includePixels,urgent);canvas.dataset.renderScale=String(zoom);canvas.dataset.renderRatio=String(ratio);canvas.dataset.pageWidth=String(parseFloat(canvas.style.width)/zoom);canvas.dataset.pageHeight=String(parseFloat(canvas.style.height)/zoom);return canvas;
+async function render(pdf:any,page:number,includePixels=false,urgent=false,previous?:HTMLCanvasElement){
+  const zoom=scale,ratio=window.devicePixelRatio||1,canvas=await pdf.render(page,zoom,ratio,includePixels,urgent,previous);canvas.dataset.renderScale=String(zoom);canvas.dataset.renderRatio=String(ratio);canvas.dataset.pageWidth=String(parseFloat(canvas.style.width)/zoom);canvas.dataset.pageHeight=String(parseFloat(canvas.style.height)/zoom);return canvas;
 }
 function show(candidate:any,reconcileBands=false){
   clearNeutralMetadata();
@@ -988,8 +988,9 @@ api.on(async message=>{
             // Restore those exact baseline pixels as well, so an older live
             // band cannot leave stale content or cover the updated suffix.
             const pendingRasters:Promise<HTMLCanvasElement>[]=[];
-            if(prefixPages){const baseline=await proof.document;for(let page=proof.span.first;page<span.first;page++)pendingRasters.push(render(baseline,page,false,true));}
-            for(let page=1;page<=pdf.numPages;page++)pendingRasters.push(render(pdf,page,false,true));
+            const previous=(page:number)=>document.body.dataset.pdfCanvasReuse!=='off'&&continuousView.id===message.baseId&&continuousView.matchesScale(scale,window.devicePixelRatio||1)?continuousView.canvasForPage(page):undefined;
+            if(prefixPages){const baseline=await proof.document;for(let page=proof.span.first;page<span.first;page++)pendingRasters.push(render(baseline,page,false,true,previous(page)));}
+            for(let page=1;page<=pdf.numPages;page++)pendingRasters.push(render(pdf,page,false,true,previous(span.first+page-1)));
             // Submit the whole band before yielding. PDFium remains serialized,
             // but queued proof work cannot slip between every live page read.
             const rasters=await Promise.allSettled(pendingRasters);for(const raster of rasters)if(raster.status==='fulfilled')canvases.push(raster.value);
@@ -1021,7 +1022,7 @@ api.on(async message=>{
             const finish=()=>{if(token!==localRenderToken||localCanvas!==canvas)return;const latency=Math.ceil(performance.now()-inputAt);input.displayedLatencyMs??=latency;for(const c of painted){c.dataset.localLatencyMs=String(latency);c.dataset.localLatencyEditId=message.editId;}recordDisplayedFrame(message.editId,message.sourceHash,canvas.dataset.localLayout??'pages');void api.call('localWarm',message.root,message.baseId,message.editId,latency,canvas.dataset.localLayout).catch(()=>{});localStatus=`Affected pages updated in ${latency} ms from edit. Full document verification pending.`;refreshPreviewStatus();};
             if(message.visible)requestAnimationFrame(()=>requestAnimationFrame(finish));else finish();
             canvases.length=0;return;
-          }finally{for(const c of canvases)c.width=c.height=0;}
+          }finally{for(const c of canvases)if(!c.isConnected)c.width=c.height=0;}
         }
         const preferred=model.followPreview?message.cursorPage??pageNumber:pageNumber,page=Math.max(span.first,Math.min(span.last,preferred)),canvas=await render(pdf,page-span.first+1);
         if(token!==localRenderToken||!mayShowLocal(message)){canvas.width=canvas.height=0;return;}
