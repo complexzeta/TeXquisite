@@ -1,3 +1,4 @@
+const waitForAsync=require('./wait-for-async.cjs');
 // Compare the same paragraph with/without a remote error across typing pauses.
 const {_electron:electron}=require('playwright'),fs=require('node:fs/promises'),path=require('node:path'),os=require('node:os'),assert=require('node:assert/strict'),{createHash}=require('node:crypto');
 const hash=s=>createHash('sha256').update(s).digest('hex'),delay=ms=>new Promise(r=>setTimeout(r,ms));
@@ -13,7 +14,7 @@ const hash=s=>createHash('sha256').update(s).digest('hex'),delay=ms=>new Promise
   page=await app.firstWindow();result.version=await app.evaluate(({app})=>app.getVersion());
   await page.evaluate(()=>{window.idleCommits=0;window.desktop.on(m=>{if(m.type==='commit')window.idleCommits++;});});
   const full=()=>page.waitForFunction(h=>[...document.querySelectorAll('#pages canvas')].some(c=>c.dataset.sourceHash===h&&!c.dataset.localEditId),hash(expected),{timeout:90000});
-  const ready=async at=>{await page.evaluate(async({root,at})=>{const v=document.querySelector('.cm-content').cmTile.root.view;v.dispatch({selection:{anchor:at}});v.focus();await window.desktop.call('localCursor',root,at);},{root,at});await page.waitForFunction(async({root,at})=>{const p=await window.desktop.call('previewPerformance'),r=p.localRange;return p.localReady&&!p.localBusy&&r?.file===root&&r.from<=at&&at<r.to;},{root,at},{timeout:45000,polling:20});};
+  const ready=async at=>{await page.evaluate(async({root,at})=>{const v=document.querySelector('.cm-content').cmTile.root.view;v.dispatch({selection:{anchor:at}});v.focus();await window.desktop.call('localCursor',root,at);},{root,at});await waitForAsync(page,async({root,at})=>{const p=await window.desktop.call('previewPerformance'),r=p.localRange;return p.localReady&&!p.localBusy&&r?.file===root&&r.from<=at&&at<r.to;},{root,at},{timeout:45000,polling:20});};
   await full();
   for(const broken of [false,true]){
    if(broken){expected=source.replace('x$','\\intt 01$');await page.evaluate(text=>{const v=document.querySelector('.cm-content').cmTile.root.view;v.dispatch({changes:{from:0,to:v.state.doc.length,insert:text}});},expected);await full();}

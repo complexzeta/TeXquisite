@@ -1,3 +1,4 @@
+const waitForAsync=require('./wait-for-async.cjs');
 const {_electron:electron}=require('playwright'),fs=require('node:fs/promises'),path=require('node:path'),os=require('node:os'),assert=require('node:assert/strict'),{createHash}=require('node:crypto');
 const hash=s=>createHash('sha256').update(s).digest('hex');
 (async()=>{
@@ -31,7 +32,7 @@ const hash=s=>createHash('sha256').update(s).digest('hex');
   for(const marker of ['AlphaSentinel','TailSentinel']){
    const at=expected.indexOf(marker)+marker.length;await focus(at);await page.locator('#locate').click();
    await page.waitForFunction(line=>document.querySelector('#navState').textContent.includes('line '+line),expected.slice(0,at).split('\n').length);
-   await page.waitForFunction(async({root,at})=>{const p=await window.desktop.call('previewPerformance'),r=p.localRange;return p.localReady&&!p.localBusy&&r?.file===root&&r.from<=at&&at<r.to;},{root,at},{timeout:45000});
+   await waitForAsync(page,async({root,at})=>{const p=await window.desktop.call('previewPerformance'),r=p.localRange;return p.localReady&&!p.localBusy&&r?.file===root&&r.from<=at&&at<r.to;},{root,at},{timeout:45000});
    await page.evaluate(at=>{window.recoveryIssues=[];const v=document.querySelector('.cm-content').cmTile.root.view;v.dispatch({changes:{from:at,insert:'new '},selection:{anchor:at+4}});},at);expected=expected.replace(marker,marker+'new ');
    assert.equal(await page.evaluate(()=>document.querySelector('.cm-content').cmTile.root.view.state.doc.toString()),expected,'The test must edit the intended source position');
    // A full recovered publication alone is insufficient: require an accepted,

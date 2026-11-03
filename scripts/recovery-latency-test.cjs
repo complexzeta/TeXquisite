@@ -1,3 +1,4 @@
+const waitForAsync=require('./wait-for-async.cjs');
 // Temporary syntax errors must not evict the proved local compiler while the
 // user corrects them. Synthetic document only; no user profile is read.
 const {_electron:electron}=require('playwright'),fs=require('node:fs/promises'),path=require('node:path'),assert=require('node:assert/strict'),{createHash}=require('node:crypto');
@@ -10,7 +11,7 @@ const hash=s=>createHash('sha256').update(s).digest('hex'),delay=ms=>new Promise
  try{
   page=await app.firstWindow();await page.locator('.cm-content').waitFor();result.version=await app.evaluate(({app})=>app.getVersion());
   const visible=()=>page.waitForFunction(h=>[...document.querySelectorAll('#pages canvas')].some(c=>(c.dataset.localSourceHash||c.dataset.sourceHash)===h),hash(expected),{timeout:90000,polling:10});
-  const ready=async at=>{await page.evaluate(async({root,at})=>{const v=document.querySelector('.cm-content').cmTile.root.view;v.dispatch({selection:{anchor:at}});v.focus();await window.desktop.call('localCursor',root,at);},{root,at});await page.waitForFunction(async at=>{const p=await window.desktop.call('previewPerformance');return p.localReady&&!p.localBusy&&p.localRange?.from<=at&&at<p.localRange.to;},at,{timeout:60000,polling:20});};
+  const ready=async at=>{await page.evaluate(async({root,at})=>{const v=document.querySelector('.cm-content').cmTile.root.view;v.dispatch({selection:{anchor:at}});v.focus();await window.desktop.call('localCursor',root,at);},{root,at});await waitForAsync(page,async at=>{const p=await window.desktop.call('previewPerformance');return p.localReady&&!p.localBusy&&p.localRange?.from<=at&&at<p.localRange.to;},at,{timeout:60000,polling:20});};
   const edit=async(at,remove,insert)=>{await page.evaluate(({at,remove,insert})=>{const v=document.querySelector('.cm-content').cmTile.root.view;v.dispatch({changes:{from:at,to:at+remove,insert},selection:{anchor:at+insert.length}});},{at,remove,insert});expected=expected.slice(0,at)+insert+expected.slice(at+remove);};
   await visible();
   for(const [kind,pause]of [['brace',100],['brace',700],['command',100],['command',900],['math',150],['math',900]]){

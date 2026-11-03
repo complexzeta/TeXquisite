@@ -1,3 +1,4 @@
+const waitForAsync=require('./wait-for-async.cjs');
 // Open-loop latency campaign. Never waits for compiler readiness between edits.
 // All fixtures are synthetic. The user's session is never read or copied.
 const {_electron:electron}=require('playwright'),fs=require('fs/promises'),path=require('path'),assert=require('assert/strict'),{createHash}=require('crypto');
@@ -16,7 +17,7 @@ const hash=s=>createHash('sha256').update(s).digest('hex');
   page=await app.firstWindow();await page.locator('.cm-content').waitFor();result.version=await app.evaluate(({app})=>app.getVersion());result.window=await page.evaluate(()=>({dpr:devicePixelRatio,width:innerWidth,height:innerHeight}));if(scenario==='high-dpr')assert.equal(result.window.dpr,2.5,'High-DPI profile must actually use the requested scale');
   await page.waitForFunction(h=>[...document.querySelectorAll('#pages canvas')].some(c=>c.dataset.sourceHash===h),hash(source),{timeout:90000});
   // Initial warm-up is explicit; no subsequent ready/idle waits are allowed.
-  await page.waitForFunction(async()=>{const p=await window.desktop.call('previewPerformance');return p.localReady&&!p.localBusy;},null,{timeout:60000});
+  await waitForAsync(page,async()=>{const p=await window.desktop.call('previewPerformance');return p.localReady&&!p.localBusy;},null,{timeout:60000});
   await page.evaluate(()=>{
    window.tailInputs=[];window.tailFrames=[];window.tailStalls=[];window.tailErrors=[];const seen=new Set();
    const host=document.querySelector('#pages');const record=()=>{const raw=host.dataset.displayedFrame;if(!raw)return;const f=JSON.parse(raw);if(seen.has(f.id))return;seen.add(f.id);window.tailFrames.push({...f,local:f.layout!=='full'});};new MutationObserver(record).observe(host,{attributes:true,attributeFilter:['data-displayed-frame']});

@@ -29,18 +29,18 @@ function request(method:string,args:Record<string,unknown>,transfer:Transferable
 export function renderCheckedPdfRegion(bytes:Uint8Array,page:number,rect:{x:number;y:number;width:number;height:number},bounds:{left:number;top:number;right:number;bottom:number},scale:number,ratio:number){
   return request('checkedRegion',{bytes,page,rect,bounds,scale:scale*ratio,imageBitmap:true},[bytes.buffer as ArrayBuffer]);
 }
-export function loadPdf(bytes:Uint8Array,interactive=false,live=false){
+export function loadPdf(bytes:Uint8Array,interactive=false,live=false,initialBand?:{scale:number;ratio:number}){
   const call=(method:string,args:Record<string,unknown>,transfer:Transferable[]=[])=>request(method,{...args,interactive:interactive||args.interactive===true,live:live||args.live===true},transfer);
-  let documentId:number|undefined,closed=false;
-  const promise=call('load',{bytes},[bytes.buffer as ArrayBuffer]).then(result=>{
-    documentId=result.documentId;
+  let documentId:number|undefined,closed=false;const initialRasters=new Map<number,any>(),initialScale=initialBand?initialBand.scale*initialBand.ratio:undefined;
+  const promise=call(initialBand?'loadBand':'load',{bytes,...(initialBand?{scale:initialScale}:{})},[bytes.buffer as ArrayBuffer]).then(result=>{
+    documentId=result.documentId;for(const [i,raster]of (result.rasters??[]).entries()){if(closed)raster.image?.close();else initialRasters.set(i+1,raster);}
     const glyphCache=new Map<number,Promise<PdfCharacter[]>>();
     const glyphProofCache=new Map<number,Promise<PdfGlyphProof[]>>();
     let pageSizes:Promise<any>|undefined;
     // Proofs consume the worker raster directly, avoiding a GPU canvas readback.
     const rasterize=async(page:number,scale:number,ratio:number,retainPixels=false,includePixels=false,urgent=false)=>{
         if(closed)throw new Error('PDF was closed.');
-        const started=performance.now(),bitmap=await call('render',{documentId,page,scale:scale*ratio,imageBitmap:!retainPixels,interactive:retainPixels||includePixels,includePixels,live:urgent});
+        const started=performance.now(),prepared=!retainPixels&&!includePixels&&scale*ratio===initialScale?initialRasters.get(page):undefined;if(prepared)initialRasters.delete(page);const bitmap=prepared??await call('render',{documentId,page,scale:scale*ratio,imageBitmap:!retainPixels,interactive:retainPixels||includePixels,includePixels,live:urgent});
         const canvas=document.createElement('canvas');canvas.width=bitmap.width;canvas.height=bitmap.height;
         canvas.style.width=bitmap.originalWidth*scale+'px';canvas.style.height=bitmap.originalHeight*scale+'px';
         canvas.dataset.pdfPageWidth=String(bitmap.pageWidth);canvas.dataset.pdfPageHeight=String(bitmap.pageHeight);
@@ -80,7 +80,7 @@ export function loadPdf(bytes:Uint8Array,interactive=false,live=false){
     };
   });
   return {promise,async destroy(){
-    if(closed)return;closed=true;
+    if(closed)return;closed=true;for(const raster of initialRasters.values())raster.image?.close();initialRasters.clear();
     try{await promise;if(documentId!==undefined)await call('close',{documentId});}catch{/* A failed load owns no usable document. */}
   }};
 }

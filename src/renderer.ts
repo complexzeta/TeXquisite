@@ -102,9 +102,9 @@ async function refreshPreviewCaret(){
   const glyphs=await candidate.pdf.glyphs(candidate.page);
   if(token!==previewMapToken||previewSession!==session||current!==candidate||view?.state.doc.toString()!==session.expected)return;
   const mapped=session.math?mathSpans(candidate.navigation,session.file,session.line,candidate.page,session.expected,glyphs).find(span=>session.math?.block?span.formula.block?.from===session.math.block.from&&span.formula.block.row===session.math.block.row&&span.formula.block.column===session.math.block.column:span.from===session.from):proseSpans(candidate.navigation,session.file,session.line,candidate.page,session.expected,glyphs).find(span=>session.head>=span.from&&session.head<=span.to&&span.from<=session.from);
-  if(session.math&&(!mapped||!isMath(mapped)||!mapped.carets.some(c=>c.at===session.head&&c.slot===session.mathSlot))&&!session.math.leaves.length){session.pending=true;drawPreviewCaret();el('navState').textContent='Empty math · type a symbol or press Esc for source';return;}
+  if(session.math&&(!mapped||!isMath(mapped)||!mapped.carets.some(c=>c.at===session.head&&c.slot===session.mathSlot))&&!session.math.leaves.length){session.pending=true;drawPreviewCaret();el('navState').textContent='Empty math Â· type a symbol or press Esc for source';return;}
   if(!mapped){endPreview();view?.focus();el('navState').textContent='Use the source editor for this text, or click another text span.';return;}
-  session.pdfGlyphs=glyphs;session.maps=undefined;session.mathMaps=undefined;session.map=mapped;if(isMath(mapped))session.math=mapped.formula;session.from=mapped.from;session.to=mapped.to;session.box=isMath(mapped)?mathCaretBox(mapped,session.head,session.mathSlot):caretBox(mapped,session.head);session.pending=false;drawPreviewCaret();el('navState').textContent=session.math?'Editing math · Tab moves between parts and cells · Esc returns to source':'Editing plain text · Esc returns to source';
+  session.pdfGlyphs=glyphs;session.maps=undefined;session.mathMaps=undefined;session.map=mapped;if(isMath(mapped))session.math=mapped.formula;session.from=mapped.from;session.to=mapped.to;session.box=isMath(mapped)?mathCaretBox(mapped,session.head,session.mathSlot):caretBox(mapped,session.head);session.pending=false;drawPreviewCaret();el('navState').textContent=session.math?'Editing math Â· Tab moves between parts and cells Â· Esc returns to source':'Editing plain text Â· Esc returns to source';
 }
 function previewChange(input:string,back=false,forward=false,action?:MathAction){
   const session=previewSession;if(!session||!view||session.file!==active||view.state.doc.toString()!==session.expected){endPreview();return;}
@@ -116,7 +116,7 @@ function previewChange(input:string,back=false,forward=false,action?:MathAction)
   try{view.dispatch({changes:{from:change.from,to:change.to,insert:change.insert},selection:{anchor:'anchor' in change?change.anchor as number:change.head,head:change.head},annotations:[Transaction.userEvent.of(kind),...(session.lastEvent!==kind?[isolateHistory.of('before')]:[])]});}
   finally{previewApplying=suppressFollow=false;}
   session.preferredX=undefined;session.lastEvent=kind;session.expected=view.state.doc.toString();session.to=change.end;session.anchor='anchor' in change?change.anchor as number:change.head;session.head=change.head;if('formula' in change&&'slot' in change){session.math=change.formula as MathFormula;session.mathSlot=change.slot as string;}session.pending=true;previewMapToken++;drawPreviewCaret();previewInput.value='';
-  el('navState').textContent='Editing source from the preview · waiting for typesetting';
+  el('navState').textContent='Editing source from the preview Â· waiting for typesetting';
 }
 previewInput.addEventListener('blur',()=>endPreview());
 previewInput.addEventListener('beforeinput',event=>{
@@ -141,7 +141,7 @@ previewInput.addEventListener('keydown',event=>{
     if(['ArrowLeft','ArrowRight','ArrowUp','ArrowDown','Home','End','Tab'].includes(event.key)){
       event.preventDefault();if(s.pending){
         if(event.key==='Tab'){const slots=s.math.slots.filter(slot=>slot.id!=='root');if(!slots.length)return;const index=slots.findIndex(slot=>slot.id===s.mathSlot),next=slots[(index+(event.shiftKey?-1:1)+slots.length)%slots.length];s.mathSlot=next.id;s.anchor=s.head=next.from;s.lastEvent=undefined;previewApplying=suppressFollow=true;try{view.dispatch({selection:{anchor:s.head}});}finally{previewApplying=suppressFollow=false;}drawPreviewCaret();return;}
-        el('navState').textContent='Waiting for math typesetting · Esc returns to source';return;
+        el('navState').textContent='Waiting for math typesetting Â· Esc returns to source';return;
       }
       const maps=s.mathMaps??(s.mathMaps=s.math.block?mathSpans(current!.navigation!,s.file,undefined,s.map.page,s.expected,s.pdfGlyphs,s.math.block.from):[s.map as MathSpan]);
       const move=moveMathAcross(maps,s.map as MathSpan,s.head,s.mathSlot??'root',event.key,event.shiftKey&&event.key==='Tab');if(!move)return;
@@ -174,17 +174,17 @@ for(const button of el('mathTools').querySelectorAll<HTMLButtonElement>('button'
  button.addEventListener('mousedown',event=>event.preventDefault());button.addEventListener('click',()=>{if(previewSession?.math){previewChange('',false,false,button.dataset.math as MathAction);previewInput.focus({preventScroll:true});}});
 }
 function refreshPreviewStatus(){
-  if(localCanvas?.dataset.localRecovered==='true'&&localCanvas.dataset.localEditId===latestEdit?.id){el('previewState').textContent='Recovered local preview · details in Problems';el('status').textContent=localStatus+' Temporary preview repair; saved source is unchanged.'+sourceWarning;previewUpdating=false;return;}
-  if(current?.timing?.recovered&&current.timing.editId===latestEdit?.id){el('previewState').textContent='Recovered preview · LaTeX errors need attention';el('status').textContent=current.displayStatus+sourceWarning;previewUpdating=false;return;}
-  if(localCanvas?.dataset.localLayout==='flow'&&localCanvas.dataset.localEditId===latestEdit?.id&&current?.timing?.editId===latestEdit?.id){el('previewState').textContent='Continuous scroll · paginated PDF verified';el('status').textContent=localStatus.replace('Paginated PDF verification pending.','Paginated PDF verified.')+sourceWarning;previewUpdating=false;return;}
-  if(localCanvas){const newer=localCanvas.dataset.localEditId!==latestEdit?.id,lecture=model.previewMode==='lecture';el('previewState').textContent=(lecture?'Lecture preview · ':'Local paragraph preview · ')+(newer?'newer edits pending':lecture?'full PDF updates on Build or Export':'full document verification pending');el('status').textContent=(lecture?localStatus.replace(/(?:Paginated PDF|Full document) verification pending\./g,'Full PDF updates on Build or Export.'):localStatus)+(newer?' Newer edits pending.':'')+sourceWarning;return;}
+  if(localCanvas?.dataset.localRecovered==='true'&&localCanvas.dataset.localEditId===latestEdit?.id){el('previewState').textContent='Recovered local preview Â· details in Problems';el('status').textContent=localStatus+' Temporary preview repair; saved source is unchanged.'+sourceWarning;previewUpdating=false;return;}
+  if(current?.timing?.recovered&&current.timing.editId===latestEdit?.id){el('previewState').textContent='Recovered preview Â· LaTeX errors need attention';el('status').textContent=current.displayStatus+sourceWarning;previewUpdating=false;return;}
+  if(localCanvas?.dataset.localLayout==='flow'&&localCanvas.dataset.localEditId===latestEdit?.id&&current?.timing?.editId===latestEdit?.id){el('previewState').textContent='Continuous scroll Â· paginated PDF verified';el('status').textContent=localStatus.replace('Paginated PDF verification pending.','Paginated PDF verified.')+sourceWarning;previewUpdating=false;return;}
+  if(localCanvas){const newer=localCanvas.dataset.localEditId!==latestEdit?.id,lecture=model.previewMode==='lecture';el('previewState').textContent=(lecture?'Lecture preview Â· ':'Local paragraph preview Â· ')+(newer?'newer edits pending':lecture?'full PDF updates on Build or Export':'full document verification pending');el('status').textContent=(lecture?localStatus.replace(/(?:Paginated PDF|Full document) verification pending\./g,'Full PDF updates on Build or Export.'):localStatus)+(newer?' Newer edits pending.':'')+sourceWarning;return;}
   const pending=!previewKnownCurrent||!!latestEdit&&current?.timing?.editId!==latestEdit.id;
   if(pending||!current?.displayReady){
     const elapsed=latestEdit?` (${Math.ceil(performance.now()-latestEdit.startedAt)} ms since latest edit)`:'';
-    el('previewState').textContent=(model.onSave?'Preview behind source':'Preview paused — source changed')+elapsed;
-    if(previewUpdating)el('status').textContent='Updating preview'+elapsed+'…'+sourceWarning;
+    el('previewState').textContent=(model.onSave?'Preview behind source':'Preview paused â€” source changed')+elapsed;
+    if(previewUpdating)el('status').textContent='Updating preview'+elapsed+'â€¦'+sourceWarning;
   }else{
-    el('previewState').textContent=model.continuousPreview?(el('previewState').dataset.localState==='warming'?'PDF ready · preparing continuous editing…':el('previewState').dataset.localState==='ready'?'Continuous scroll ready':'Continuous view · PDF ready'):'Preview up to date';
+    el('previewState').textContent=model.continuousPreview?(el('previewState').dataset.localState==='warming'?'PDF ready Â· preparing continuous editingâ€¦':el('previewState').dataset.localState==='ready'?'Continuous scroll ready':'Continuous view Â· PDF ready'):'Preview up to date';
     if(previewUpdating)el('status').textContent=current.displayStatus+sourceWarning;
     previewUpdating=false;
   }
@@ -197,17 +197,17 @@ function renderProblems(){
  diagnosticTracker.sync(compileIssue&&!projectProblems.some(i=>i.id===compileIssue!.id)?[...projectProblems,compileIssue]:projectProblems,active,latestEdit?.id,view?.state.doc);
  const key=JSON.stringify([projectProblems.map(i=>[i.id,i.sourceHash,i.line,i.message,diagnosticTracker.pending(i)]),projectProblems.some(i=>i.editId!==latestEdit?.id),el<HTMLSelectElement>('problemFilter').value]);if(key===problemRenderKey)return;problemRenderKey=key;
  const issues=projectProblems,checking=issues.filter(i=>diagnosticTracker.pending(i)).length,errors=issues.filter(i=>i.severity!=='warning'&&!diagnosticTracker.pending(i)).length,warnings=issues.filter(i=>i.severity==='warning').length;
- const summary=`${errors} error${errors===1?'':'s'} · ${warnings} warning${warnings===1?'':'s'}`+(checking?` · ${checking} checking`:'');
+ const summary=`${errors} error${errors===1?'':'s'} Â· ${warnings} warning${warnings===1?'':'s'}`+(checking?` Â· ${checking} checking`:'');
  el('problemSummary').textContent=summary;
  const toggle=el<HTMLButtonElement>('toggleProblems');toggle.title='Project problems: '+summary;toggle.setAttribute('aria-label',toggle.title);toggle.dataset.count=issues.length?String(issues.length):'';toggle.classList.toggle('has-problems',!!issues.length);
- const stale=issues.some(i=>i.editId!==latestEdit?.id);el('problemState').textContent=stale?'Source changed · waiting for preview':issues.some(i=>i.id.startsWith('local-recovery-'))?'Current local preview':issues.length?'Latest full build':'No problems reported by the latest full build';
+ const stale=issues.some(i=>i.editId!==latestEdit?.id);el('problemState').textContent=stale?'Source changed Â· waiting for preview':issues.some(i=>i.id.startsWith('local-recovery-'))?'Current local preview':issues.length?'Latest full build':'No problems reported by the latest full build';
  const list=el('problemList');list.replaceChildren();const filter=el<HTMLSelectElement>('problemFilter').value;
  for(const issue of issues.filter(i=>filter==='all'||(i.severity??'error')===filter)){
   const pending=diagnosticTracker.pending(issue),row=document.createElement('div');row.className='problem-row';row.setAttribute('role','listitem');row.dataset.severity=pending?'checking':issue.severity??'error';
   const label=document.createElement('strong');label.textContent=pending?'Checking':issue.severity==='warning'?'Warning':'Error';
   const message=document.createElement('span');message.textContent=issue.message;
   const copy=document.createElement('div');copy.className='problem-copy';copy.append(message);const advice=diagnosticAdvice(issue.message);if(advice){const hint=document.createElement('span');hint.className='problem-advice';hint.textContent=advice;copy.append(hint);}row.append(label,copy);
-  if(issue.file&&issue.line){const link=document.createElement('button');link.textContent=issue.file.split(/[\\/]/).at(-1)+' · line '+issue.line;link.title=issue.file;link.disabled=issue.editId!==latestEdit?.id;link.onclick=()=>void command(()=>navigateProblem(issue));row.append(link);}
+  if(issue.file&&issue.line){const link=document.createElement('button');link.textContent=issue.file.split(/[\\/]/).at(-1)+' Â· line '+issue.line;link.title=issue.file;link.disabled=issue.editId!==latestEdit?.id;link.onclick=()=>void command(()=>navigateProblem(issue));row.append(link);}
   const suggestion=diagnosticSuggestion(issue.message);if(suggestion){const apply=document.createElement('button');apply.className='apply-suggestion';configureSuggestion(apply,issue);row.append(apply);}
   list.append(row);
  }
@@ -244,10 +244,10 @@ function renderIssue(){
   const stale=compileIssue.editId!==latestEdit?.id;
   el('diagnosticMessage').textContent=compileIssue.message;
   el('diagnosticHint').textContent=diagnosticAdvice(compileIssue.message)??'';
-  el('diagnosticState').textContent=stale?(model.onSave&&previewUpdating?'Checking newer edits…':'Source changed since this error'):(current?'Last good preview retained':'No successful preview yet');
+  el('diagnosticState').textContent=stale?(model.onSave&&previewUpdating?'Checking newer editsâ€¦':'Source changed since this error'):(current?'Last good preview retained':'No successful preview yet');
   const link=el<HTMLButtonElement>('diagnosticLocation');
   link.hidden=!compileIssue.file||!compileIssue.line;link.disabled=stale;
-  link.textContent=compileIssue.file?`${compileIssue.file.split(/[\\/]/).at(-1)} · line ${compileIssue.line}`:'';
+  link.textContent=compileIssue.file?`${compileIssue.file.split(/[\\/]/).at(-1)} Â· line ${compileIssue.line}`:'';
   link.title=compileIssue.file??'';
   panel.dataset.kind=compileIssue.kind;
 }
@@ -256,7 +256,7 @@ function renderRecoveryNotice(reason?:string){
  const issue=compileIssue?.root===model.root?compileIssue:projectProblems.find(i=>i.root===model.root&&i.severity!=='warning'),recovered=localCanvas&&localCanvas.dataset.localEditId===latestEdit?.id?localCanvas.dataset.localRecovered==='true':current?.timing?.recovered,notice=el('previewNotice');
  const issues=projectProblems.filter(i=>i.root===model.root);if(issue&&!issues.some(i=>i.id===issue.id))issues.push(issue);
  const checking=issues.filter(i=>diagnosticTracker.pending(i)).length,errors=issues.filter(i=>i.severity!=='warning'&&!diagnosticTracker.pending(i)).length,warnings=issues.filter(i=>i.severity==='warning').length,extra=[sourceWarning.trim()||(!errors?operationIssue:undefined),backupIssue].filter((s):s is string=>!!s);
- const count=errors+extra.length,summary=`${count} error${count===1?'':'s'}`+(checking?` · ${checking} checking`:'')+(warnings?` · ${warnings} warning${warnings===1?'':'s'}`:'');
+ const count=errors+extra.length,summary=`${count} error${count===1?'':'s'}`+(checking?` Â· ${checking} checking`:'')+(warnings?` Â· ${warnings} warning${warnings===1?'':'s'}`:'');
  const stale=!!issue&&issue.editId!==latestEdit?.id,primary=issue??issues.find(i=>i.severity==='warning');
  const pending=!!issue&&diagnosticTracker.pending(issue),state=JSON.stringify([model.root,active,primary?.id,primary?.sourceHash,primary?.message,primary?.file,primary?.line,count,checking,pending,warnings,extra,!!issue,stale,!!recovered,reason,!!model.onSave]);
  // Scrolling must not rewrite an unchanged live region or announce it again.
@@ -267,7 +267,7 @@ function renderRecoveryNotice(reason?:string){
  const where=issue?.file&&issue.line?` (${issue.file.split(/[\\/]/).at(-1)}, line ${issue.line})`:'';
  const message=primary?.message??extra[0]??reason??'Temporary preview repair';
  const skipped=message.match(/Preview skipped undefined command (\\\S+?)\./),short=skipped?'Undefined command '+skipped[1]:message.replace(/\s+/g,' ').split(/\. (?=[A-Z])/)[0];
- el('previewNoticeTitle').textContent=(pending?'Checking edited error location':short)+where+(stale&&!pending?' · checking newer edits':'');
+ el('previewNoticeTitle').textContent=(pending?'Checking edited error location':short)+where+(stale&&!pending?' Â· checking newer edits':'');
  const checkingText=model.onSave?' Keep editing; each change is checked automatically.':' Automatic preview is paused. Resume Live or choose Retry preview.';
  const advice=issue?diagnosticAdvice(issue.message):undefined;
  el('previewNoticeText').textContent=reason?reason+(advice?' '+advice:'')+checkingText:(stale?(model.onSave?'Checking your latest edits automatically.':'This error belongs to an earlier edit.'+checkingText):issue?(advice??'Open Details to inspect the build log.')+checkingText+(recovered?' Navigation is limited to unchanged mapped text. Direct PDF editing resumes after the error is fixed.':' The previous preview is retained.'):'Temporary repairs keep this preview running.'+checkingText);
@@ -419,7 +419,7 @@ function renderTabs(){
   const statusVisible=model.statusBar!==false;el('statusBar').hidden=false;el('statusDetails').hidden=!statusVisible;document.body.dataset.statusBar=statusVisible?'visible':'hidden';toolbarButton('toggleStatus','status',statusVisible?'Hide preview timing details':'Show preview timing details');el('toggleStatus').setAttribute('aria-pressed',String(statusVisible));
   toolbarSelect('panelLayout','panels','Panel layout: '+el<HTMLSelectElement>('panelLayout').selectedOptions[0]?.textContent);toolbarSelect('layoutMode','pages',model.continuousPreview?'Preview layout: Continuous scroll':'Preview layout: Paged PDF');
   el('tabs').replaceChildren();
-  for(const doc of model.docs){const button=document.createElement('button');button.textContent=doc.path.split(/[\\/]/).at(-1)+(doc.dirty?' •':'');button.title=doc.path;button.className=doc.path===active?'active':'';button.onclick=()=>activateDocumentTab(doc.path);el('tabs').append(button);}
+  for(const doc of model.docs){const button=document.createElement('button');button.textContent=doc.path.split(/[\\/]/).at(-1)+(doc.dirty?' â€¢':'');button.title=doc.path;button.className=doc.path===active?'active':'';button.onclick=()=>activateDocumentTab(doc.path);el('tabs').append(button);}
   el('rootLabel').textContent=model.root?'Root: '+model.root:'No root selected';
   renderRecoveryNotice();
 }
@@ -448,7 +448,7 @@ function renderBackupFiles(){
 function renderBackupOriginal(){const snapshot=backupSnapshots.find(s=>s.id===el<HTMLSelectElement>('backupSnapshots').value);el('backupOriginal').textContent=snapshot?.files[Number(el<HTMLSelectElement>('backupFiles').value)]?.path??'';el<HTMLButtonElement>('restoreBackup').disabled=!snapshot;}
 async function refreshBackups(){
   const result=await api.call('listBackups'),select=el<HTMLSelectElement>('backupSnapshots'),prior=select.value;backupSnapshots=result.snapshots;select.replaceChildren();
-  for(const snapshot of backupSnapshots)select.add(new Option(new Date(snapshot.created).toLocaleString()+' — '+snapshot.root.split(/[\\/]/).at(-1),snapshot.id));
+  for(const snapshot of backupSnapshots)select.add(new Option(new Date(snapshot.created).toLocaleString()+' â€” '+snapshot.root.split(/[\\/]/).at(-1),snapshot.id));
   if(backupSnapshots.some(s=>s.id===prior))select.value=prior;
   el<HTMLInputElement>('automaticBackups').checked=result.enabled;model.backups=result.enabled;el('backupStatus').textContent=backupSnapshots.length?result.text:'No backups yet. Open a source file or choose Back up now.';renderBackupFiles();
 }
@@ -531,7 +531,7 @@ document.addEventListener('keydown',event=>{
 },{capture:true});
 function renderToolchain(report:any,activeReport=false){
  if(!report)return;
- el('toolchainSummary').textContent=(report.ready?'Ready for compilation':'Installation needs attention')+' · '+report.distribution+'\n'+report.fast.reason;
+ el('toolchainSummary').textContent=(report.ready?'Ready for compilation':'Installation needs attention')+' Â· '+report.distribution+'\n'+report.fast.reason;
  el<HTMLButtonElement>('prepareFastFormat').disabled=!report.fast.preparable||report.fast.available;
  el('toolchainDetails').textContent=[...report.tools.map((t:any)=>(t.ok?'OK: ':'Missing/unusable: ')+t.name+' '+(t.path??'')+'\n'+t.detail),...report.packages.map((p:any)=>(p.found?'Found: ':'Missing: ')+p.name),...report.issues].join('\n\n');
  const choices=el('texInstallations');choices.replaceChildren();for(const installation of report.installations){const option=document.createElement('option');option.value=installation.bin;choices.append(option);}
@@ -540,7 +540,7 @@ function renderToolchain(report:any,activeReport=false){
 }
 async function refreshToolchain(detect=false){
  el('formatPreparation').textContent='';
- const input=el<HTMLInputElement>('texBin');if(detect)input.value='';el('toolchainSummary').textContent='Checking installed TeX tools…';
+ const input=el<HTMLInputElement>('texBin');if(detect)input.value='';el('toolchainSummary').textContent='Checking installed TeX toolsâ€¦';
  const report=await api.call('toolchainCheck',input.value,el<HTMLSelectElement>('engine').value,el<HTMLInputElement>('latexmk').value);if(report.selected)input.value=report.selected;renderToolchain(report);
 }
 el('settings').onclick=()=>{
@@ -549,7 +549,7 @@ el('settings').onclick=()=>{
   el<HTMLInputElement>('texBin').value=model.texBin??model.toolchain?.selected??'';renderToolchain(model.toolchain);
   el<HTMLDialogElement>('settingsDialog').showModal();
 };
-el('cleanCaches').onclick=()=>void command(async()=>{const button=el<HTMLButtonElement>('cleanCaches');button.disabled=true;el('cacheStatus').textContent='Cleaning unused caches…';try{const result=await api.call('cleanCaches');el('cacheStatus').textContent=result.text;}finally{button.disabled=false;}});
+el('cleanCaches').onclick=()=>void command(async()=>{const button=el<HTMLButtonElement>('cleanCaches');button.disabled=true;el('cacheStatus').textContent='Cleaning unused cachesâ€¦';try{const result=await api.call('cleanCaches');el('cacheStatus').textContent=result.text;}finally{button.disabled=false;}});
 el('applySettings').onclick=event=>{event.preventDefault();void command(async()=>{
   model=await api.call('settings',{texBin:el<HTMLInputElement>('texBin').value,engine:el<HTMLSelectElement>('engine').value,latexmk:el<HTMLInputElement>('latexmk').value,onSave:el<HTMLInputElement>('onSave').checked});
   renderToolchain(model.toolchain,true);
@@ -624,7 +624,7 @@ async function cursorLocation(nav:Navigation,page:number,bundleId?:string):Promi
 }
 function markLocation(row:Region,highlight=true){
   const canvas=current?.canvas as HTMLCanvasElement|undefined;if(!canvas)return;
-  if(model.continuousPreview){const id=current.id;void continuousSetup.then(()=>{if(current?.id!==id||!model.continuousPreview)return;continuousView.mark(row[2],{x:row[3],y:row[4],width:row[5],height:row[6]},false,highlight);el('navState').textContent=`${row[0].split(/[\\/]/).at(-1)} · line ${row[1]}`;});return;}
+  if(model.continuousPreview){const id=current.id;void continuousSetup.then(()=>{if(current?.id!==id||!model.continuousPreview)return;continuousView.mark(row[2],{x:row[3],y:row[4],width:row[5],height:row[6]},false,highlight);el('navState').textContent=`${row[0].split(/[\\/]/).at(-1)} Â· line ${row[1]}`;});return;}
   const viewport=el('pdfViewport'),pages=el('pages');pages.querySelector('.navigation-marker')?.remove();
   if(highlight){const marker=document.createElement('div');marker.className='navigation-marker';
   marker.style.cssText=`left:${row[3]*scale}px;top:${row[4]*scale}px;width:${Math.max(4,row[5]*scale)}px;height:${Math.max(5,row[6]*scale)}px`;
@@ -632,7 +632,7 @@ function markLocation(row:Region,highlight=true){
   const canvasBox=canvas.getBoundingClientRect(),viewportBox=viewport.getBoundingClientRect();
   viewport.scrollTop+=canvasBox.top-viewportBox.top+row[4]*scale-viewport.clientHeight/2;
   const left=canvasBox.left-viewportBox.left+viewport.scrollLeft+row[3]*scale;if(left<viewport.scrollLeft||left>viewport.scrollLeft+viewport.clientWidth-30)viewport.scrollLeft=Math.max(0,left-40);
-  el('navState').textContent=`${row[0].split(/[\\/]/).at(-1)} · line ${row[1]}`;
+  el('navState').textContent=`${row[0].split(/[\\/]/).at(-1)} Â· line ${row[1]}`;
 }
 async function locateContinuous(explicit:boolean){
   const token=++navigationToken,file=active,text=view!.state.doc.toString(),at=view!.state.selection.main.head;
@@ -640,7 +640,7 @@ async function locateContinuous(explicit:boolean){
   const valid=()=>token===navigationToken&&model.continuousPreview&&active===file&&view?.state.doc.toString()===text&&view.state.selection.main.head===at;
   if(!valid())return;
   const line=view!.state.doc.lineAt(at).number;if(!sourceLineHasOutput(view!.state.doc.line(line).text)){if(explicit)el('navState').textContent='This source line produces no visible output.';renderRecoveryNotice();return;}const flow=liveFlow?.canvas.isConnected?liveFlow:undefined,basis=continuousBasis;
-  const status=(ok:boolean)=>{if(ok){el('navState').textContent=`${file.split(/[\\/]/).at(-1)} · line ${line}`;renderRecoveryNotice();}else if(explicit)explainNavigation('This source location has no current preview mapping.');};
+  const status=(ok:boolean)=>{if(ok){el('navState').textContent=`${file.split(/[\\/]/).at(-1)} Â· line ${line}`;renderRecoveryNotice();}else if(explicit)explainNavigation('This source location has no current preview mapping.');};
   if(neutralIds.size){const context=retainedContext(),found=context&&retainedNavigation.forward(context,at,continuousView.retainedProjection);if(found&&valid()){const marked=continuousView.mark(found.page,found.glyph,false,explicit);if(marked)pageNumber=found.page;status(marked);}else status(false);return;}
   const pages=currentLivePages();
   if(pages){
@@ -680,7 +680,7 @@ async function locateSource(explicit:boolean){
   }
   markLocation(row,explicit);
 }
-el('editPreview').onclick=()=>void command(async()=>{if(!model.previewEditing&&(current?.navigation?.recovery||current?.timing?.recovered||localCanvas?.dataset.localRecovered==='true')){explainNavigation('Direct PDF editing is paused for this temporary preview. Use the source editor or Go to error. Corrections are checked automatically while Live is on.');return;}navigationToken++;endPreview();const enabled=model.previewEditing=!model.previewEditing;renderTabs();await flush();await api.call('previewEditing',enabled);el('navState').textContent=enabled?'Preparing editable text · click plain text after the preview updates':'Click PDF text to show its source';});
+el('editPreview').onclick=()=>void command(async()=>{if(!model.previewEditing&&(current?.navigation?.recovery||current?.timing?.recovered||localCanvas?.dataset.localRecovered==='true')){explainNavigation('Direct PDF editing is paused for this temporary preview. Use the source editor or Go to error. Corrections are checked automatically while Live is on.');return;}navigationToken++;endPreview();const enabled=model.previewEditing=!model.previewEditing;renderTabs();await flush();await api.call('previewEditing',enabled);el('navState').textContent=enabled?'Preparing editable text Â· click plain text after the preview updates':'Click PDF text to show its source';});
 el('locate').onclick=()=>void command(()=>locateSource(true));
 el('follow').onclick=()=>void command(async()=>{navigationToken++;const enabled=model.followPreview=!model.followPreview;renderTabs();await api.call('follow',enabled);if(enabled&&model.followPreview)await locateSource(true);});
 el('pages').addEventListener('click',event=>void command(async()=>{
@@ -688,14 +688,14 @@ el('pages').addEventListener('click',event=>void command(async()=>{
   if(model.continuousPreview&&canvas&&neutralIds.size&&view){
     const page=Number(canvas.closest<HTMLElement>('.flow-page')?.dataset.page),context=retainedContext(canvas),point=continuousView.canvasPoint(page,canvas,event.clientX,event.clientY);
     const at=canvas.isConnected&&point&&context&&(!neutralPages.has(page)||canvas.dataset.localEditId===context.editId)?retainedNavigation.inverse(context,page,point.x,point.y,continuousView.retainedProjection):undefined;
-    if(at!==undefined){endPreview();navigationToken++;pageNumber=page;suppressFollow=true;try{view.dispatch({selection:{anchor:at},effects:EditorView.scrollIntoView(at,{y:'center'})});view.focus();}finally{suppressFollow=false;}el('navState').textContent=`${active.split(/[\\/]/).at(-1)} · line ${view.state.doc.lineAt(at).number}`;return;}
+    if(at!==undefined){endPreview();navigationToken++;pageNumber=page;suppressFollow=true;try{view.dispatch({selection:{anchor:at},effects:EditorView.scrollIntoView(at,{y:'center'})});view.focus();}finally{suppressFollow=false;}el('navState').textContent=`${active.split(/[\\/]/).at(-1)} Â· line ${view.state.doc.lineAt(at).number}`;return;}
     el('navState').textContent='No current mapped output here; wait for the preview to update.';return;
   }
   if(localCanvas){
     const pages=currentLivePages(),mapped=pages?.pages.find(p=>(p.canvas??continuousView.canvasForPage(p.page))===canvas);
     if(pages&&mapped&&canvas&&view){
       const rect=canvas.getBoundingClientRect(),at=liveFlowPosition(pages,{root:model.root,file:active,baseId:continuousView.id,sourceHash:pages.sourceHash,editId:pages.editId,text:view.state.doc.toString()},mapped.locations,(event.clientX-rect.left)/scale,(event.clientY-rect.top)/scale,mapped.blocked);
-      if(at!==undefined){endPreview();navigationToken++;pageNumber=mapped.page;suppressFollow=true;try{view.dispatch({selection:{anchor:at},effects:EditorView.scrollIntoView(at,{y:'center'})});view.focus();}finally{suppressFollow=false;}el('navState').textContent=`${active.split(/[\\/]/).at(-1)} · line ${view.state.doc.lineAt(at).number}`;return;}
+      if(at!==undefined){endPreview();navigationToken++;pageNumber=mapped.page;suppressFollow=true;try{view.dispatch({selection:{anchor:at},effects:EditorView.scrollIntoView(at,{y:'center'})});view.focus();}finally{suppressFollow=false;}el('navState').textContent=`${active.split(/[\\/]/).at(-1)} Â· line ${view.state.doc.lineAt(at).number}`;return;}
     }
     const flow=liveFlow;
     if(model.continuousPreview&&flow&&canvas===flow.canvas&&localCanvas===flow.canvas&&canvas.isConnected&&view){
@@ -703,7 +703,7 @@ el('pages').addEventListener('click',event=>void command(async()=>{
       if(at!==undefined){
         endPreview();navigationToken++;pageNumber=flow.page;suppressFollow=true;
         try{view.dispatch({selection:{anchor:at},effects:EditorView.scrollIntoView(at,{y:'center'})});view.focus();}finally{suppressFollow=false;}
-        el('navState').textContent=`${flow.file.split(/[\\/]/).at(-1)} · line ${view.state.doc.lineAt(at).number}`;return;
+        el('navState').textContent=`${flow.file.split(/[\\/]/).at(-1)} Â· line ${view.state.doc.lineAt(at).number}`;return;
       }
     }
     explainNavigation('This area has no current source mapping. Details explains any reported error. Build or Check now can request a complete map.');return;
@@ -733,7 +733,7 @@ el('pages').addEventListener('click',event=>void command(async()=>{
     if(view){const at=position??view.state.doc.line(Math.min(result.line,view.state.doc.lines)).from;suppressFollow=true;try{view.dispatch({selection:{anchor:at},effects:EditorView.scrollIntoView(at,{y:'center'})});}finally{suppressFollow=false;}
       if(editing&&mapped&&position!==undefined){
         previewSession={file:active,line:row[1],expected:view.state.doc.toString(),from:mapped.from,to:mapped.to,map:mapped,pdfGlyphs:pageGlyphs,anchor:position,head:position,box:isMath(mapped)?mathCaretBox(mapped,position,mathSlot):caretBox(mapped,position),pending:false,...(isMath(mapped)?{math:mapped.formula,mathSlot}: {})};
-        el('pages').querySelector('.navigation-marker')?.remove();previewInput.value='';previewInput.focus({preventScroll:true});drawPreviewCaret();updateMathTools();el('navState').textContent=isMath(mapped)?'Editing math · Tab moves between parts and cells · Esc returns to source':'Editing plain text · Esc returns to source';
+        el('pages').querySelector('.navigation-marker')?.remove();previewInput.value='';previewInput.focus({preventScroll:true});drawPreviewCaret();updateMathTools();el('navState').textContent=isMath(mapped)?'Editing math Â· Tab moves between parts and cells Â· Esc returns to source':'Editing plain text Â· Esc returns to source';
       }else{view.focus();markLocation(row);if(editing)el('navState').textContent='Use the source editor for this text.';}
     }
   }catch(e){explainNavigation(String(e).replace(/^.*Error: /,'')+' Source changes are checked automatically while Live is on.');}
@@ -761,14 +761,14 @@ function show(candidate:any,reconcileBands=false){
   el('pageLabel').textContent=model.continuousPreview?'Continuous':`${pageNumber} / ${candidate.pdf.numPages}`;
 }
 async function navigate(delta:number){
-  if(model.continuousPreview&&delta!==0){pageNumber=Math.max(1,Math.min(current?.pdf.numPages??1,pageNumber+delta));continuousView.scroll(pageNumber);el('pageLabel').textContent=`${pageNumber} / ${current?.pdf.numPages??'…'}`;return;}
+  if(model.continuousPreview&&delta!==0){pageNumber=Math.max(1,Math.min(current?.pdf.numPages??1,pageNumber+delta));continuousView.scroll(pageNumber);el('pageLabel').textContent=`${pageNumber} / ${current?.pdf.numPages??'â€¦'}`;return;}
   if(localDocument&&localCanvas){
     const doc=localDocument,page=pageNumber+delta;
     if(page<doc.span.first||page>doc.span.last){el('navState').textContent='Other pages will be available after full verification.';return;}
     const token=++localRenderToken,previous=localCanvas;
     try{const canvas=await render(doc.pdf,page-doc.span.first+1);if(token!==localRenderToken||localDocument!==doc){canvas.width=canvas.height=0;return;}
       copyCanvasMetadata(canvas,previous);localCanvas=canvas;localPatch={x:0,y:0,width:canvas.width,height:canvas.height,page};pageNumber=page;
-      el('pages').replaceChildren(canvas);el('pageLabel').textContent=`${pageNumber} / …`;previous.width=previous.height=0;
+      el('pages').replaceChildren(canvas);el('pageLabel').textContent=`${pageNumber} / â€¦`;previous.width=previous.height=0;
     }catch(e){report('Page rendering failed. Previous display retained. '+e);}return;
   }
   if(localCanvas&&delta!==0){el('navState').textContent='Other pages will be available after full verification.';return;}
@@ -925,7 +925,7 @@ api.on(async message=>{
     if(!mayShowLocal(message)){await api.call('localAck',message.token,!message.neutralBlock);return;}
     const input=localInputs.get(message.editId)!,inputAt=input.startedAt;
     const receivedAt=performance.now();
-    const task=message.flowOutput?undefined:loadPdf(message.pdf,true,true);let keepTask=false,flowImage:ImageBitmap|undefined;
+    const task=message.flowOutput?undefined:loadPdf(message.pdf,true,true,message.pageOutput&&model.continuousPreview?{scale,ratio:window.devicePixelRatio||1}:undefined);let keepTask=false,flowImage:ImageBitmap|undefined;
     try{
       if(message.flowOutput){
         if(!message.retainedFlow)clearNeutralMetadata();
@@ -1029,7 +1029,7 @@ api.on(async message=>{
         if(localCanvas)localCanvas.width=localCanvas.height=0;localCanvas=canvas;
         localPatch={x:0,y:0,width:canvas.width,height:canvas.height,page};displayedSequence=input.sequence;
         canvas.dataset.renderScope='local';canvas.dataset.localLayout='page';canvas.dataset.localProofKey=proofKey(message);canvas.dataset.localSourceHash=message.sourceHash;canvas.dataset.localEditId=message.editId;canvas.dataset.sourceHash=current?.canvas.dataset.sourceHash??'';
-        canvas.dataset.localFirstPage=String(span.first);canvas.dataset.localLastPage=String(span.last);el('pages').replaceChildren(canvas);el('empty').hidden=true;pageNumber=page;el('pageLabel').textContent=`${pageNumber} / …`;
+        canvas.dataset.localFirstPage=String(span.first);canvas.dataset.localLastPage=String(span.last);el('pages').replaceChildren(canvas);el('empty').hidden=true;pageNumber=page;el('pageLabel').textContent=`${pageNumber} / â€¦`;
         canvas.dataset.localRecovered=String(!!message.recovery||!!message.recoveredBasis);
         if(model.followPreview&&message.cursorPosition)continuousView.reveal(canvas,message.cursorPosition.y+message.cursorPosition.height,scale);
         const finish=()=>{if(token!==localRenderToken||localCanvas!==canvas||canvas.dataset.localEditId!==message.editId)return;void api.call('localWarm',message.root,message.baseId,message.editId,Math.ceil(performance.now()-inputAt),canvas.dataset.localLayout).catch(()=>{});const latency=Math.ceil(performance.now()-inputAt);input.displayedLatencyMs??=latency;canvas.dataset.localLatencyMs=String(latency);canvas.dataset.localLatencyEditId=message.editId;recordDisplayedFrame(message.editId,message.sourceHash,canvas.dataset.localLayout??'local');canvas.dataset.timingEndpoint=message.visible?'paint opportunity':'canvas (window hidden)';localStatus=`Affected ${span.last>span.first?'pages':'page'} updated in ${latency} ms from edit. Full document verification pending.`+(!message.visible?' Window hidden; measured to canvas.':'');refreshPreviewStatus();};
@@ -1102,7 +1102,7 @@ api.on(async message=>{
     if(updated){operationIssue=undefined;previewUpdating=true;refreshPreviewStatus();}
     else{
       el('status').textContent=message.text;
-      if(failed){operationIssue=message.text;previewUpdating=false;previewKnownCurrent=false;el('previewState').textContent=current?'Preview behind source — build failed':'No successful preview yet';}
+      if(failed){operationIssue=message.text;previewUpdating=false;previewKnownCurrent=false;el('previewState').textContent=current?'Preview behind source â€” build failed':'No successful preview yet';}
       else if(/Saving edits|Updating preview/.test(message.text)){previewUpdating=true;refreshPreviewStatus();}
       else if(/Build cancelled/.test(message.text)){previewUpdating=false;renderIssue();el('previewState').textContent=current?'Previous preview retained':'No successful preview yet';}
       else if(/Source saved|Restored last/.test(message.text))el('previewState').textContent='Preview has pending changes';

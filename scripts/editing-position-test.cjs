@@ -1,3 +1,4 @@
+const waitForAsync=require('./wait-for-async.cjs');
 // Synthetic cloud diagnosis; never borrows a user profile or manuscript.
 const {_electron:electron}=require('playwright'),fs=require('node:fs/promises'),path=require('node:path'),os=require('node:os'),assert=require('node:assert/strict'),{createHash}=require('node:crypto');
 const hash=s=>createHash('sha256').update(s).digest('hex'),delay=ms=>new Promise(r=>setTimeout(r,ms));
@@ -21,7 +22,7 @@ async function scenario(name,body,broken=false){
    if(name==='renderer-rejection'&&word===' more'){
     await page.waitForFunction(h=>[...document.querySelectorAll('#pages canvas')].some(c=>c.dataset.sourceHash===h&&!c.dataset.localEditId&&c.dataset.editLatencyMs),hash(expected),{timeout:30000,polling:10});
     result.samples.push(await page.evaluate(h=>{const c=[...document.querySelectorAll('#pages canvas')].find(c=>c.dataset.sourceHash===h&&!c.dataset.localEditId);return {ms:Number(c.dataset.editLatencyMs),layout:'automatic-full-recovery'};},hash(expected)));
-    await page.waitForFunction(async()=>{const p=await window.desktop.call('previewPerformance');return p.localReady&&!p.localBusy;},null,{timeout:30000,polling:25});result.rejectedFrameAutomaticallyRecovered=true;continue;
+    await waitForAsync(page,async()=>{const p=await window.desktop.call('previewPerformance');return p.localReady&&!p.localBusy;},null,{timeout:30000,polling:25});result.rejectedFrameAutomaticallyRecovered=true;continue;
    }
    await page.waitForFunction(h=>[...document.querySelectorAll('#pages canvas')].some(c=>c.dataset.localSourceHash===h&&c.dataset.localLatencyEditId===c.dataset.localEditId),hash(expected),{timeout:30000,polling:10});
    result.samples.push(await page.evaluate(h=>{const c=[...document.querySelectorAll('#pages canvas')].find(c=>c.dataset.localSourceHash===h&&c.dataset.localLatencyEditId===c.dataset.localEditId);return {ms:Number(c.dataset.localLatencyMs),layout:c.dataset.localLayout,pipeline:JSON.parse(c.dataset.localPipeline??'null')};},hash(expected)));await delay(750);

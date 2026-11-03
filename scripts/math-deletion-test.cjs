@@ -1,3 +1,4 @@
+const waitForAsync=require('./wait-for-async.cjs');
 // Synthetic theorem math and simulated low-memory recovery, never user source.
 const {_electron:electron}=require('playwright'),fs=require('node:fs/promises'),path=require('node:path'),assert=require('node:assert/strict'),{createHash}=require('node:crypto');
 const hash=s=>createHash('sha256').update(s).digest('hex'),delay=ms=>new Promise(r=>setTimeout(r,ms));
@@ -11,7 +12,7 @@ const hash=s=>createHash('sha256').update(s).digest('hex'),delay=ms=>new Promise
   assert.equal(await app.evaluate(()=>{const os=process.getBuiltinModule('os');global.originalMathTestFreemem=os.freemem;os.freemem=()=>256*1024*1024;return os.freemem();}),256*1024*1024);
   page=await app.firstWindow();result.version=await app.evaluate(({app})=>app.getVersion());await page.locator('.cm-content').waitFor();
   const visible=()=>page.waitForFunction(h=>[...document.querySelectorAll('#pages canvas')].some(c=>(c.dataset.localSourceHash||c.dataset.sourceHash)===h),hash(expected),{timeout:30000,polling:10});
-  const ready=async()=>{const at=expected.indexOf('TargetSentinel')+14;await page.evaluate(async({root,at})=>{const v=document.querySelector('.cm-content').cmTile.root.view;v.dispatch({selection:{anchor:at}});await window.desktop.call('localCursor',root,at);},{root,at});await page.waitForFunction(async at=>{const p=await window.desktop.call('previewPerformance');return p.localReady&&!p.localBusy&&p.localRange?.from<=at&&at<p.localRange.to;},at,{timeout:60000,polling:20});};
+  const ready=async()=>{const at=expected.indexOf('TargetSentinel')+14;await page.evaluate(async({root,at})=>{const v=document.querySelector('.cm-content').cmTile.root.view;v.dispatch({selection:{anchor:at}});await window.desktop.call('localCursor',root,at);},{root,at});await waitForAsync(page,async at=>{const p=await window.desktop.call('previewPerformance');return p.localReady&&!p.localBusy&&p.localRange?.from<=at&&at<p.localRange.to;},at,{timeout:60000,polling:20});};
   const edit=async(at,count,insert)=>{await page.evaluate(({at,count,insert})=>{const v=document.querySelector('.cm-content').cmTile.root.view;v.dispatch({changes:{from:at,to:at+count,insert},selection:{anchor:at+insert.length}});},{at,count,insert});expected=expected.slice(0,at)+insert+expected.slice(at+count);};
   const sample=async(label,at,count,insert)=>{const t=performance.now();await edit(at,count,insert);await visible();result.samples.push({label,ms:Math.ceil(performance.now()-t)});};
   await visible();await ready();
