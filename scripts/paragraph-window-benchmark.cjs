@@ -36,7 +36,7 @@ const stats=xs=>{const a=xs.toSorted((a,b)=>a-b);assert.ok(a.length);return{n:a.
     trial.pixelOracle=await checkPixels(false);
     const seam=source.indexOf('\n\n',source.indexOf('First'+position));await edit('canonical-joined',seam,seam+1,'');
     await page.evaluate(h=>{const f=window.windowFrame;if(f.sourceHash!==h)throw Error('Joined snapshot source is stale');window.joinedPixelSnapshot={sourceHash:h,pages:Array.from({length:f.span.last-f.span.first+1},(_,i)=>{const page=f.span.first+i,c=document.querySelector(`.flow-page[data-page="${page}"] canvas`);return{page,width:c.width,height:c.height,data:c.getContext('2d').getImageData(0,0,c.width,c.height).data};})};},hash(source));
-    await page.evaluate(()=>window.desktop.call('build'));trial.joinedCanonicalOracle=await checkPixels(true);
+    const beforeFull=await page.evaluate(()=>window.windowCommits);await page.evaluate(()=>window.desktop.call('build'));await page.waitForFunction(({h,before})=>window.windowCanonical?.sourceHash===h&&window.windowCommits>before,{h:hash(source),before:beforeFull},{timeout:90000});trial.joinedCanonicalOracle=await checkPixels(true);
     await edit('canonical-restored',seam,seam,'\n');assert.equal(source,original);await page.evaluate(()=>window.desktop.call('cancel'));
 
    }
