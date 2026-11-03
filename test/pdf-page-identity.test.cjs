@@ -25,3 +25,8 @@ test('Unresolved unused native colour resources match only the same unresolved r
  const changed=await PDFDocument.load(bytes,{updateMetadata:false});changed.getPage(0).node.Resources().set(PDFName.of('ColorSpace'),PDFRef.of(9001));assert.ok(!equal(base,(await pdfPageIdentities(await changed.save()))[0]));
  const resolved=await PDFDocument.load(bytes,{updateMetadata:false});resolved.context.assign(PDFRef.of(9000),resolved.context.obj({Changed:true}));assert.ok(!equal(base,(await pdfPageIdentities(await resolved.save()))[0]));
 });
+
+test('Large live PDFs bypass identity parsing and many small rasters remain bounded',async()=>{
+ const d=await PDFDocument.create(),p=d.addPage();p.node.set(PDFName.of('Contents'),d.context.register(d.context.stream(new Uint8Array(2*1024*1024))));const bytes=await d.save({useObjectStreams:false});assert.ok(bytes.length>2*1024*1024);assert.deepEqual(await pdfPageIdentities(bytes),[]);
+ let closed=0;const cache=new PageRasterCache(1024,2);for(let i=0;i<10;i++)cache.set(new Uint8Array([i]),1,{image:{close(){closed++;}},width:1,height:1});assert.equal(closed,8);assert.equal(cache.get(new Uint8Array([0]),1),undefined);assert.ok(cache.get(new Uint8Array([9]),1));cache.clear();assert.equal(closed,10);
+});

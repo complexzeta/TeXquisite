@@ -3,6 +3,7 @@ import {PDFDocument,PDFName,PDFRef,PDFDict,PDFArray,PDFRawStream,PDFNumber,PDFBo
 // sibling pages are excluded; every reachable resource and raw stream is kept.
 // Catalog features that can affect rendering outside the page graph opt out.
 export async function pdfPageIdentities(bytes:Uint8Array):Promise<(Uint8Array|undefined)[]>{
+  if(bytes.byteLength>2*1024*1024)return [];
   try{
     const pdf=await PDFDocument.load(bytes,{updateMetadata:false});
     if(pdf.context.trailerInfo.Encrypt||pdf.catalog.keys().some(k=>!['Type','Pages','PageLabels','Names','Dests','Outlines','PageMode','PageLayout','OpenAction','ViewerPreferences','Metadata','Lang'].includes(k.decodeText())))return [];
