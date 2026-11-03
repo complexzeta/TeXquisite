@@ -13,29 +13,6 @@ const identities=new Map<number,Promise<(Uint8Array|undefined)[]>>();
 const rasterCache=new PageRasterCache<any>();
 const work=new PdfWorkQueue();
 const worker=globalThis as unknown as {onmessage:(event:MessageEvent)=>void;postMessage:(value:unknown,transfer?:Transferable[])=>void};
-async function renderPage(document:PDFiumDocument,args:any){
-        const page=document.getPage(args.page-1);
-        try{
-          const started=performance.now();let inkFallbackReason:string|undefined;
-          if(args.imageBitmap&&!args.includePixels&&!args.fullRaster&&typeof OffscreenCanvas!=='undefined'){
-            const identity=args.live?(await identities.get(args.documentId))?.[args.page-1]:undefined;
-            const cached=identity?rasterCache.get(identity,args.scale):undefined;
-            if(cached){try{const image=await createImageBitmap(cached.image);return {result:{...cached,image,rasterCacheHit:true,rasterMs:0,workerMs:performance.now()-started},transfer:[image]};}catch{rasterCache.clear();}}
-            const diagnostic:{reason?:string}={};const ink=renderInkPage(page,args.scale,diagnostic);inkFallbackReason=diagnostic.reason;
-            if(ink){if(identity){try{const image=await createImageBitmap(ink.image);rasterCache.set(identity,args.scale,{...ink,image,pageWidth:ink.originalWidth,pageHeight:ink.originalHeight});}catch{rasterCache.clear();}}return {result:{...ink,pageWidth:ink.originalWidth,pageHeight:ink.originalHeight,rasterMs:performance.now()-started,workerMs:performance.now()-started},transfer:[ink.image]};}
-          }
-          const bitmap=await page.render({scale:args.scale,colorSpace:'RGBA',transparent:false});
-          const geometry=page.getOriginalSize(),pageWidth=geometry.originalWidth,pageHeight=geometry.originalHeight;
-          const rasterMs=performance.now()-started;
-          if(args.imageBitmap&&typeof OffscreenCanvas!=='undefined'){
-            const canvas=new OffscreenCanvas(bitmap.width,bitmap.height);
-            const pixels=new Uint8ClampedArray(bitmap.data.buffer as ArrayBuffer,bitmap.data.byteOffset,bitmap.data.byteLength);
-            canvas.getContext('2d')!.putImageData(new ImageData(pixels,bitmap.width,bitmap.height),0,0);
-            const image=canvas.transferToImageBitmap();
-            return {result:{width:bitmap.width,height:bitmap.height,originalWidth:bitmap.originalWidth,originalHeight:bitmap.originalHeight,pageWidth,pageHeight,image,...(args.includePixels?{data:bitmap.data}:{}),inkFallbackReason,rasterMs,workerMs:performance.now()-started},transfer:args.includePixels?[image,bitmap.data.buffer as ArrayBuffer]:[image]};
-          }else return {result:{...bitmap,pageWidth,pageHeight,rasterMs,workerMs:performance.now()-started},transfer:[bitmap.data.buffer as ArrayBuffer]};
-        }finally{page.close();}
-}
 worker.onmessage=event=>{
   const {id,method,...args}=event.data;
   // PDFium's instance is shared. Serialize calls, including document teardown,
@@ -49,22 +26,33 @@ worker.onmessage=event=>{
         documents.set(documentId,document);
         if(args.live)identities.set(documentId,pdfPageIdentities(args.bytes));
         worker.postMessage({id,result:{documentId,numPages:document.getPageCount()}});
-      }else if(method==='loadBand'){
-        if(!Number.isSafeInteger(args.bandId)||args.bandId<1||!Number.isFinite(args.scale)||args.scale<=0||args.scale>16)throw Error('Invalid live band request.');
-        const document=await lib.loadDocument(args.bytes),documentId=++nextDocument;documents.set(documentId,document);
-        const numPages=document.getPageCount();if(numPages<1||numPages>3){document.destroy();documents.delete(documentId);throw Error('Invalid live page band.');}
-        identities.set(documentId,pdfPageIdentities(args.bytes));worker.postMessage({id,result:{documentId,numPages}});
-        // Keep native work together, but deliver each image immediately so the
-        // viewer can compose it while the next page is rasterized.
-        try{for(let page=1;page<=numPages;page++){const rendered=await renderPage(document,{...args,page,documentId,live:true,imageBitmap:true});worker.postMessage({bandId:args.bandId,page,result:rendered.result,done:page===numPages},rendered.transfer);}}
-        catch(error){document.destroy();documents.delete(documentId);identities.delete(documentId);worker.postMessage({bandId:args.bandId,error:String(error)});}
       }else if(method==='sizes'){
         const document=documents.get(args.documentId);if(!document)throw new Error('PDF was closed.');
         const sizes=[];for(let i=0;i<document.getPageCount();i++){const page=document.getPage(i);try{sizes.push(page.getOriginalSize());}finally{page.close();}}
         worker.postMessage({id,result:sizes});
       }else if(method==='render'){
         const document=documents.get(args.documentId);if(!document)throw new Error('PDF was closed.');
-        const rendered=await renderPage(document,args);worker.postMessage({id,result:rendered.result},rendered.transfer);
+        const page=document.getPage(args.page-1);
+        try{
+          const started=performance.now();let inkFallbackReason:string|undefined;
+          if(args.imageBitmap&&!args.includePixels&&!args.fullRaster&&typeof OffscreenCanvas!=='undefined'){
+            const identity=args.live?(await identities.get(args.documentId))?.[args.page-1]:undefined;
+            const cached=identity?rasterCache.get(identity,args.scale):undefined;
+            if(cached){try{const image=await createImageBitmap(cached.image);worker.postMessage({id,result:{...cached,image,rasterCacheHit:true,rasterMs:0,workerMs:performance.now()-started}},[image]);return;}catch{rasterCache.clear();}}
+            const diagnostic:{reason?:string}={};const ink=renderInkPage(page,args.scale,diagnostic);inkFallbackReason=diagnostic.reason;
+            if(ink){if(identity){try{const image=await createImageBitmap(ink.image);rasterCache.set(identity,args.scale,{...ink,image,pageWidth:ink.originalWidth,pageHeight:ink.originalHeight});}catch{rasterCache.clear();}}worker.postMessage({id,result:{...ink,pageWidth:ink.originalWidth,pageHeight:ink.originalHeight,rasterMs:performance.now()-started,workerMs:performance.now()-started}},[ink.image]);return;}
+          }
+          const bitmap=await page.render({scale:args.scale,colorSpace:'RGBA',transparent:false});
+          const geometry=page.getOriginalSize(),pageWidth=geometry.originalWidth,pageHeight=geometry.originalHeight;
+          const rasterMs=performance.now()-started;
+          if(args.imageBitmap&&typeof OffscreenCanvas!=='undefined'){
+            const canvas=new OffscreenCanvas(bitmap.width,bitmap.height);
+            const pixels=new Uint8ClampedArray(bitmap.data.buffer as ArrayBuffer,bitmap.data.byteOffset,bitmap.data.byteLength);
+            canvas.getContext('2d')!.putImageData(new ImageData(pixels,bitmap.width,bitmap.height),0,0);
+            const image=canvas.transferToImageBitmap();
+            worker.postMessage({id,result:{width:bitmap.width,height:bitmap.height,originalWidth:bitmap.originalWidth,originalHeight:bitmap.originalHeight,pageWidth,pageHeight,image,...(args.includePixels?{data:bitmap.data}:{}),inkFallbackReason,rasterMs,workerMs:performance.now()-started}},args.includePixels?[image,bitmap.data.buffer as ArrayBuffer]:[image]);
+          }else worker.postMessage({id,result:{...bitmap,pageWidth,pageHeight,rasterMs,workerMs:performance.now()-started}},[bitmap.data.buffer as ArrayBuffer]);
+        }finally{page.close();}
       }else if(method==='verifyPageBand'){
         const document=documents.get(args.documentId),frames=args.frames;if(!document)throw Error('PDF was closed.');
         if(!Number.isFinite(args.scale)||args.scale<=0||args.scale>16||!Array.isArray(frames)||frames.length<1||frames.length>3||frames.length!==document.getPageCount()||frames.some(f=>!f||!Number.isSafeInteger(f.width)||!Number.isSafeInteger(f.height)||f.width<1||f.height<1||f.width*f.height>16000000||!(f.pixels instanceof Uint8ClampedArray)||f.pixels.length!==f.width*f.height*4))throw Error('Invalid page proof.');
