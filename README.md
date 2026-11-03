@@ -6,7 +6,7 @@ A standalone LaTeX editor with source and compiled preview side by side. It save
 
 **Mac and Linux preview:** [Download TeXquisite 0.123.0](https://github.com/complexzeta/TeXquisite/releases/tag/v0.123.0) for Apple Silicon/Intel Macs and ARM64/x64 Linux. These are permanent release downloads. Mac previews require explicit first-launch approval; Linux uses tested Debian packages. Read the [Mac/Linux setup guide](https://github.com/complexzeta/TeXquisite/releases/download/v0.123.0/FIRST-RUN-MAC-LINUX.md).
 
-**Early Windows x64 test release:** [Download TeXquisite 0.131.0](https://github.com/complexzeta/TeXquisite/releases/download/v0.131.0/TeXquisite-0.131.0-Windows.exe), with [faster updates through reuse of unchanged page canvases](CACHED-CANVAS-SPEED.md).
+**Early Windows x64 test release:** [Download TeXquisite 0.132.0](https://github.com/complexzeta/TeXquisite/releases/download/v0.132.0/TeXquisite-0.132.0-Windows.exe), with [faster continuation after paragraph joins](PARAGRAPH-WINDOW-SPEED.md). The [remaining mixed-workload latency limits](PARAGRAPH-WINDOW-RESULTS.json) are recorded separately.
 
 1. Install TeX Live separately, including latexmk. TeXquisite does not bundle a full TeX distribution.
 2. Run the portable executable; no VS Code, Node.js or account is required to use it.
@@ -31,7 +31,11 @@ A standalone LaTeX editor with source and compiled preview side by side. It save
 
 ## Current limits
 
-This is a public test build, not a finished replacement for every TeX workflow. Windows with TeX Live is the initial supported setup. MiKTeX native compilation is experimental; Mac and Linux preview packages are available from the 0.123.0 release linked above.
+Mac preview packages work in functional tests but require explicit user approval until Developer ID signing and notarization are completed; Gatekeeper rejection has been confirmed. Linux preview downloads use tested Debian packages. Earlier AppImage previews were withdrawn after their launcher disabled sandboxing; see the [downloaded-package results](DESKTOP-PORTABILITY.md).
+
+The [Mac release preparation](MAC-RELEASE.md) includes tested hardened-runtime rehearsals and a credential-gated signing/notarization workflow. Apple Developer enrollment and real signing credentials are still required to complete that release path.
+
+This is a public test build, not a finished replacement for every TeX workflow. Windows with TeX Live is the initial supported setup. MiKTeX native compilation remains experimental, but passed limited clean Windows Server 2022/2025 checks with the public 0.122 portable; see [MiKTeX results and limits](MIKTEX-COMPATIBILITY-RESULTS.md). MiKTeX needs Perl for latexmk and currently has no persistent local lecture-preview support. Native macOS and Linux previews passed cloud source and packaged-app checks on both Intel/x64 and ARM64; see [platform packages, installation and limits](DESKTOP-PORTABILITY.md). The public 0.122.0 release remains Windows-only.
 
 Fast preview uses either the bundled TeX Live 2025 format or a matching format prepared locally from an indexed TeX Live installation. Settings offers **Prepare matching fast preview** when needed. Preparation is optional, can take a couple of minutes once, and is cached across restarts with compiler/input integrity checks. Unsupported kernels can continue using native compilation with a visible explanation; updates may be slower. First loads, changed preambles, page-layout changes and complicated TikZ diagrams can take longer than small warm edits. No universal per-keystroke latency is promised.
 
@@ -53,7 +57,7 @@ Documents remain ordinary local TeX files. The app creates local drafts, preview
 
 ## Build from source
 
-Windows development was tested with Node.js 24 and npm. Install TeX separately to run compilation/integration tests.
+Development uses Node.js 24 and npm. Install TeX separately to run compilation/integration tests. See the [macOS/Linux guide](DESKTOP-PORTABILITY.md) for native packaging and prerequisites.
 
 ~~~powershell
 npm ci
@@ -83,3 +87,4 @@ The [0.96 reliability results](https://github.com/complexzeta/TeXquisite/blob/ma
 ## License and source
 
 TeXquisite application code is licensed under [AGPL-3.0-only](LICENSE). Third-party components retain their respective licenses; see [THIRD-PARTY-NOTICES.txt](THIRD-PARTY-NOTICES.txt). The modified SwiftLaTeX/pdfTeX compiler is accompanied by its upstream source, patch/build scripts and license. Corresponding source for each downloadable version is available from the matching Git tag and the source archives on its release page.
+
