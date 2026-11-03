@@ -69,8 +69,8 @@ export function proofDensityRetry(result:{ok:boolean;fringeFailure?:unknown},fac
 }
 export function matchLocalRaster(a:Uint8ClampedArray,b:Uint8ClampedArray,width:number,height:number,rect:RasterRect){return matchRaster(a,b,width,height,rect,false);}
 export function matchLocalPatchRaster(a:Uint8ClampedArray,b:Uint8ClampedArray,width:number,height:number,rect:RasterRect,calibratedGlyphs:RasterRect[]=[],pixelScale=1){return matchRaster(a,b,width,height,rect,true,calibratedGlyphs,pixelScale);}
-function matchRaster(a:Uint8ClampedArray,b:Uint8ClampedArray,width:number,height:number,rect:RasterRect,patchOnly:boolean,calibratedGlyphs:RasterRect[]=[],pixelScale=1){
-  const changed:number[]=[],limit=Math.max(64,Math.floor(width*height*.0001));let maxDifference=0,metricPixels=0;
+function matchRaster(a:Uint8ClampedArray,b:Uint8ClampedArray,width:number,height:number,rect:RasterRect,patchOnly:boolean,calibratedGlyphs:RasterRect[]=[],pixelScale=1,maxChangedPixels?:number){
+  const changed:number[]=[],limit=Math.min(maxChangedPixels??Infinity,Math.max(64,Math.floor(width*height*.0001)));let maxDifference=0,metricPixels=0;
   if(!Number.isSafeInteger(width)||!Number.isSafeInteger(height)||width<1||height<1||!Object.values(rect).every(Number.isFinite)||rect.width<=0||rect.height<=0)return {ok:false,differingPixels:0,maxDifference};
   if(a.length!==b.length||a.length!==width*height*4)return {ok:false,differingPixels:0,maxDifference};
   const left=patchOnly?Math.max(0,Math.floor(rect.x)):0,right=patchOnly?Math.min(width,Math.ceil(rect.x+rect.width)):width,top=patchOnly?Math.max(0,Math.floor(rect.y)):0,bottom=patchOnly?Math.min(height,Math.ceil(rect.y+rect.height)):height;
@@ -165,8 +165,20 @@ export function crossPageClearOutside(data:Uint8Array|Uint8ClampedArray,width:nu
 // ordinary raster limits. Only complete, independently matched vector coverage
 // may select this route; generic paragraphs keep their whole-patch proof.
 export function matchCrossPageRaster(a:Uint8ClampedArray,b:Uint8ClampedArray,width:number,height:number,rect:RasterRect,rows:RasterRect[],glyphs:RasterRect[],factor:number,complete:boolean){
- if(!complete||!Array.isArray(rows)||!rows.length||rows.length>64||!glyphs.length||!glyphs.every(g=>g.outline===true))return{ok:false};
- let edge=rect.y,count=0,maxDifference=0;
- for(const row of rows){if(!Object.values(row).every(Number.isFinite)||Math.abs(row.x-rect.x)>.001||Math.abs(row.width-rect.width)>.001||Math.abs(row.y-edge)>.001||row.height<=0||row.height>64*factor)return{ok:false};edge=row.y+row.height;const checked=matchLocalPatchRaster(a,b,width,height,row,glyphs,factor);if(!checked.ok)return checked;count+=checked.differingPixels;maxDifference=Math.max(maxDifference,checked.maxDifference);}
- if(Math.abs(edge-rect.y-rect.height)>.001)return{ok:false};return{ok:true,differingPixels:count,maxDifference,verifiedLines:rows.length};
+ if(!complete||!Array.isArray(rows)||!rows.length||rows.length>64||!glyphs.length||glyphs.length>4096||!glyphs.every(g=>g.outline===true)||!Number.isFinite(factor)||factor<=0)return{ok:false};
+ let edge=rect.y,count=0,maxDifference=0,cells=0;
+ for(const row of rows){
+  if(!Object.values(row).every(Number.isFinite)||Math.abs(row.x-rect.x)>.001||Math.abs(row.width-rect.width)>.001||Math.abs(row.y-edge)>.001||row.height<=0||row.height>64*factor)return{ok:false};edge=row.y+row.height;
+  const top=Math.max(0,Math.floor(row.y)),bottom=Math.min(height,Math.ceil(edge)),left=Math.max(0,Math.floor(row.x)),right=Math.min(width,Math.ceil(row.x+row.width));
+  const rowGlyphs=glyphs.filter(g=>g.y+g.height+1>=top&&g.y-1<=bottom),step=Math.max(1,Math.floor(4*factor));
+  for(let x=left;x<right;x+=step){
+   const end=Math.min(right,x+step),near=rowGlyphs.filter(g=>g.x+g.width+1>=x&&g.x-1<=end);
+   // Vector identity alone does not excuse a changed fill or missing stroke.
+   // Every differing pixel must be opaque grayscale, close in coverage, and
+   // inside an independently matched glyph. Non-text drawing stays exact.
+   for(let y=top;y<bottom;y++)for(let xx=x;xx<end;xx++){const p=(y*width+xx)*4;if(a[p]===b[p]&&a[p+1]===b[p+1]&&a[p+2]===b[p+2]&&a[p+3]===b[p+3])continue;if(a[p+3]!==255||b[p+3]!==255||a[p]!==a[p+1]||a[p]!==a[p+2]||b[p]!==b[p+1]||b[p]!==b[p+2]||Math.abs(a[p]-b[p])>32||!near.some(g=>xx>=Math.floor(g.x)-1&&xx<=Math.ceil(g.x+g.width)+1&&y>=Math.floor(g.y)-1&&y<=Math.ceil(g.y+g.height)+1))return{ok:false,reason:'unproved-coverage',x:xx,y};}
+   const checked=matchRaster(a,b,width,height,{x,y:top,width:end-x,height:bottom-top},true,near,factor,64);if(!checked.ok)return checked;count+=checked.differingPixels;maxDifference=Math.max(maxDifference,checked.maxDifference);if(++cells>16384)return{ok:false};
+  }
+ }
+ if(Math.abs(edge-rect.y-rect.height)>.001)return{ok:false};return{ok:true,differingPixels:count,maxDifference,verifiedLines:rows.length,verifiedCells:cells};
 }
