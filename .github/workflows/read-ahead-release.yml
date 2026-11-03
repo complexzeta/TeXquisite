@@ -49,6 +49,8 @@ jobs:
       - name: Package this candidate and verify its runtime assets
         shell: pwsh
         run: |
+          node node_modules/electron/install.js
+          if($LASTEXITCODE -ne 0){exit $LASTEXITCODE}
           $env:ELECTRON_BUILDER_CACHE="$env:COMPATIBILITY_ROOT/builder"
           node node_modules/electron-builder/out/cli/cli.js --win portable --publish never "--config.directories.output=$env:COMPATIBILITY_ROOT/package"
           if($LASTEXITCODE -ne 0){exit $LASTEXITCODE}
