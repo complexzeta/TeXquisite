@@ -47,7 +47,7 @@ export function loadPdf(bytes:Uint8Array,interactive=false,live=false){
         let bitmap=await call('render',{...args,reuseRasterId});
         if(bitmap.rasterReuse){
           const canvas=reusableCanvases.accept(previous,bitmap);
-          if(canvas){canvas.style.width=bitmap.originalWidth*scale+'px';canvas.style.height=bitmap.originalHeight*scale+'px';canvas.dataset.pdfCanvasReused='true';canvas.dataset.rasterCacheHit='true';canvas.dataset.rasterMs='0';canvas.dataset.workerMs=String(bitmap.workerMs);canvas.dataset.renderMs=String(performance.now()-started);return{canvas,pixels:undefined};}
+          if(canvas&&Math.abs(parseFloat(canvas.style.width)-bitmap.originalWidth*scale)<.01&&Math.abs(parseFloat(canvas.style.height)-bitmap.originalHeight*scale)<.01){canvas.dataset.pdfCanvasReused='true';canvas.dataset.rasterCacheHit='true';canvas.dataset.rasterMs='0';canvas.dataset.workerMs=String(bitmap.workerMs);canvas.dataset.renderMs=String(performance.now()-started);return{canvas,pixels:undefined};}
           // The view can retire or resize an offered canvas while the worker
           // checks it. Request pixels normally; never display an empty token.
           bitmap=await call('render',args);

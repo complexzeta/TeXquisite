@@ -345,8 +345,8 @@ jobs:
           if ('${{ inputs.suite }}' -eq 'diagnostics') {
             $env:PERSISTENT_TEX_MULTI_BLOCK='0'
             $env:PERSISTENT_TEX_RETAINED_FLOW='0'
-            foreach($test in @('page-ink-raster','performance-report','recovery-navigation','status-bar','compact-fit','recovery-idle','automatic-recovery','recovery-latency','math-deletion')) {
-              node "scripts/$test-test.cjs"
+            foreach($test in @('canvas-reuse-benchmark','page-ink-raster','performance-report','recovery-navigation','status-bar','compact-fit','recovery-idle','automatic-recovery','recovery-latency','math-deletion')) {
+              if($test -eq 'canvas-reuse-benchmark'){node scripts/canvas-reuse-benchmark.cjs}else{node "scripts/$test-test.cjs"}
               if($LASTEXITCODE -ne 0){exit $LASTEXITCODE}
             }
             exit 0
