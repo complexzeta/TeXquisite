@@ -1,0 +1,3757 @@
+{
+  "schema": 1,
+  "version": "0.132.0",
+  "sourceCommit": "d83684e69710e9150de3493981d6989f53ad25b5",
+  "validationRun": 41712794390,
+  "synthetic": true,
+  "localAppBenchmarked": false,
+  "privateDocumentsUsed": false,
+  "endpoint": "completed hidden canvas for controlled tests; natural stress uses completed canvas after paint opportunity; neither measures physical display paint",
+  "control": "Same binary with PERSISTENT_TEX_BOUNDARY_WINDOW=0; candidate uses the default enabled behavior",
+  "scope": "Bounded adjacent paragraph joins in Lecture + Continuous scroll, including Backspace, with exact source and native page proof",
+  "limitations": [
+    "Initial context deliberately narrowed to reproduce the fallback case.",
+    "Twelve fixed-size cycles per trial; control also reuses its wider context after the first full handoff.",
+    "Results are synthetic Windows cloud TeX Live 2026 measurements; no guarantee for private documents or other platforms.",
+    "Natural stress samples are correlated and coalesced; empirical p99.9 is not a guarantee.",
+    "Other full-build and first-body-line fallbacks still approach two seconds."
+  ],
+  "checks": {
+    "unitAndNative": 106,
+    "reportCount": 63,
+    "exactRasterCases": 28,
+    "existingCanvasViewerPixelCases": 24,
+    "paragraphViewerPixelCases": 32
+  },
+  "cohorts": [
+    {
+      "runtime": "source",
+      "trials": [
+        {
+          "direction": "forward",
+          "page": 1,
+          "candidate": false,
+          "version": "0.132.0",
+          "passed": true,
+          "join": {
+            "n": 12,
+            "median": 39.5,
+            "p95": 104,
+            "max": 104
+          },
+          "firstJoin": 104,
+          "typing": {
+            "n": 12,
+            "median": 37.5,
+            "p95": 509,
+            "max": 509
+          },
+          "undo": {
+            "n": 12,
+            "median": 39.5,
+            "p95": 45,
+            "max": 45
+          },
+          "fullCommits": 1,
+          "sourceSavedExactly": true
+        },
+        {
+          "direction": "forward",
+          "page": 1,
+          "candidate": true,
+          "version": "0.132.0",
+          "passed": true,
+          "join": {
+            "n": 12,
+            "median": 41.5,
+            "p95": 144,
+            "max": 144
+          },
+          "firstJoin": 144,
+          "typing": {
+            "n": 12,
+            "median": 41.5,
+            "p95": 54,
+            "max": 54
+          },
+          "undo": {
+            "n": 12,
+            "median": 41.5,
+            "p95": 63,
+            "max": 63
+          },
+          "fullCommits": 0,
+          "sourceSavedExactly": true,
+          "automaticRecovery": true,
+          "navigation": true,
+          "viewerPixels": [
+            {
+              "page": 1,
+              "differences": 0
+            }
+          ],
+          "joinedCanonicalPixels": [
+            {
+              "page": 1,
+              "differences": 0
+            }
+          ]
+        },
+        {
+          "direction": "forward",
+          "page": 1,
+          "candidate": false,
+          "version": "0.132.0",
+          "passed": true,
+          "join": {
+            "n": 12,
+            "median": 36,
+            "p95": 109,
+            "max": 109
+          },
+          "firstJoin": 109,
+          "typing": {
+            "n": 12,
+            "median": 37,
+            "p95": 520,
+            "max": 520
+          },
+          "undo": {
+            "n": 12,
+            "median": 36,
+            "p95": 43,
+            "max": 43
+          },
+          "fullCommits": 1,
+          "sourceSavedExactly": true
+        },
+        {
+          "direction": "forward",
+          "page": 1,
+          "candidate": true,
+          "version": "0.132.0",
+          "passed": true,
+          "join": {
+            "n": 12,
+            "median": 38,
+            "p95": 125,
+            "max": 125
+          },
+          "firstJoin": 125,
+          "typing": {
+            "n": 12,
+            "median": 37,
+            "p95": 48,
+            "max": 48
+          },
+          "undo": {
+            "n": 12,
+            "median": 35.5,
+            "p95": 45,
+            "max": 45
+          },
+          "fullCommits": 0,
+          "sourceSavedExactly": true,
+          "automaticRecovery": true,
+          "navigation": true,
+          "viewerPixels": [
+            {
+              "page": 1,
+              "differences": 0
+            }
+          ],
+          "joinedCanonicalPixels": [
+            {
+              "page": 1,
+              "differences": 0
+            }
+          ]
+        },
+        {
+          "direction": "forward",
+          "page": 10,
+          "candidate": false,
+          "version": "0.132.0",
+          "passed": true,
+          "join": {
+            "n": 12,
+            "median": 35,
+            "p95": 84,
+            "max": 84
+          },
+          "firstJoin": 84,
+          "typing": {
+            "n": 12,
+            "median": 34,
+            "p95": 541,
+            "max": 541
+          },
+          "undo": {
+            "n": 12,
+            "median": 34,
+            "p95": 43,
+            "max": 43
+          },
+          "fullCommits": 1,
+          "sourceSavedExactly": true
+        },
+        {
+          "direction": "forward",
+          "page": 10,
+          "candidate": true,
+          "version": "0.132.0",
+          "passed": true,
+          "join": {
+            "n": 12,
+            "median": 35,
+            "p95": 118,
+            "max": 118
+          },
+          "firstJoin": 118,
+          "typing": {
+            "n": 12,
+            "median": 36,
+            "p95": 50,
+            "max": 50
+          },
+          "undo": {
+            "n": 12,
+            "median": 35,
+            "p95": 45,
+            "max": 45
+          },
+          "fullCommits": 0,
+          "sourceSavedExactly": true,
+          "automaticRecovery": true,
+          "navigation": true,
+          "viewerPixels": [
+            {
+              "page": 10,
+              "differences": 0
+            }
+          ],
+          "joinedCanonicalPixels": [
+            {
+              "page": 10,
+              "differences": 0
+            }
+          ]
+        },
+        {
+          "direction": "forward",
+          "page": 10,
+          "candidate": false,
+          "version": "0.132.0",
+          "passed": true,
+          "join": {
+            "n": 12,
+            "median": 34.5,
+            "p95": 88,
+            "max": 88
+          },
+          "firstJoin": 88,
+          "typing": {
+            "n": 12,
+            "median": 35.5,
+            "p95": 539,
+            "max": 539
+          },
+          "undo": {
+            "n": 12,
+            "median": 35,
+            "p95": 45,
+            "max": 45
+          },
+          "fullCommits": 1,
+          "sourceSavedExactly": true
+        },
+        {
+          "direction": "forward",
+          "page": 10,
+          "candidate": true,
+          "version": "0.132.0",
+          "passed": true,
+          "join": {
+            "n": 12,
+            "median": 34.5,
+            "p95": 116,
+            "max": 116
+          },
+          "firstJoin": 116,
+          "typing": {
+            "n": 12,
+            "median": 36,
+            "p95": 50,
+            "max": 50
+          },
+          "undo": {
+            "n": 12,
+            "median": 35,
+            "p95": 45,
+            "max": 45
+          },
+          "fullCommits": 0,
+          "sourceSavedExactly": true,
+          "automaticRecovery": true,
+          "navigation": true,
+          "viewerPixels": [
+            {
+              "page": 10,
+              "differences": 0
+            }
+          ],
+          "joinedCanonicalPixels": [
+            {
+              "page": 10,
+              "differences": 0
+            }
+          ]
+        },
+        {
+          "direction": "backward",
+          "page": 1,
+          "candidate": false,
+          "version": "0.132.0",
+          "passed": true,
+          "join": {
+            "n": 12,
+            "median": 37,
+            "p95": 90,
+            "max": 90
+          },
+          "firstJoin": 90,
+          "typing": {
+            "n": 12,
+            "median": 36.5,
+            "p95": 508,
+            "max": 508
+          },
+          "undo": {
+            "n": 12,
+            "median": 37,
+            "p95": 65,
+            "max": 65
+          },
+          "fullCommits": 1,
+          "sourceSavedExactly": true
+        },
+        {
+          "direction": "backward",
+          "page": 1,
+          "candidate": true,
+          "version": "0.132.0",
+          "passed": true,
+          "join": {
+            "n": 12,
+            "median": 36.5,
+            "p95": 143,
+            "max": 143
+          },
+          "firstJoin": 143,
+          "typing": {
+            "n": 12,
+            "median": 37.5,
+            "p95": 55,
+            "max": 55
+          },
+          "undo": {
+            "n": 12,
+            "median": 36,
+            "p95": 46,
+            "max": 46
+          },
+          "fullCommits": 0,
+          "sourceSavedExactly": true,
+          "automaticRecovery": true,
+          "navigation": true,
+          "viewerPixels": [
+            {
+              "page": 1,
+              "differences": 0
+            }
+          ],
+          "joinedCanonicalPixels": [
+            {
+              "page": 1,
+              "differences": 0
+            }
+          ]
+        },
+        {
+          "direction": "backward",
+          "page": 1,
+          "candidate": false,
+          "version": "0.132.0",
+          "passed": true,
+          "join": {
+            "n": 12,
+            "median": 37,
+            "p95": 99,
+            "max": 99
+          },
+          "firstJoin": 99,
+          "typing": {
+            "n": 12,
+            "median": 37,
+            "p95": 522,
+            "max": 522
+          },
+          "undo": {
+            "n": 12,
+            "median": 38,
+            "p95": 56,
+            "max": 56
+          },
+          "fullCommits": 1,
+          "sourceSavedExactly": true
+        },
+        {
+          "direction": "backward",
+          "page": 1,
+          "candidate": true,
+          "version": "0.132.0",
+          "passed": true,
+          "join": {
+            "n": 12,
+            "median": 37,
+            "p95": 142,
+            "max": 142
+          },
+          "firstJoin": 142,
+          "typing": {
+            "n": 12,
+            "median": 37,
+            "p95": 51,
+            "max": 51
+          },
+          "undo": {
+            "n": 12,
+            "median": 36,
+            "p95": 47,
+            "max": 47
+          },
+          "fullCommits": 0,
+          "sourceSavedExactly": true,
+          "automaticRecovery": true,
+          "navigation": true,
+          "viewerPixels": [
+            {
+              "page": 1,
+              "differences": 0
+            }
+          ],
+          "joinedCanonicalPixels": [
+            {
+              "page": 1,
+              "differences": 0
+            }
+          ]
+        },
+        {
+          "direction": "backward",
+          "page": 10,
+          "candidate": false,
+          "version": "0.132.0",
+          "passed": true,
+          "join": {
+            "n": 12,
+            "median": 36,
+            "p95": 71,
+            "max": 71
+          },
+          "firstJoin": 71,
+          "typing": {
+            "n": 12,
+            "median": 36,
+            "p95": 540,
+            "max": 540
+          },
+          "undo": {
+            "n": 12,
+            "median": 35.5,
+            "p95": 47,
+            "max": 47
+          },
+          "fullCommits": 1,
+          "sourceSavedExactly": true
+        },
+        {
+          "direction": "backward",
+          "page": 10,
+          "candidate": true,
+          "version": "0.132.0",
+          "passed": true,
+          "join": {
+            "n": 12,
+            "median": 35,
+            "p95": 153,
+            "max": 153
+          },
+          "firstJoin": 153,
+          "typing": {
+            "n": 12,
+            "median": 36,
+            "p95": 55,
+            "max": 55
+          },
+          "undo": {
+            "n": 12,
+            "median": 34.5,
+            "p95": 45,
+            "max": 45
+          },
+          "fullCommits": 0,
+          "sourceSavedExactly": true,
+          "automaticRecovery": true,
+          "navigation": true,
+          "viewerPixels": [
+            {
+              "page": 10,
+              "differences": 0
+            }
+          ],
+          "joinedCanonicalPixels": [
+            {
+              "page": 10,
+              "differences": 0
+            }
+          ]
+        },
+        {
+          "direction": "backward",
+          "page": 10,
+          "candidate": false,
+          "version": "0.132.0",
+          "passed": true,
+          "join": {
+            "n": 12,
+            "median": 38.5,
+            "p95": 71,
+            "max": 71
+          },
+          "firstJoin": 71,
+          "typing": {
+            "n": 12,
+            "median": 38.5,
+            "p95": 545,
+            "max": 545
+          },
+          "undo": {
+            "n": 12,
+            "median": 36.5,
+            "p95": 54,
+            "max": 54
+          },
+          "fullCommits": 1,
+          "sourceSavedExactly": true
+        },
+        {
+          "direction": "backward",
+          "page": 10,
+          "candidate": true,
+          "version": "0.132.0",
+          "passed": true,
+          "join": {
+            "n": 12,
+            "median": 37,
+            "p95": 177,
+            "max": 177
+          },
+          "firstJoin": 177,
+          "typing": {
+            "n": 12,
+            "median": 36.5,
+            "p95": 50,
+            "max": 50
+          },
+          "undo": {
+            "n": 12,
+            "median": 38,
+            "p95": 47,
+            "max": 47
+          },
+          "fullCommits": 0,
+          "sourceSavedExactly": true,
+          "automaticRecovery": true,
+          "navigation": true,
+          "viewerPixels": [
+            {
+              "page": 10,
+              "differences": 0
+            }
+          ],
+          "joinedCanonicalPixels": [
+            {
+              "page": 10,
+              "differences": 0
+            }
+          ]
+        }
+      ],
+      "groups": [
+        {
+          "direction": "forward",
+          "page": 1,
+          "candidate": false,
+          "join": {
+            "n": 24,
+            "median": 37,
+            "p95": 104,
+            "max": 109
+          },
+          "typing": {
+            "n": 24,
+            "median": 37,
+            "p95": 509,
+            "max": 520
+          },
+          "undo": {
+            "n": 24,
+            "median": 38.5,
+            "p95": 43,
+            "max": 45
+          },
+          "firstJoins": [
+            104,
+            109
+          ],
+          "fullCommits": [
+            1,
+            1
+          ]
+        },
+        {
+          "direction": "forward",
+          "page": 1,
+          "candidate": true,
+          "join": {
+            "n": 24,
+            "median": 40.5,
+            "p95": 125,
+            "max": 144
+          },
+          "typing": {
+            "n": 24,
+            "median": 40.5,
+            "p95": 48,
+            "max": 54
+          },
+          "undo": {
+            "n": 24,
+            "median": 38.5,
+            "p95": 49,
+            "max": 63
+          },
+          "firstJoins": [
+            144,
+            125
+          ],
+          "fullCommits": [
+            0,
+            0
+          ]
+        },
+        {
+          "direction": "forward",
+          "page": 10,
+          "candidate": false,
+          "join": {
+            "n": 24,
+            "median": 35,
+            "p95": 84,
+            "max": 88
+          },
+          "typing": {
+            "n": 24,
+            "median": 35,
+            "p95": 539,
+            "max": 541
+          },
+          "undo": {
+            "n": 24,
+            "median": 35,
+            "p95": 43,
+            "max": 45
+          },
+          "firstJoins": [
+            84,
+            88
+          ],
+          "fullCommits": [
+            1,
+            1
+          ]
+        },
+        {
+          "direction": "forward",
+          "page": 10,
+          "candidate": true,
+          "join": {
+            "n": 24,
+            "median": 35,
+            "p95": 116,
+            "max": 118
+          },
+          "typing": {
+            "n": 24,
+            "median": 36,
+            "p95": 50,
+            "max": 50
+          },
+          "undo": {
+            "n": 24,
+            "median": 35,
+            "p95": 45,
+            "max": 45
+          },
+          "firstJoins": [
+            118,
+            116
+          ],
+          "fullCommits": [
+            0,
+            0
+          ]
+        },
+        {
+          "direction": "backward",
+          "page": 1,
+          "candidate": false,
+          "join": {
+            "n": 24,
+            "median": 37,
+            "p95": 90,
+            "max": 99
+          },
+          "typing": {
+            "n": 24,
+            "median": 37,
+            "p95": 508,
+            "max": 522
+          },
+          "undo": {
+            "n": 24,
+            "median": 38,
+            "p95": 56,
+            "max": 65
+          },
+          "firstJoins": [
+            90,
+            99
+          ],
+          "fullCommits": [
+            1,
+            1
+          ]
+        },
+        {
+          "direction": "backward",
+          "page": 1,
+          "candidate": true,
+          "join": {
+            "n": 24,
+            "median": 37,
+            "p95": 142,
+            "max": 143
+          },
+          "typing": {
+            "n": 24,
+            "median": 37,
+            "p95": 51,
+            "max": 55
+          },
+          "undo": {
+            "n": 24,
+            "median": 36,
+            "p95": 46,
+            "max": 47
+          },
+          "firstJoins": [
+            143,
+            142
+          ],
+          "fullCommits": [
+            0,
+            0
+          ]
+        },
+        {
+          "direction": "backward",
+          "page": 10,
+          "candidate": false,
+          "join": {
+            "n": 24,
+            "median": 36.5,
+            "p95": 71,
+            "max": 71
+          },
+          "typing": {
+            "n": 24,
+            "median": 36,
+            "p95": 540,
+            "max": 545
+          },
+          "undo": {
+            "n": 24,
+            "median": 36,
+            "p95": 51,
+            "max": 54
+          },
+          "firstJoins": [
+            71,
+            71
+          ],
+          "fullCommits": [
+            1,
+            1
+          ]
+        },
+        {
+          "direction": "backward",
+          "page": 10,
+          "candidate": true,
+          "join": {
+            "n": 24,
+            "median": 36,
+            "p95": 153,
+            "max": 177
+          },
+          "typing": {
+            "n": 24,
+            "median": 36,
+            "p95": 51,
+            "max": 55
+          },
+          "undo": {
+            "n": 24,
+            "median": 36,
+            "p95": 45,
+            "max": 47
+          },
+          "firstJoins": [
+            153,
+            177
+          ],
+          "fullCommits": [
+            0,
+            0
+          ]
+        }
+      ]
+    },
+    {
+      "runtime": "packaged",
+      "trials": [
+        {
+          "direction": "forward",
+          "page": 1,
+          "candidate": false,
+          "version": "0.132.0",
+          "passed": true,
+          "join": {
+            "n": 12,
+            "median": 41,
+            "p95": 112,
+            "max": 112
+          },
+          "firstJoin": 112,
+          "typing": {
+            "n": 12,
+            "median": 38.5,
+            "p95": 592,
+            "max": 592
+          },
+          "undo": {
+            "n": 12,
+            "median": 39,
+            "p95": 52,
+            "max": 52
+          },
+          "fullCommits": 1,
+          "sourceSavedExactly": true
+        },
+        {
+          "direction": "forward",
+          "page": 1,
+          "candidate": true,
+          "version": "0.132.0",
+          "passed": true,
+          "join": {
+            "n": 12,
+            "median": 49,
+            "p95": 147,
+            "max": 147
+          },
+          "firstJoin": 147,
+          "typing": {
+            "n": 12,
+            "median": 47.5,
+            "p95": 59,
+            "max": 59
+          },
+          "undo": {
+            "n": 12,
+            "median": 47.5,
+            "p95": 66,
+            "max": 66
+          },
+          "fullCommits": 0,
+          "sourceSavedExactly": true,
+          "automaticRecovery": true,
+          "navigation": true,
+          "viewerPixels": [
+            {
+              "page": 1,
+              "differences": 0
+            }
+          ],
+          "joinedCanonicalPixels": [
+            {
+              "page": 1,
+              "differences": 0
+            }
+          ]
+        },
+        {
+          "direction": "forward",
+          "page": 1,
+          "candidate": false,
+          "version": "0.132.0",
+          "passed": true,
+          "join": {
+            "n": 12,
+            "median": 42,
+            "p95": 110,
+            "max": 110
+          },
+          "firstJoin": 110,
+          "typing": {
+            "n": 12,
+            "median": 42.5,
+            "p95": 587,
+            "max": 587
+          },
+          "undo": {
+            "n": 12,
+            "median": 41.5,
+            "p95": 53,
+            "max": 53
+          },
+          "fullCommits": 1,
+          "sourceSavedExactly": true
+        },
+        {
+          "direction": "forward",
+          "page": 1,
+          "candidate": true,
+          "version": "0.132.0",
+          "passed": true,
+          "join": {
+            "n": 12,
+            "median": 39,
+            "p95": 129,
+            "max": 129
+          },
+          "firstJoin": 129,
+          "typing": {
+            "n": 12,
+            "median": 42,
+            "p95": 54,
+            "max": 54
+          },
+          "undo": {
+            "n": 12,
+            "median": 39,
+            "p95": 45,
+            "max": 45
+          },
+          "fullCommits": 0,
+          "sourceSavedExactly": true,
+          "automaticRecovery": true,
+          "navigation": true,
+          "viewerPixels": [
+            {
+              "page": 1,
+              "differences": 0
+            }
+          ],
+          "joinedCanonicalPixels": [
+            {
+              "page": 1,
+              "differences": 0
+            }
+          ]
+        },
+        {
+          "direction": "forward",
+          "page": 10,
+          "candidate": false,
+          "version": "0.132.0",
+          "passed": true,
+          "join": {
+            "n": 12,
+            "median": 41.5,
+            "p95": 93,
+            "max": 93
+          },
+          "firstJoin": 93,
+          "typing": {
+            "n": 12,
+            "median": 40.5,
+            "p95": 603,
+            "max": 603
+          },
+          "undo": {
+            "n": 12,
+            "median": 39,
+            "p95": 59,
+            "max": 59
+          },
+          "fullCommits": 1,
+          "sourceSavedExactly": true
+        },
+        {
+          "direction": "forward",
+          "page": 10,
+          "candidate": true,
+          "version": "0.132.0",
+          "passed": true,
+          "join": {
+            "n": 12,
+            "median": 43.5,
+            "p95": 126,
+            "max": 126
+          },
+          "firstJoin": 126,
+          "typing": {
+            "n": 12,
+            "median": 43,
+            "p95": 60,
+            "max": 60
+          },
+          "undo": {
+            "n": 12,
+            "median": 43,
+            "p95": 53,
+            "max": 53
+          },
+          "fullCommits": 0,
+          "sourceSavedExactly": true,
+          "automaticRecovery": true,
+          "navigation": true,
+          "viewerPixels": [
+            {
+              "page": 10,
+              "differences": 0
+            }
+          ],
+          "joinedCanonicalPixels": [
+            {
+              "page": 10,
+              "differences": 0
+            }
+          ]
+        },
+        {
+          "direction": "forward",
+          "page": 10,
+          "candidate": false,
+          "version": "0.132.0",
+          "passed": true,
+          "join": {
+            "n": 12,
+            "median": 42.5,
+            "p95": 116,
+            "max": 116
+          },
+          "firstJoin": 116,
+          "typing": {
+            "n": 12,
+            "median": 42,
+            "p95": 644,
+            "max": 644
+          },
+          "undo": {
+            "n": 12,
+            "median": 44,
+            "p95": 58,
+            "max": 58
+          },
+          "fullCommits": 1,
+          "sourceSavedExactly": true
+        },
+        {
+          "direction": "forward",
+          "page": 10,
+          "candidate": true,
+          "version": "0.132.0",
+          "passed": true,
+          "join": {
+            "n": 12,
+            "median": 42,
+            "p95": 138,
+            "max": 138
+          },
+          "firstJoin": 138,
+          "typing": {
+            "n": 12,
+            "median": 43,
+            "p95": 61,
+            "max": 61
+          },
+          "undo": {
+            "n": 12,
+            "median": 44,
+            "p95": 51,
+            "max": 51
+          },
+          "fullCommits": 0,
+          "sourceSavedExactly": true,
+          "automaticRecovery": true,
+          "navigation": true,
+          "viewerPixels": [
+            {
+              "page": 10,
+              "differences": 0
+            }
+          ],
+          "joinedCanonicalPixels": [
+            {
+              "page": 10,
+              "differences": 0
+            }
+          ]
+        },
+        {
+          "direction": "backward",
+          "page": 1,
+          "candidate": false,
+          "version": "0.132.0",
+          "passed": true,
+          "join": {
+            "n": 12,
+            "median": 46,
+            "p95": 128,
+            "max": 128
+          },
+          "firstJoin": 128,
+          "typing": {
+            "n": 12,
+            "median": 45,
+            "p95": 614,
+            "max": 614
+          },
+          "undo": {
+            "n": 12,
+            "median": 46,
+            "p95": 66,
+            "max": 66
+          },
+          "fullCommits": 1,
+          "sourceSavedExactly": true
+        },
+        {
+          "direction": "backward",
+          "page": 1,
+          "candidate": true,
+          "version": "0.132.0",
+          "passed": true,
+          "join": {
+            "n": 12,
+            "median": 44.5,
+            "p95": 169,
+            "max": 169
+          },
+          "firstJoin": 169,
+          "typing": {
+            "n": 12,
+            "median": 44.5,
+            "p95": 53,
+            "max": 53
+          },
+          "undo": {
+            "n": 12,
+            "median": 47,
+            "p95": 56,
+            "max": 56
+          },
+          "fullCommits": 0,
+          "sourceSavedExactly": true,
+          "automaticRecovery": true,
+          "navigation": true,
+          "viewerPixels": [
+            {
+              "page": 1,
+              "differences": 0
+            }
+          ],
+          "joinedCanonicalPixels": [
+            {
+              "page": 1,
+              "differences": 0
+            }
+          ]
+        },
+        {
+          "direction": "backward",
+          "page": 1,
+          "candidate": false,
+          "version": "0.132.0",
+          "passed": true,
+          "join": {
+            "n": 12,
+            "median": 37,
+            "p95": 101,
+            "max": 101
+          },
+          "firstJoin": 101,
+          "typing": {
+            "n": 12,
+            "median": 36.5,
+            "p95": 534,
+            "max": 534
+          },
+          "undo": {
+            "n": 12,
+            "median": 37.5,
+            "p95": 46,
+            "max": 46
+          },
+          "fullCommits": 1,
+          "sourceSavedExactly": true
+        },
+        {
+          "direction": "backward",
+          "page": 1,
+          "candidate": true,
+          "version": "0.132.0",
+          "passed": true,
+          "join": {
+            "n": 12,
+            "median": 37.5,
+            "p95": 143,
+            "max": 143
+          },
+          "firstJoin": 143,
+          "typing": {
+            "n": 12,
+            "median": 36.5,
+            "p95": 48,
+            "max": 48
+          },
+          "undo": {
+            "n": 12,
+            "median": 37,
+            "p95": 50,
+            "max": 50
+          },
+          "fullCommits": 0,
+          "sourceSavedExactly": true,
+          "automaticRecovery": true,
+          "navigation": true,
+          "viewerPixels": [
+            {
+              "page": 1,
+              "differences": 0
+            }
+          ],
+          "joinedCanonicalPixels": [
+            {
+              "page": 1,
+              "differences": 0
+            }
+          ]
+        },
+        {
+          "direction": "backward",
+          "page": 10,
+          "candidate": false,
+          "version": "0.132.0",
+          "passed": true,
+          "join": {
+            "n": 12,
+            "median": 36.5,
+            "p95": 71,
+            "max": 71
+          },
+          "firstJoin": 71,
+          "typing": {
+            "n": 12,
+            "median": 35,
+            "p95": 535,
+            "max": 535
+          },
+          "undo": {
+            "n": 12,
+            "median": 36,
+            "p95": 43,
+            "max": 43
+          },
+          "fullCommits": 1,
+          "sourceSavedExactly": true
+        },
+        {
+          "direction": "backward",
+          "page": 10,
+          "candidate": true,
+          "version": "0.132.0",
+          "passed": true,
+          "join": {
+            "n": 12,
+            "median": 35,
+            "p95": 153,
+            "max": 153
+          },
+          "firstJoin": 153,
+          "typing": {
+            "n": 12,
+            "median": 35.5,
+            "p95": 50,
+            "max": 50
+          },
+          "undo": {
+            "n": 12,
+            "median": 35,
+            "p95": 44,
+            "max": 44
+          },
+          "fullCommits": 0,
+          "sourceSavedExactly": true,
+          "automaticRecovery": true,
+          "navigation": true,
+          "viewerPixels": [
+            {
+              "page": 10,
+              "differences": 0
+            }
+          ],
+          "joinedCanonicalPixels": [
+            {
+              "page": 10,
+              "differences": 0
+            }
+          ]
+        },
+        {
+          "direction": "backward",
+          "page": 10,
+          "candidate": false,
+          "version": "0.132.0",
+          "passed": true,
+          "join": {
+            "n": 12,
+            "median": 34.5,
+            "p95": 69,
+            "max": 69
+          },
+          "firstJoin": 69,
+          "typing": {
+            "n": 12,
+            "median": 35,
+            "p95": 560,
+            "max": 560
+          },
+          "undo": {
+            "n": 12,
+            "median": 35.5,
+            "p95": 45,
+            "max": 45
+          },
+          "fullCommits": 1,
+          "sourceSavedExactly": true
+        },
+        {
+          "direction": "backward",
+          "page": 10,
+          "candidate": true,
+          "version": "0.132.0",
+          "passed": true,
+          "join": {
+            "n": 12,
+            "median": 35.5,
+            "p95": 154,
+            "max": 154
+          },
+          "firstJoin": 154,
+          "typing": {
+            "n": 12,
+            "median": 35.5,
+            "p95": 49,
+            "max": 49
+          },
+          "undo": {
+            "n": 12,
+            "median": 35,
+            "p95": 44,
+            "max": 44
+          },
+          "fullCommits": 0,
+          "sourceSavedExactly": true,
+          "automaticRecovery": true,
+          "navigation": true,
+          "viewerPixels": [
+            {
+              "page": 10,
+              "differences": 0
+            }
+          ],
+          "joinedCanonicalPixels": [
+            {
+              "page": 10,
+              "differences": 0
+            }
+          ]
+        }
+      ],
+      "groups": [
+        {
+          "direction": "forward",
+          "page": 1,
+          "candidate": false,
+          "join": {
+            "n": 24,
+            "median": 41.5,
+            "p95": 110,
+            "max": 112
+          },
+          "typing": {
+            "n": 24,
+            "median": 40,
+            "p95": 587,
+            "max": 592
+          },
+          "undo": {
+            "n": 24,
+            "median": 40.5,
+            "p95": 52,
+            "max": 53
+          },
+          "firstJoins": [
+            112,
+            110
+          ],
+          "fullCommits": [
+            1,
+            1
+          ]
+        },
+        {
+          "direction": "forward",
+          "page": 1,
+          "candidate": true,
+          "join": {
+            "n": 24,
+            "median": 43.5,
+            "p95": 129,
+            "max": 147
+          },
+          "typing": {
+            "n": 24,
+            "median": 46,
+            "p95": 54,
+            "max": 59
+          },
+          "undo": {
+            "n": 24,
+            "median": 42.5,
+            "p95": 66,
+            "max": 66
+          },
+          "firstJoins": [
+            147,
+            129
+          ],
+          "fullCommits": [
+            0,
+            0
+          ]
+        },
+        {
+          "direction": "forward",
+          "page": 10,
+          "candidate": false,
+          "join": {
+            "n": 24,
+            "median": 41.5,
+            "p95": 93,
+            "max": 116
+          },
+          "typing": {
+            "n": 24,
+            "median": 41,
+            "p95": 603,
+            "max": 644
+          },
+          "undo": {
+            "n": 24,
+            "median": 41.5,
+            "p95": 58,
+            "max": 59
+          },
+          "firstJoins": [
+            93,
+            116
+          ],
+          "fullCommits": [
+            1,
+            1
+          ]
+        },
+        {
+          "direction": "forward",
+          "page": 10,
+          "candidate": true,
+          "join": {
+            "n": 24,
+            "median": 43,
+            "p95": 126,
+            "max": 138
+          },
+          "typing": {
+            "n": 24,
+            "median": 43,
+            "p95": 60,
+            "max": 61
+          },
+          "undo": {
+            "n": 24,
+            "median": 43.5,
+            "p95": 51,
+            "max": 53
+          },
+          "firstJoins": [
+            126,
+            138
+          ],
+          "fullCommits": [
+            0,
+            0
+          ]
+        },
+        {
+          "direction": "backward",
+          "page": 1,
+          "candidate": false,
+          "join": {
+            "n": 24,
+            "median": 42,
+            "p95": 101,
+            "max": 128
+          },
+          "typing": {
+            "n": 24,
+            "median": 40,
+            "p95": 534,
+            "max": 614
+          },
+          "undo": {
+            "n": 24,
+            "median": 41.5,
+            "p95": 56,
+            "max": 66
+          },
+          "firstJoins": [
+            128,
+            101
+          ],
+          "fullCommits": [
+            1,
+            1
+          ]
+        },
+        {
+          "direction": "backward",
+          "page": 1,
+          "candidate": true,
+          "join": {
+            "n": 24,
+            "median": 41.5,
+            "p95": 143,
+            "max": 169
+          },
+          "typing": {
+            "n": 24,
+            "median": 41,
+            "p95": 52,
+            "max": 53
+          },
+          "undo": {
+            "n": 24,
+            "median": 44,
+            "p95": 55,
+            "max": 56
+          },
+          "firstJoins": [
+            169,
+            143
+          ],
+          "fullCommits": [
+            0,
+            0
+          ]
+        },
+        {
+          "direction": "backward",
+          "page": 10,
+          "candidate": false,
+          "join": {
+            "n": 24,
+            "median": 35.5,
+            "p95": 69,
+            "max": 71
+          },
+          "typing": {
+            "n": 24,
+            "median": 35,
+            "p95": 535,
+            "max": 560
+          },
+          "undo": {
+            "n": 24,
+            "median": 36,
+            "p95": 43,
+            "max": 45
+          },
+          "firstJoins": [
+            71,
+            69
+          ],
+          "fullCommits": [
+            1,
+            1
+          ]
+        },
+        {
+          "direction": "backward",
+          "page": 10,
+          "candidate": true,
+          "join": {
+            "n": 24,
+            "median": 35,
+            "p95": 153,
+            "max": 154
+          },
+          "typing": {
+            "n": 24,
+            "median": 35.5,
+            "p95": 49,
+            "max": 50
+          },
+          "undo": {
+            "n": 24,
+            "median": 35,
+            "p95": 44,
+            "max": 44
+          },
+          "firstJoins": [
+            153,
+            154
+          ],
+          "fullCommits": [
+            0,
+            0
+          ]
+        }
+      ]
+    }
+  ],
+  "burst": {
+    "run": 41713014091,
+    "trials": [
+      {
+        "direction": "forward",
+        "page": 1,
+        "kind": "control",
+        "passed": true,
+        "maxMs": 206,
+        "frames": 18,
+        "fullCommits": 1,
+        "sourceHashesVerified": true,
+        "sourceSavedExactly": true,
+        "samples": [
+          {
+            "n": 0,
+            "ms": 83,
+            "coalescedTo": 0
+          },
+          {
+            "n": 1,
+            "ms": 206,
+            "coalescedTo": 8
+          },
+          {
+            "n": 2,
+            "ms": 181,
+            "coalescedTo": 8
+          },
+          {
+            "n": 3,
+            "ms": 157,
+            "coalescedTo": 8
+          },
+          {
+            "n": 4,
+            "ms": 133,
+            "coalescedTo": 8
+          },
+          {
+            "n": 5,
+            "ms": 110,
+            "coalescedTo": 8
+          },
+          {
+            "n": 6,
+            "ms": 87,
+            "coalescedTo": 8
+          },
+          {
+            "n": 7,
+            "ms": 64,
+            "coalescedTo": 8
+          },
+          {
+            "n": 8,
+            "ms": 41,
+            "coalescedTo": 8
+          },
+          {
+            "n": 9,
+            "ms": 31,
+            "coalescedTo": 9
+          },
+          {
+            "n": 10,
+            "ms": 23,
+            "coalescedTo": 10
+          },
+          {
+            "n": 11,
+            "ms": 16,
+            "coalescedTo": 11
+          },
+          {
+            "n": 12,
+            "ms": 11,
+            "coalescedTo": 12
+          },
+          {
+            "n": 13,
+            "ms": 12,
+            "coalescedTo": 13
+          },
+          {
+            "n": 14,
+            "ms": 10,
+            "coalescedTo": 14
+          },
+          {
+            "n": 15,
+            "ms": 10,
+            "coalescedTo": 15
+          },
+          {
+            "n": 16,
+            "ms": 9,
+            "coalescedTo": 16
+          },
+          {
+            "n": 17,
+            "ms": 10,
+            "coalescedTo": 17
+          },
+          {
+            "n": 18,
+            "ms": 10,
+            "coalescedTo": 18
+          },
+          {
+            "n": 19,
+            "ms": 11,
+            "coalescedTo": 19
+          },
+          {
+            "n": 20,
+            "ms": 11,
+            "coalescedTo": 20
+          },
+          {
+            "n": 21,
+            "ms": 10,
+            "coalescedTo": 21
+          },
+          {
+            "n": 22,
+            "ms": 9,
+            "coalescedTo": 22
+          },
+          {
+            "n": 23,
+            "ms": 12,
+            "coalescedTo": 23
+          },
+          {
+            "n": 24,
+            "ms": 12,
+            "coalescedTo": 24
+          }
+        ]
+      },
+      {
+        "direction": "forward",
+        "page": 1,
+        "kind": "candidate",
+        "passed": true,
+        "maxMs": 100,
+        "frames": 23,
+        "fullCommits": 0,
+        "sourceHashesVerified": true,
+        "sourceSavedExactly": true,
+        "samples": [
+          {
+            "n": 0,
+            "ms": 100,
+            "coalescedTo": 2
+          },
+          {
+            "n": 1,
+            "ms": 85,
+            "coalescedTo": 2
+          },
+          {
+            "n": 2,
+            "ms": 62,
+            "coalescedTo": 2
+          },
+          {
+            "n": 3,
+            "ms": 58,
+            "coalescedTo": 3
+          },
+          {
+            "n": 4,
+            "ms": 53,
+            "coalescedTo": 4
+          },
+          {
+            "n": 5,
+            "ms": 53,
+            "coalescedTo": 5
+          },
+          {
+            "n": 6,
+            "ms": 47,
+            "coalescedTo": 6
+          },
+          {
+            "n": 7,
+            "ms": 55,
+            "coalescedTo": 7
+          },
+          {
+            "n": 8,
+            "ms": 48,
+            "coalescedTo": 8
+          },
+          {
+            "n": 9,
+            "ms": 48,
+            "coalescedTo": 9
+          },
+          {
+            "n": 10,
+            "ms": 43,
+            "coalescedTo": 10
+          },
+          {
+            "n": 11,
+            "ms": 48,
+            "coalescedTo": 11
+          },
+          {
+            "n": 12,
+            "ms": 50,
+            "coalescedTo": 12
+          },
+          {
+            "n": 13,
+            "ms": 44,
+            "coalescedTo": 13
+          },
+          {
+            "n": 14,
+            "ms": 38,
+            "coalescedTo": 14
+          },
+          {
+            "n": 15,
+            "ms": 34,
+            "coalescedTo": 15
+          },
+          {
+            "n": 16,
+            "ms": 33,
+            "coalescedTo": 16
+          },
+          {
+            "n": 17,
+            "ms": 31,
+            "coalescedTo": 17
+          },
+          {
+            "n": 18,
+            "ms": 26,
+            "coalescedTo": 18
+          },
+          {
+            "n": 19,
+            "ms": 19,
+            "coalescedTo": 19
+          },
+          {
+            "n": 20,
+            "ms": 19,
+            "coalescedTo": 20
+          },
+          {
+            "n": 21,
+            "ms": 20,
+            "coalescedTo": 21
+          },
+          {
+            "n": 22,
+            "ms": 19,
+            "coalescedTo": 22
+          },
+          {
+            "n": 23,
+            "ms": 19,
+            "coalescedTo": 23
+          },
+          {
+            "n": 24,
+            "ms": 19,
+            "coalescedTo": 24
+          }
+        ]
+      },
+      {
+        "direction": "forward",
+        "page": 1,
+        "kind": "outside",
+        "passed": true,
+        "maxMs": 197,
+        "frames": 18,
+        "fullCommits": 1,
+        "sourceHashesVerified": true,
+        "sourceSavedExactly": true,
+        "samples": [
+          {
+            "n": 0,
+            "ms": 86,
+            "coalescedTo": 1
+          },
+          {
+            "n": 1,
+            "ms": 71,
+            "coalescedTo": 1
+          },
+          {
+            "n": 2,
+            "ms": 197,
+            "coalescedTo": 8
+          },
+          {
+            "n": 3,
+            "ms": 173,
+            "coalescedTo": 8
+          },
+          {
+            "n": 4,
+            "ms": 148,
+            "coalescedTo": 8
+          },
+          {
+            "n": 5,
+            "ms": 125,
+            "coalescedTo": 8
+          },
+          {
+            "n": 6,
+            "ms": 100,
+            "coalescedTo": 8
+          },
+          {
+            "n": 7,
+            "ms": 76,
+            "coalescedTo": 8
+          },
+          {
+            "n": 8,
+            "ms": 53,
+            "coalescedTo": 8
+          },
+          {
+            "n": 9,
+            "ms": 42,
+            "coalescedTo": 9
+          },
+          {
+            "n": 10,
+            "ms": 38,
+            "coalescedTo": 10
+          },
+          {
+            "n": 11,
+            "ms": 34,
+            "coalescedTo": 11
+          },
+          {
+            "n": 12,
+            "ms": 29,
+            "coalescedTo": 12
+          },
+          {
+            "n": 13,
+            "ms": 26,
+            "coalescedTo": 13
+          },
+          {
+            "n": 14,
+            "ms": 18,
+            "coalescedTo": 14
+          },
+          {
+            "n": 15,
+            "ms": 12,
+            "coalescedTo": 15
+          },
+          {
+            "n": 16,
+            "ms": 11,
+            "coalescedTo": 16
+          },
+          {
+            "n": 17,
+            "ms": 12,
+            "coalescedTo": 17
+          },
+          {
+            "n": 18,
+            "ms": 12,
+            "coalescedTo": 18
+          },
+          {
+            "n": 19,
+            "ms": 13,
+            "coalescedTo": 19
+          },
+          {
+            "n": 20,
+            "ms": 11,
+            "coalescedTo": 20
+          },
+          {
+            "n": 21,
+            "ms": 10,
+            "coalescedTo": 21
+          },
+          {
+            "n": 22,
+            "ms": 11,
+            "coalescedTo": 22
+          },
+          {
+            "n": 23,
+            "ms": 12,
+            "coalescedTo": 23
+          },
+          {
+            "n": 24,
+            "ms": 11,
+            "coalescedTo": 24
+          }
+        ]
+      },
+      {
+        "direction": "forward",
+        "page": 10,
+        "kind": "control",
+        "passed": true,
+        "maxMs": 214,
+        "frames": 18,
+        "fullCommits": 1,
+        "sourceHashesVerified": true,
+        "sourceSavedExactly": true,
+        "samples": [
+          {
+            "n": 0,
+            "ms": 69,
+            "coalescedTo": 0
+          },
+          {
+            "n": 1,
+            "ms": 214,
+            "coalescedTo": 8
+          },
+          {
+            "n": 2,
+            "ms": 190,
+            "coalescedTo": 8
+          },
+          {
+            "n": 3,
+            "ms": 165,
+            "coalescedTo": 8
+          },
+          {
+            "n": 4,
+            "ms": 143,
+            "coalescedTo": 8
+          },
+          {
+            "n": 5,
+            "ms": 119,
+            "coalescedTo": 8
+          },
+          {
+            "n": 6,
+            "ms": 95,
+            "coalescedTo": 8
+          },
+          {
+            "n": 7,
+            "ms": 72,
+            "coalescedTo": 8
+          },
+          {
+            "n": 8,
+            "ms": 49,
+            "coalescedTo": 8
+          },
+          {
+            "n": 9,
+            "ms": 40,
+            "coalescedTo": 9
+          },
+          {
+            "n": 10,
+            "ms": 33,
+            "coalescedTo": 10
+          },
+          {
+            "n": 11,
+            "ms": 27,
+            "coalescedTo": 11
+          },
+          {
+            "n": 12,
+            "ms": 21,
+            "coalescedTo": 12
+          },
+          {
+            "n": 13,
+            "ms": 15,
+            "coalescedTo": 13
+          },
+          {
+            "n": 14,
+            "ms": 12,
+            "coalescedTo": 14
+          },
+          {
+            "n": 15,
+            "ms": 11,
+            "coalescedTo": 15
+          },
+          {
+            "n": 16,
+            "ms": 12,
+            "coalescedTo": 16
+          },
+          {
+            "n": 17,
+            "ms": 12,
+            "coalescedTo": 17
+          },
+          {
+            "n": 18,
+            "ms": 12,
+            "coalescedTo": 18
+          },
+          {
+            "n": 19,
+            "ms": 13,
+            "coalescedTo": 19
+          },
+          {
+            "n": 20,
+            "ms": 11,
+            "coalescedTo": 20
+          },
+          {
+            "n": 21,
+            "ms": 12,
+            "coalescedTo": 21
+          },
+          {
+            "n": 22,
+            "ms": 12,
+            "coalescedTo": 22
+          },
+          {
+            "n": 23,
+            "ms": 11,
+            "coalescedTo": 23
+          },
+          {
+            "n": 24,
+            "ms": 10,
+            "coalescedTo": 24
+          }
+        ]
+      },
+      {
+        "direction": "forward",
+        "page": 10,
+        "kind": "candidate",
+        "passed": true,
+        "maxMs": 96,
+        "frames": 23,
+        "fullCommits": 0,
+        "sourceHashesVerified": true,
+        "sourceSavedExactly": true,
+        "samples": [
+          {
+            "n": 0,
+            "ms": 96,
+            "coalescedTo": 2
+          },
+          {
+            "n": 1,
+            "ms": 81,
+            "coalescedTo": 2
+          },
+          {
+            "n": 2,
+            "ms": 58,
+            "coalescedTo": 2
+          },
+          {
+            "n": 3,
+            "ms": 57,
+            "coalescedTo": 3
+          },
+          {
+            "n": 4,
+            "ms": 51,
+            "coalescedTo": 4
+          },
+          {
+            "n": 5,
+            "ms": 46,
+            "coalescedTo": 5
+          },
+          {
+            "n": 6,
+            "ms": 38,
+            "coalescedTo": 6
+          },
+          {
+            "n": 7,
+            "ms": 37,
+            "coalescedTo": 7
+          },
+          {
+            "n": 8,
+            "ms": 34,
+            "coalescedTo": 8
+          },
+          {
+            "n": 9,
+            "ms": 28,
+            "coalescedTo": 9
+          },
+          {
+            "n": 10,
+            "ms": 23,
+            "coalescedTo": 10
+          },
+          {
+            "n": 11,
+            "ms": 20,
+            "coalescedTo": 11
+          },
+          {
+            "n": 12,
+            "ms": 18,
+            "coalescedTo": 12
+          },
+          {
+            "n": 13,
+            "ms": 17,
+            "coalescedTo": 13
+          },
+          {
+            "n": 14,
+            "ms": 17,
+            "coalescedTo": 14
+          },
+          {
+            "n": 15,
+            "ms": 17,
+            "coalescedTo": 15
+          },
+          {
+            "n": 16,
+            "ms": 16,
+            "coalescedTo": 16
+          },
+          {
+            "n": 17,
+            "ms": 17,
+            "coalescedTo": 17
+          },
+          {
+            "n": 18,
+            "ms": 19,
+            "coalescedTo": 18
+          },
+          {
+            "n": 19,
+            "ms": 17,
+            "coalescedTo": 19
+          },
+          {
+            "n": 20,
+            "ms": 16,
+            "coalescedTo": 20
+          },
+          {
+            "n": 21,
+            "ms": 20,
+            "coalescedTo": 21
+          },
+          {
+            "n": 22,
+            "ms": 19,
+            "coalescedTo": 22
+          },
+          {
+            "n": 23,
+            "ms": 20,
+            "coalescedTo": 23
+          },
+          {
+            "n": 24,
+            "ms": 19,
+            "coalescedTo": 24
+          }
+        ]
+      },
+      {
+        "direction": "forward",
+        "page": 10,
+        "kind": "outside",
+        "passed": true,
+        "maxMs": 189,
+        "frames": 18,
+        "fullCommits": 1,
+        "sourceHashesVerified": true,
+        "sourceSavedExactly": true,
+        "samples": [
+          {
+            "n": 0,
+            "ms": 91,
+            "coalescedTo": 1
+          },
+          {
+            "n": 1,
+            "ms": 76,
+            "coalescedTo": 1
+          },
+          {
+            "n": 2,
+            "ms": 189,
+            "coalescedTo": 8
+          },
+          {
+            "n": 3,
+            "ms": 164,
+            "coalescedTo": 8
+          },
+          {
+            "n": 4,
+            "ms": 140,
+            "coalescedTo": 8
+          },
+          {
+            "n": 5,
+            "ms": 117,
+            "coalescedTo": 8
+          },
+          {
+            "n": 6,
+            "ms": 94,
+            "coalescedTo": 8
+          },
+          {
+            "n": 7,
+            "ms": 71,
+            "coalescedTo": 8
+          },
+          {
+            "n": 8,
+            "ms": 48,
+            "coalescedTo": 8
+          },
+          {
+            "n": 9,
+            "ms": 37,
+            "coalescedTo": 9
+          },
+          {
+            "n": 10,
+            "ms": 29,
+            "coalescedTo": 10
+          },
+          {
+            "n": 11,
+            "ms": 18,
+            "coalescedTo": 11
+          },
+          {
+            "n": 12,
+            "ms": 11,
+            "coalescedTo": 12
+          },
+          {
+            "n": 13,
+            "ms": 11,
+            "coalescedTo": 13
+          },
+          {
+            "n": 14,
+            "ms": 11,
+            "coalescedTo": 14
+          },
+          {
+            "n": 15,
+            "ms": 12,
+            "coalescedTo": 15
+          },
+          {
+            "n": 16,
+            "ms": 14,
+            "coalescedTo": 16
+          },
+          {
+            "n": 17,
+            "ms": 10,
+            "coalescedTo": 17
+          },
+          {
+            "n": 18,
+            "ms": 10,
+            "coalescedTo": 18
+          },
+          {
+            "n": 19,
+            "ms": 11,
+            "coalescedTo": 19
+          },
+          {
+            "n": 20,
+            "ms": 9,
+            "coalescedTo": 20
+          },
+          {
+            "n": 21,
+            "ms": 10,
+            "coalescedTo": 21
+          },
+          {
+            "n": 22,
+            "ms": 9,
+            "coalescedTo": 22
+          },
+          {
+            "n": 23,
+            "ms": 10,
+            "coalescedTo": 23
+          },
+          {
+            "n": 24,
+            "ms": 9,
+            "coalescedTo": 24
+          }
+        ]
+      },
+      {
+        "direction": "backward",
+        "page": 1,
+        "kind": "control",
+        "passed": true,
+        "maxMs": 193,
+        "frames": 19,
+        "fullCommits": 1,
+        "sourceHashesVerified": true,
+        "sourceSavedExactly": true,
+        "samples": [
+          {
+            "n": 0,
+            "ms": 59,
+            "coalescedTo": 0
+          },
+          {
+            "n": 1,
+            "ms": 193,
+            "coalescedTo": 7
+          },
+          {
+            "n": 2,
+            "ms": 169,
+            "coalescedTo": 7
+          },
+          {
+            "n": 3,
+            "ms": 143,
+            "coalescedTo": 7
+          },
+          {
+            "n": 4,
+            "ms": 120,
+            "coalescedTo": 7
+          },
+          {
+            "n": 5,
+            "ms": 95,
+            "coalescedTo": 7
+          },
+          {
+            "n": 6,
+            "ms": 71,
+            "coalescedTo": 7
+          },
+          {
+            "n": 7,
+            "ms": 47,
+            "coalescedTo": 7
+          },
+          {
+            "n": 8,
+            "ms": 36,
+            "coalescedTo": 8
+          },
+          {
+            "n": 9,
+            "ms": 30,
+            "coalescedTo": 9
+          },
+          {
+            "n": 10,
+            "ms": 22,
+            "coalescedTo": 10
+          },
+          {
+            "n": 11,
+            "ms": 14,
+            "coalescedTo": 11
+          },
+          {
+            "n": 12,
+            "ms": 11,
+            "coalescedTo": 12
+          },
+          {
+            "n": 13,
+            "ms": 11,
+            "coalescedTo": 13
+          },
+          {
+            "n": 14,
+            "ms": 9,
+            "coalescedTo": 14
+          },
+          {
+            "n": 15,
+            "ms": 10,
+            "coalescedTo": 15
+          },
+          {
+            "n": 16,
+            "ms": 10,
+            "coalescedTo": 16
+          },
+          {
+            "n": 17,
+            "ms": 10,
+            "coalescedTo": 17
+          },
+          {
+            "n": 18,
+            "ms": 9,
+            "coalescedTo": 18
+          },
+          {
+            "n": 19,
+            "ms": 9,
+            "coalescedTo": 19
+          },
+          {
+            "n": 20,
+            "ms": 10,
+            "coalescedTo": 20
+          },
+          {
+            "n": 21,
+            "ms": 10,
+            "coalescedTo": 21
+          },
+          {
+            "n": 22,
+            "ms": 10,
+            "coalescedTo": 22
+          },
+          {
+            "n": 23,
+            "ms": 10,
+            "coalescedTo": 23
+          },
+          {
+            "n": 24,
+            "ms": 10,
+            "coalescedTo": 24
+          }
+        ]
+      },
+      {
+        "direction": "backward",
+        "page": 1,
+        "kind": "candidate",
+        "passed": true,
+        "maxMs": 115,
+        "frames": 22,
+        "fullCommits": 0,
+        "sourceHashesVerified": true,
+        "sourceSavedExactly": true,
+        "samples": [
+          {
+            "n": 0,
+            "ms": 115,
+            "coalescedTo": 3
+          },
+          {
+            "n": 1,
+            "ms": 100,
+            "coalescedTo": 3
+          },
+          {
+            "n": 2,
+            "ms": 77,
+            "coalescedTo": 3
+          },
+          {
+            "n": 3,
+            "ms": 52,
+            "coalescedTo": 3
+          },
+          {
+            "n": 4,
+            "ms": 43,
+            "coalescedTo": 4
+          },
+          {
+            "n": 5,
+            "ms": 38,
+            "coalescedTo": 5
+          },
+          {
+            "n": 6,
+            "ms": 31,
+            "coalescedTo": 6
+          },
+          {
+            "n": 7,
+            "ms": 24,
+            "coalescedTo": 7
+          },
+          {
+            "n": 8,
+            "ms": 17,
+            "coalescedTo": 8
+          },
+          {
+            "n": 9,
+            "ms": 19,
+            "coalescedTo": 9
+          },
+          {
+            "n": 10,
+            "ms": 20,
+            "coalescedTo": 10
+          },
+          {
+            "n": 11,
+            "ms": 21,
+            "coalescedTo": 11
+          },
+          {
+            "n": 12,
+            "ms": 22,
+            "coalescedTo": 12
+          },
+          {
+            "n": 13,
+            "ms": 20,
+            "coalescedTo": 13
+          },
+          {
+            "n": 14,
+            "ms": 21,
+            "coalescedTo": 14
+          },
+          {
+            "n": 15,
+            "ms": 22,
+            "coalescedTo": 15
+          },
+          {
+            "n": 16,
+            "ms": 17,
+            "coalescedTo": 16
+          },
+          {
+            "n": 17,
+            "ms": 18,
+            "coalescedTo": 17
+          },
+          {
+            "n": 18,
+            "ms": 15,
+            "coalescedTo": 18
+          },
+          {
+            "n": 19,
+            "ms": 16,
+            "coalescedTo": 19
+          },
+          {
+            "n": 20,
+            "ms": 17,
+            "coalescedTo": 20
+          },
+          {
+            "n": 21,
+            "ms": 18,
+            "coalescedTo": 21
+          },
+          {
+            "n": 22,
+            "ms": 16,
+            "coalescedTo": 22
+          },
+          {
+            "n": 23,
+            "ms": 18,
+            "coalescedTo": 23
+          },
+          {
+            "n": 24,
+            "ms": 17,
+            "coalescedTo": 24
+          }
+        ]
+      },
+      {
+        "direction": "backward",
+        "page": 1,
+        "kind": "outside",
+        "passed": true,
+        "maxMs": 189,
+        "frames": 18,
+        "fullCommits": 1,
+        "sourceHashesVerified": true,
+        "sourceSavedExactly": true,
+        "samples": [
+          {
+            "n": 0,
+            "ms": 86,
+            "coalescedTo": 1
+          },
+          {
+            "n": 1,
+            "ms": 71,
+            "coalescedTo": 1
+          },
+          {
+            "n": 2,
+            "ms": 189,
+            "coalescedTo": 8
+          },
+          {
+            "n": 3,
+            "ms": 165,
+            "coalescedTo": 8
+          },
+          {
+            "n": 4,
+            "ms": 140,
+            "coalescedTo": 8
+          },
+          {
+            "n": 5,
+            "ms": 117,
+            "coalescedTo": 8
+          },
+          {
+            "n": 6,
+            "ms": 94,
+            "coalescedTo": 8
+          },
+          {
+            "n": 7,
+            "ms": 70,
+            "coalescedTo": 8
+          },
+          {
+            "n": 8,
+            "ms": 47,
+            "coalescedTo": 8
+          },
+          {
+            "n": 9,
+            "ms": 36,
+            "coalescedTo": 9
+          },
+          {
+            "n": 10,
+            "ms": 30,
+            "coalescedTo": 10
+          },
+          {
+            "n": 11,
+            "ms": 21,
+            "coalescedTo": 11
+          },
+          {
+            "n": 12,
+            "ms": 15,
+            "coalescedTo": 12
+          },
+          {
+            "n": 13,
+            "ms": 11,
+            "coalescedTo": 13
+          },
+          {
+            "n": 14,
+            "ms": 10,
+            "coalescedTo": 14
+          },
+          {
+            "n": 15,
+            "ms": 11,
+            "coalescedTo": 15
+          },
+          {
+            "n": 16,
+            "ms": 10,
+            "coalescedTo": 16
+          },
+          {
+            "n": 17,
+            "ms": 10,
+            "coalescedTo": 17
+          },
+          {
+            "n": 18,
+            "ms": 10,
+            "coalescedTo": 18
+          },
+          {
+            "n": 19,
+            "ms": 13,
+            "coalescedTo": 19
+          },
+          {
+            "n": 20,
+            "ms": 10,
+            "coalescedTo": 20
+          },
+          {
+            "n": 21,
+            "ms": 10,
+            "coalescedTo": 21
+          },
+          {
+            "n": 22,
+            "ms": 11,
+            "coalescedTo": 22
+          },
+          {
+            "n": 23,
+            "ms": 11,
+            "coalescedTo": 23
+          },
+          {
+            "n": 24,
+            "ms": 10,
+            "coalescedTo": 24
+          }
+        ]
+      },
+      {
+        "direction": "backward",
+        "page": 10,
+        "kind": "control",
+        "passed": true,
+        "maxMs": 180,
+        "frames": 19,
+        "fullCommits": 1,
+        "sourceHashesVerified": true,
+        "sourceSavedExactly": true,
+        "samples": [
+          {
+            "n": 0,
+            "ms": 48,
+            "coalescedTo": 0
+          },
+          {
+            "n": 1,
+            "ms": 180,
+            "coalescedTo": 7
+          },
+          {
+            "n": 2,
+            "ms": 156,
+            "coalescedTo": 7
+          },
+          {
+            "n": 3,
+            "ms": 133,
+            "coalescedTo": 7
+          },
+          {
+            "n": 4,
+            "ms": 110,
+            "coalescedTo": 7
+          },
+          {
+            "n": 5,
+            "ms": 86,
+            "coalescedTo": 7
+          },
+          {
+            "n": 6,
+            "ms": 63,
+            "coalescedTo": 7
+          },
+          {
+            "n": 7,
+            "ms": 39,
+            "coalescedTo": 7
+          },
+          {
+            "n": 8,
+            "ms": 30,
+            "coalescedTo": 8
+          },
+          {
+            "n": 9,
+            "ms": 24,
+            "coalescedTo": 9
+          },
+          {
+            "n": 10,
+            "ms": 15,
+            "coalescedTo": 10
+          },
+          {
+            "n": 11,
+            "ms": 11,
+            "coalescedTo": 11
+          },
+          {
+            "n": 12,
+            "ms": 11,
+            "coalescedTo": 12
+          },
+          {
+            "n": 13,
+            "ms": 11,
+            "coalescedTo": 13
+          },
+          {
+            "n": 14,
+            "ms": 10,
+            "coalescedTo": 14
+          },
+          {
+            "n": 15,
+            "ms": 12,
+            "coalescedTo": 15
+          },
+          {
+            "n": 16,
+            "ms": 10,
+            "coalescedTo": 16
+          },
+          {
+            "n": 17,
+            "ms": 10,
+            "coalescedTo": 17
+          },
+          {
+            "n": 18,
+            "ms": 11,
+            "coalescedTo": 18
+          },
+          {
+            "n": 19,
+            "ms": 10,
+            "coalescedTo": 19
+          },
+          {
+            "n": 20,
+            "ms": 10,
+            "coalescedTo": 20
+          },
+          {
+            "n": 21,
+            "ms": 10,
+            "coalescedTo": 21
+          },
+          {
+            "n": 22,
+            "ms": 10,
+            "coalescedTo": 22
+          },
+          {
+            "n": 23,
+            "ms": 11,
+            "coalescedTo": 23
+          },
+          {
+            "n": 24,
+            "ms": 10,
+            "coalescedTo": 24
+          }
+        ]
+      },
+      {
+        "direction": "backward",
+        "page": 10,
+        "kind": "candidate",
+        "passed": true,
+        "maxMs": 140,
+        "frames": 21,
+        "fullCommits": 0,
+        "sourceHashesVerified": true,
+        "sourceSavedExactly": true,
+        "samples": [
+          {
+            "n": 0,
+            "ms": 140,
+            "coalescedTo": 4
+          },
+          {
+            "n": 1,
+            "ms": 126,
+            "coalescedTo": 4
+          },
+          {
+            "n": 2,
+            "ms": 100,
+            "coalescedTo": 4
+          },
+          {
+            "n": 3,
+            "ms": 76,
+            "coalescedTo": 4
+          },
+          {
+            "n": 4,
+            "ms": 52,
+            "coalescedTo": 4
+          },
+          {
+            "n": 5,
+            "ms": 43,
+            "coalescedTo": 5
+          },
+          {
+            "n": 6,
+            "ms": 36,
+            "coalescedTo": 6
+          },
+          {
+            "n": 7,
+            "ms": 31,
+            "coalescedTo": 7
+          },
+          {
+            "n": 8,
+            "ms": 24,
+            "coalescedTo": 8
+          },
+          {
+            "n": 9,
+            "ms": 24,
+            "coalescedTo": 9
+          },
+          {
+            "n": 10,
+            "ms": 17,
+            "coalescedTo": 10
+          },
+          {
+            "n": 11,
+            "ms": 21,
+            "coalescedTo": 11
+          },
+          {
+            "n": 12,
+            "ms": 22,
+            "coalescedTo": 12
+          },
+          {
+            "n": 13,
+            "ms": 20,
+            "coalescedTo": 13
+          },
+          {
+            "n": 14,
+            "ms": 18,
+            "coalescedTo": 14
+          },
+          {
+            "n": 15,
+            "ms": 17,
+            "coalescedTo": 15
+          },
+          {
+            "n": 16,
+            "ms": 18,
+            "coalescedTo": 16
+          },
+          {
+            "n": 17,
+            "ms": 16,
+            "coalescedTo": 17
+          },
+          {
+            "n": 18,
+            "ms": 16,
+            "coalescedTo": 18
+          },
+          {
+            "n": 19,
+            "ms": 19,
+            "coalescedTo": 19
+          },
+          {
+            "n": 20,
+            "ms": 17,
+            "coalescedTo": 20
+          },
+          {
+            "n": 21,
+            "ms": 17,
+            "coalescedTo": 21
+          },
+          {
+            "n": 22,
+            "ms": 16,
+            "coalescedTo": 22
+          },
+          {
+            "n": 23,
+            "ms": 20,
+            "coalescedTo": 23
+          },
+          {
+            "n": 24,
+            "ms": 20,
+            "coalescedTo": 24
+          }
+        ]
+      },
+      {
+        "direction": "backward",
+        "page": 10,
+        "kind": "outside",
+        "passed": true,
+        "maxMs": 203,
+        "frames": 17,
+        "fullCommits": 1,
+        "sourceHashesVerified": true,
+        "sourceSavedExactly": true,
+        "samples": [
+          {
+            "n": 0,
+            "ms": 95,
+            "coalescedTo": 1
+          },
+          {
+            "n": 1,
+            "ms": 80,
+            "coalescedTo": 1
+          },
+          {
+            "n": 2,
+            "ms": 203,
+            "coalescedTo": 9
+          },
+          {
+            "n": 3,
+            "ms": 179,
+            "coalescedTo": 9
+          },
+          {
+            "n": 4,
+            "ms": 155,
+            "coalescedTo": 9
+          },
+          {
+            "n": 5,
+            "ms": 131,
+            "coalescedTo": 9
+          },
+          {
+            "n": 6,
+            "ms": 107,
+            "coalescedTo": 9
+          },
+          {
+            "n": 7,
+            "ms": 83,
+            "coalescedTo": 9
+          },
+          {
+            "n": 8,
+            "ms": 61,
+            "coalescedTo": 9
+          },
+          {
+            "n": 9,
+            "ms": 37,
+            "coalescedTo": 9
+          },
+          {
+            "n": 10,
+            "ms": 29,
+            "coalescedTo": 10
+          },
+          {
+            "n": 11,
+            "ms": 22,
+            "coalescedTo": 11
+          },
+          {
+            "n": 12,
+            "ms": 14,
+            "coalescedTo": 12
+          },
+          {
+            "n": 13,
+            "ms": 14,
+            "coalescedTo": 13
+          },
+          {
+            "n": 14,
+            "ms": 17,
+            "coalescedTo": 14
+          },
+          {
+            "n": 15,
+            "ms": 11,
+            "coalescedTo": 15
+          },
+          {
+            "n": 16,
+            "ms": 10,
+            "coalescedTo": 16
+          },
+          {
+            "n": 17,
+            "ms": 10,
+            "coalescedTo": 17
+          },
+          {
+            "n": 18,
+            "ms": 10,
+            "coalescedTo": 18
+          },
+          {
+            "n": 19,
+            "ms": 10,
+            "coalescedTo": 19
+          },
+          {
+            "n": 20,
+            "ms": 10,
+            "coalescedTo": 20
+          },
+          {
+            "n": 21,
+            "ms": 10,
+            "coalescedTo": 21
+          },
+          {
+            "n": 22,
+            "ms": 11,
+            "coalescedTo": 22
+          },
+          {
+            "n": 23,
+            "ms": 10,
+            "coalescedTo": 23
+          },
+          {
+            "n": 24,
+            "ms": 10,
+            "coalescedTo": 24
+          }
+        ]
+      }
+    ]
+  },
+  "natural": {
+    "run": 41713069363,
+    "cadenceMs": 100,
+    "trials": [
+      {
+        "scenario": "lecture",
+        "version": "0.132.0",
+        "initialPages": 10,
+        "passed": true,
+        "sourceHashesVerified": true,
+        "sourceSavedExactly": true,
+        "appliedToCanvas": {
+          "count": 4096,
+          "p50": 429,
+          "p95": 1228,
+          "p99": 1578,
+          "p999": 1774,
+          "max": 1965,
+          "over300": 2479,
+          "over1000": 553,
+          "censored": 0,
+          "quantilesAreLowerBounds": false
+        },
+        "inputQueue": {
+          "count": 4096,
+          "p50": 1,
+          "p95": 3,
+          "p99": 13,
+          "p999": 20,
+          "max": 27,
+          "over300": 0,
+          "over1000": 0,
+          "censored": 0,
+          "quantilesAreLowerBounds": false
+        },
+        "byKind": {
+          "typing": {
+            "count": 2560,
+            "p50": 393,
+            "p95": 1149,
+            "p99": 1400,
+            "p999": 1666,
+            "max": 1728,
+            "over300": 1486,
+            "over1000": 281,
+            "censored": 0,
+            "quantilesAreLowerBounds": false
+          },
+          "backspace": {
+            "count": 896,
+            "p50": 324,
+            "p95": 1243,
+            "p99": 1667,
+            "p999": 1966,
+            "max": 1966,
+            "over300": 475,
+            "over1000": 78,
+            "censored": 0,
+            "quantilesAreLowerBounds": false
+          },
+          "inline-document-start": {
+            "count": 64,
+            "p50": 635,
+            "p95": 733,
+            "p99": 791,
+            "p999": 791,
+            "max": 791,
+            "over300": 64,
+            "over1000": 0,
+            "censored": 0,
+            "quantilesAreLowerBounds": false
+          },
+          "one-leading-newline": {
+            "count": 64,
+            "p50": 1158,
+            "p95": 1376,
+            "p99": 1415,
+            "p999": 1415,
+            "max": 1415,
+            "over300": 64,
+            "over1000": 64,
+            "censored": 0,
+            "quantilesAreLowerBounds": false
+          },
+          "restore-leading-blank": {
+            "count": 64,
+            "p50": 1058,
+            "p95": 1276,
+            "p99": 1315,
+            "p999": 1315,
+            "max": 1315,
+            "over300": 64,
+            "over1000": 63,
+            "censored": 0,
+            "quantilesAreLowerBounds": false
+          },
+          "body-reset": {
+            "count": 64,
+            "p50": 958,
+            "p95": 1176,
+            "p99": 1215,
+            "p999": 1215,
+            "max": 1215,
+            "over300": 64,
+            "over1000": 13,
+            "censored": 0,
+            "quantilesAreLowerBounds": false
+          },
+          "join-paragraphs": {
+            "count": 64,
+            "p50": 649,
+            "p95": 1675,
+            "p99": 1866,
+            "p999": 1866,
+            "max": 1866,
+            "over300": 64,
+            "over1000": 27,
+            "censored": 0,
+            "quantilesAreLowerBounds": false
+          },
+          "split-paragraphs": {
+            "count": 64,
+            "p50": 549,
+            "p95": 1575,
+            "p99": 1766,
+            "p999": 1766,
+            "max": 1766,
+            "over300": 64,
+            "over1000": 27,
+            "censored": 0,
+            "quantilesAreLowerBounds": false
+          },
+          "remove-math-closer": {
+            "count": 64,
+            "p50": 760,
+            "p95": 878,
+            "p99": 1066,
+            "p999": 1066,
+            "max": 1066,
+            "over300": 64,
+            "over1000": 1,
+            "censored": 0,
+            "quantilesAreLowerBounds": false
+          },
+          "restore-math-closer": {
+            "count": 64,
+            "p50": 260,
+            "p95": 378,
+            "p99": 566,
+            "p999": 566,
+            "max": 566,
+            "over300": 12,
+            "over1000": 0,
+            "censored": 0,
+            "quantilesAreLowerBounds": false
+          },
+          "undefined-command": {
+            "count": 64,
+            "p50": 330,
+            "p95": 429,
+            "p99": 473,
+            "p999": 473,
+            "max": 473,
+            "over300": 56,
+            "over1000": 0,
+            "censored": 0,
+            "quantilesAreLowerBounds": false
+          },
+          "correct-command": {
+            "count": 64,
+            "p50": 176,
+            "p95": 241,
+            "p99": 384,
+            "p999": 384,
+            "max": 384,
+            "over300": 2,
+            "over1000": 0,
+            "censored": 0,
+            "quantilesAreLowerBounds": false
+          }
+        },
+        "bySection": {
+          "beginning": {
+            "count": 1828,
+            "p50": 555,
+            "p95": 1338,
+            "p99": 1630,
+            "p999": 1866,
+            "max": 1966,
+            "over300": 1258,
+            "over1000": 357,
+            "censored": 0,
+            "quantilesAreLowerBounds": false
+          },
+          "middle": {
+            "count": 1134,
+            "p50": 442,
+            "p95": 1184,
+            "p99": 1428,
+            "p999": 1728,
+            "max": 1778,
+            "over300": 690,
+            "over1000": 136,
+            "censored": 0,
+            "quantilesAreLowerBounds": false
+          },
+          "end": {
+            "count": 1134,
+            "p50": 266,
+            "p95": 1030,
+            "p99": 1428,
+            "p999": 1775,
+            "max": 1828,
+            "over300": 531,
+            "over1000": 61,
+            "censored": 0,
+            "quantilesAreLowerBounds": false
+          }
+        }
+      },
+      {
+        "scenario": "lecture-standard",
+        "version": "0.132.0",
+        "initialPages": 10,
+        "passed": true,
+        "sourceHashesVerified": true,
+        "sourceSavedExactly": true,
+        "appliedToCanvas": {
+          "count": 4096,
+          "p50": 457,
+          "p95": 1221,
+          "p99": 1570,
+          "p999": 1725,
+          "max": 1886,
+          "over300": 2557,
+          "over1000": 569,
+          "censored": 0,
+          "quantilesAreLowerBounds": false
+        },
+        "inputQueue": {
+          "count": 4096,
+          "p50": 1,
+          "p95": 17,
+          "p99": 25,
+          "p999": 35,
+          "max": 36,
+          "over300": 0,
+          "over1000": 0,
+          "censored": 0,
+          "quantilesAreLowerBounds": false
+        },
+        "byKind": {
+          "typing": {
+            "count": 2560,
+            "p50": 421,
+            "p95": 1183,
+            "p99": 1420,
+            "p999": 1725,
+            "max": 1894,
+            "over300": 1574,
+            "over1000": 350,
+            "censored": 0,
+            "quantilesAreLowerBounds": false
+          },
+          "backspace": {
+            "count": 896,
+            "p50": 385,
+            "p95": 1254,
+            "p99": 1668,
+            "p999": 1794,
+            "max": 1794,
+            "over300": 486,
+            "over1000": 80,
+            "censored": 0,
+            "quantilesAreLowerBounds": false
+          },
+          "inline-document-start": {
+            "count": 64,
+            "p50": 604,
+            "p95": 735,
+            "p99": 932,
+            "p999": 932,
+            "max": 932,
+            "over300": 62,
+            "over1000": 0,
+            "censored": 0,
+            "quantilesAreLowerBounds": false
+          },
+          "one-leading-newline": {
+            "count": 64,
+            "p50": 1100,
+            "p95": 1316,
+            "p99": 1782,
+            "p999": 1782,
+            "max": 1782,
+            "over300": 62,
+            "over1000": 60,
+            "censored": 0,
+            "quantilesAreLowerBounds": false
+          },
+          "restore-leading-blank": {
+            "count": 64,
+            "p50": 1000,
+            "p95": 1216,
+            "p99": 1682,
+            "p999": 1682,
+            "max": 1682,
+            "over300": 63,
+            "over1000": 32,
+            "censored": 0,
+            "quantilesAreLowerBounds": false
+          },
+          "body-reset": {
+            "count": 64,
+            "p50": 900,
+            "p95": 1116,
+            "p99": 1582,
+            "p999": 1582,
+            "max": 1582,
+            "over300": 64,
+            "over1000": 6,
+            "censored": 0,
+            "quantilesAreLowerBounds": false
+          },
+          "join-paragraphs": {
+            "count": 64,
+            "p50": 631,
+            "p95": 1597,
+            "p99": 1694,
+            "p999": 1694,
+            "max": 1694,
+            "over300": 62,
+            "over1000": 23,
+            "censored": 0,
+            "quantilesAreLowerBounds": false
+          },
+          "split-paragraphs": {
+            "count": 64,
+            "p50": 531,
+            "p95": 1497,
+            "p99": 1594,
+            "p999": 1594,
+            "max": 1594,
+            "over300": 63,
+            "over1000": 22,
+            "censored": 0,
+            "quantilesAreLowerBounds": false
+          },
+          "remove-math-closer": {
+            "count": 64,
+            "p50": 761,
+            "p95": 850,
+            "p99": 975,
+            "p999": 975,
+            "max": 975,
+            "over300": 64,
+            "over1000": 0,
+            "censored": 0,
+            "quantilesAreLowerBounds": false
+          },
+          "restore-math-closer": {
+            "count": 64,
+            "p50": 261,
+            "p95": 350,
+            "p99": 475,
+            "p999": 475,
+            "max": 475,
+            "over300": 8,
+            "over1000": 0,
+            "censored": 0,
+            "quantilesAreLowerBounds": false
+          },
+          "undefined-command": {
+            "count": 64,
+            "p50": 343,
+            "p95": 408,
+            "p99": 416,
+            "p999": 416,
+            "max": 416,
+            "over300": 54,
+            "over1000": 0,
+            "censored": 0,
+            "quantilesAreLowerBounds": false
+          },
+          "correct-command": {
+            "count": 64,
+            "p50": 186,
+            "p95": 255,
+            "p99": 347,
+            "p999": 347,
+            "max": 347,
+            "over300": 1,
+            "over1000": 0,
+            "censored": 0,
+            "quantilesAreLowerBounds": false
+          }
+        },
+        "bySection": {
+          "beginning": {
+            "count": 1828,
+            "p50": 573,
+            "p95": 1350,
+            "p99": 1611,
+            "p999": 1794,
+            "max": 1894,
+            "over300": 1283,
+            "over1000": 349,
+            "censored": 0,
+            "quantilesAreLowerBounds": false
+          },
+          "middle": {
+            "count": 1134,
+            "p50": 463,
+            "p95": 1184,
+            "p99": 1437,
+            "p999": 1684,
+            "max": 1711,
+            "over300": 706,
+            "over1000": 152,
+            "censored": 0,
+            "quantilesAreLowerBounds": false
+          },
+          "end": {
+            "count": 1134,
+            "p50": 304,
+            "p95": 1061,
+            "p99": 1356,
+            "p999": 1672,
+            "max": 1756,
+            "over300": 574,
+            "over1000": 72,
+            "censored": 0,
+            "quantilesAreLowerBounds": false
+          }
+        }
+      }
+    ]
+  }
+}
