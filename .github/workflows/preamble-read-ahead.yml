@@ -67,10 +67,80 @@ jobs:
       - run: node --test test/preamble-read-ahead.test.cjs
       - run: node scripts/retained-test-format.cjs
       - run: node scripts/preamble-read-ahead-probe.cjs
+      - name: Check retained preview and automatic recovery on the new compiler
+        env:
+          PERSISTENT_TEX_PREAMBLE_READAHEAD: '1'
+        run: node --test --test-concurrency=1 test/retained-preview.test.cjs test/preview-recovery.test.cjs test/local-recovery.test.cjs test/recovery-navigation.test.cjs test/paragraph-window.test.cjs
+      - name: Save source-bound experimental compiler for Windows testing
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: preamble-read-ahead-compiler
+          retention-days: 7
+          path: |
+            engine/resident/pdftex.js
+            engine/resident/pdftex.wasm
+            ${{ env.PERSISTENT_TEX_TEST_ARTIFACTS }}/engine.json
       - name: Save bounded experimental evidence
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: preamble-read-ahead-evidence
+          name: preamble-read-ahead-evidence-linux
+          retention-days: 7
+          path: ${{ env.PERSISTENT_TEX_TEST_ARTIFACTS }}/*.json
+  windows:
+    needs: probe
+    runs-on: windows-2025
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '24'
+      - uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0
+        with:
+          name: preamble-read-ahead-compiler
+          path: ${{ runner.temp }}/compiler
+      - name: Verify and select the source-bound experimental compiler
+        shell: pwsh
+        run: |
+          $root=Join-Path $env:RUNNER_TEMP 'read-ahead'
+          New-Item -ItemType Directory -Path "$root/results" -Force | Out-Null
+          $compiler=Join-Path $env:RUNNER_TEMP 'compiler'
+          $proofs=@(Get-ChildItem -LiteralPath $compiler -Recurse -File -Filter engine.json)
+          if($proofs.Count -ne 1){throw 'Ambiguous compiler provenance'}
+          $proof=Get-Content -LiteralPath $proofs[0].FullName -Raw | ConvertFrom-Json
+          if($proof.source -ne $env:GITHUB_SHA){throw 'Experimental compiler source mismatch'}
+          foreach($ext in @('js','wasm')){
+            $files=@(Get-ChildItem -LiteralPath $compiler -Recurse -File -Filter "pdftex.$ext")
+            if($files.Count -ne 1 -or (Get-FileHash -LiteralPath $files[0].FullName -Algorithm SHA256).Hash.ToLowerInvariant() -ne $proof.$ext){throw 'Experimental compiler hash mismatch'}
+            Copy-Item -LiteralPath $files[0].FullName -Destination "engine/resident/pdftex.$ext"
+          }
+          Copy-Item -LiteralPath $proofs[0].FullName -Destination "$root/results/engine.json"
+          "COMPATIBILITY_ROOT=$root" >> $env:GITHUB_ENV
+          "PERSISTENT_TEX_TEST_ARTIFACTS=$root/results" >> $env:GITHUB_ENV
+          "PERSISTENT_TEX_TEST_FORMAT_CACHE=$root/formats" >> $env:GITHUB_ENV
+          "PERSISTENT_TEX_TEST_RESOURCE_FILE=$root/formats/resources.json" >> $env:GITHUB_ENV
+      - run: npm ci --no-audit --no-fund
+      - run: npm run build
+      - run: node --test test/preamble-read-ahead.test.cjs
+      - name: Install isolated TeX Live 2026
+        shell: pwsh
+        run: |
+          & scripts/install-test-texlive.ps1 -Year 2026 -WorkRoot "$env:COMPATIBILITY_ROOT/installation"
+          if($LASTEXITCODE -ne 0){exit $LASTEXITCODE}
+          "$env:COMPATIBILITY_ROOT/installation/texlive/bin/windows" >> $env:GITHUB_PATH
+      - run: node scripts/retained-test-format.cjs
+      - run: node scripts/preamble-read-ahead-probe.cjs
+      - name: Check retained preview and automatic recovery on Windows
+        env:
+          PERSISTENT_TEX_PREAMBLE_READAHEAD: '1'
+        run: node --test --test-concurrency=1 test/retained-preview.test.cjs test/preview-recovery.test.cjs test/local-recovery.test.cjs test/recovery-navigation.test.cjs test/paragraph-window.test.cjs
+      - name: Save bounded Windows evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: preamble-read-ahead-evidence-windows
           retention-days: 7
           path: ${{ env.PERSISTENT_TEX_TEST_ARTIFACTS }}/*.json
