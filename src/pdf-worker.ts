@@ -29,9 +29,9 @@ worker.onmessage=event=>{
         const document=documents.get(args.documentId);if(!document)throw new Error('PDF was closed.');
         const page=document.getPage(args.page-1);
         try{
-          const started=performance.now();
+          const started=performance.now();let inkFallbackReason:string|undefined;
           if(args.imageBitmap&&!args.includePixels&&!args.fullRaster&&typeof OffscreenCanvas!=='undefined'){
-            const ink=renderInkPage(page,args.scale);
+            const diagnostic:{reason?:string}={};const ink=renderInkPage(page,args.scale,diagnostic);inkFallbackReason=diagnostic.reason;
             if(ink){worker.postMessage({id,result:{...ink,pageWidth:ink.originalWidth,pageHeight:ink.originalHeight,rasterMs:performance.now()-started,workerMs:performance.now()-started}},[ink.image]);return;}
           }
           const bitmap=await page.render({scale:args.scale,colorSpace:'RGBA',transparent:false});
@@ -42,7 +42,7 @@ worker.onmessage=event=>{
             const pixels=new Uint8ClampedArray(bitmap.data.buffer as ArrayBuffer,bitmap.data.byteOffset,bitmap.data.byteLength);
             canvas.getContext('2d')!.putImageData(new ImageData(pixels,bitmap.width,bitmap.height),0,0);
             const image=canvas.transferToImageBitmap();
-            worker.postMessage({id,result:{width:bitmap.width,height:bitmap.height,originalWidth:bitmap.originalWidth,originalHeight:bitmap.originalHeight,pageWidth,pageHeight,image,...(args.includePixels?{data:bitmap.data}:{}),rasterMs,workerMs:performance.now()-started}},args.includePixels?[image,bitmap.data.buffer as ArrayBuffer]:[image]);
+            worker.postMessage({id,result:{width:bitmap.width,height:bitmap.height,originalWidth:bitmap.originalWidth,originalHeight:bitmap.originalHeight,pageWidth,pageHeight,image,...(args.includePixels?{data:bitmap.data}:{}),inkFallbackReason,rasterMs,workerMs:performance.now()-started}},args.includePixels?[image,bitmap.data.buffer as ArrayBuffer]:[image]);
           }else worker.postMessage({id,result:{...bitmap,pageWidth,pageHeight,rasterMs,workerMs:performance.now()-started}},[bitmap.data.buffer as ArrayBuffer]);
         }finally{page.close();}
       }else if(method==='verifyPageBand'){
