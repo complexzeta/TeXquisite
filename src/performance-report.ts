@@ -5,7 +5,7 @@ export interface PerformanceSnapshot{
   freeMiB:number;totalMiB:number;latestEditId?:string;standby?:string;retained:boolean;
 }
 const finite=(value:unknown):value is number=>typeof value==='number'&&Number.isFinite(value)&&value>=0;
-const layouts=new Set(['flow','retained-flow','neutral-blocks','paragraph','continuous-pages','page']);
+const layouts=new Set(['cross-page-flow','flow','retained-flow','neutral-blocks','paragraph','continuous-pages','page']);
 const standbyStates=new Set(['retired','ready','preparing','unseeded','stale-seed','no-local-owner','busy','memory','active','waiting']);
 function statistics(values:number[]){const sorted=[...values].sort((a,b)=>a-b);return {count:sorted.length,medianMs:sorted.length?sorted[Math.floor(sorted.length/2)]:null,p95Ms:sorted.length?sorted[Math.min(sorted.length-1,Math.floor(sorted.length*.95))]:null,maxMs:sorted.at(-1)??null};}
 /** Explicit whitelist: never copy arbitrary trace fields, source, IDs, paths,
