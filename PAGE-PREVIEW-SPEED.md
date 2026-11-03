@@ -34,4 +34,5 @@ The exact packaged source is `ce404e48abff267c48ca13c06febf0c5dfa44638`. [Source
 
 ## Readiness-control correction (3 November 2026)
 
-The edit-to-canvas timestamps above remain as measured. However, the asynchronous readiness helper did not reliably wait for preparation to finish before the first edit. Corrected tests explicitly await the readiness query. Some historical first-edit outliers therefore include local preparation; these figures must not be interpreted as guaranteed warmed-input measurements. See the [subsequent controlled transport experiments](PAGE-TRANSPORT-EXPERIMENTS.md). Neither prototype was released; Windows 0.128.0 remains recommended.
+The edit-to-canvas timestamps above remain as measured. However, the asynchronous readiness helper did not reliably wait for preparation to finish before the first edit. Corrected tests explicitly await the readiness query. Some historical first-edit outliers therefore include local preparation; these figures must not be interpreted as guaranteed warmed-input measurements. See the [subsequent controlled transport experiments](PAGE-TRANSPORT-EXPERIMENTS.md). Neither prototype was released. Subsequent [cached-canvas improvements](CACHED-CANVAS-SPEED.md) are measured separately.
+
