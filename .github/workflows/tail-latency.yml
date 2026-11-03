@@ -38,7 +38,7 @@ jobs:
           "npm_config_cache=$root/npm" >> $env:GITHUB_ENV
       - run: npm ci --no-audit --no-fund
       - run: npm run build
-      - run: node --test test/editor-dispatch.test.cjs test/local-preview.test.cjs
+      - run: node --test test/editor-dispatch.test.cjs test/local-preview.test.cjs test/paragraph-window.test.cjs test/paragraph-split.test.cjs test/window-page-fallback.test.cjs
       - run: node --test --test-name-pattern='Continuous input cannot' test/core.test.cjs
       - shell: pwsh
         run: |
@@ -47,9 +47,12 @@ jobs:
           "$env:COMPATIBILITY_ROOT/installation/texlive/bin/windows" >> $env:GITHUB_PATH
       - run: node scripts/retained-test-format.cjs
       - run: node scripts/tail-latency-test.cjs
+        if: ${{ matrix.scenario != 'paragraph-window' }}
         env:
           TAIL_SCENARIO: ${{ matrix.scenario }}
           TAIL_SAMPLES: ${{ inputs.samples }}
+      - run: node scripts/paragraph-window-benchmark.cjs
+        if: ${{ matrix.scenario == 'paragraph-window' }}
       - name: Save bounded tail-latency evidence
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02

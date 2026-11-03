@@ -77,12 +77,24 @@ export function flowWindowAt(source:string,at:number,floor=0):RegionRange|undefi
   if(/\\begin\{tikzpicture\}/.test(source.slice(current.from,next?.to??current.to)))return current;
   return next&&next.from===current.to&&next.to-current.from<=768?{from:current.from,to:next.to}:current;
 }
+// Extend only into the immediate following paragraph. This selects work, not
+// proof: ordinary exact-source native checks and full page-baseline proof still
+// authorize every resulting frame. No new heap or document snapshot is cached.
+export function followingParagraphWindow(baseline:string,source:string,range:RegionRange){
+  const next=paragraphAt(baseline,range.to);
+  if(!next||next.from!==range.to||next.to-range.from>1200)return;
+  const window={from:range.from,to:next.to},prefix=baseline.slice(0,window.from),suffix=baseline.slice(window.to);
+  if(!source.startsWith(prefix)||!source.endsWith(suffix)||source.length<prefix.length+suffix.length)return;
+  if(/\\begin\{tikzpicture\}/.test(baseline.slice(window.from,window.to)))return;
+  if(!/\n[\t ]*\n$/.test(source.slice(prefix.length,source.length-suffix.length)))return;
+  return window;
+}
 const lineOffset=(source:string,line:number)=>{let at=0;while(line-->0){at=source.indexOf('\n',at);if(at<0)return -1;at++;}return at;};
 type Request={source:string;fullSource?:string;editId:string;at:number;recovery?:{message:string;line:number};};
 export interface LocalCandidate {recovery?:{message:string;line:number};reusedRecovery?:boolean;sourceMatchesDraft?:boolean;sourceHealthy?:boolean;recoveryCleared?:boolean;recoveredBasis?:boolean;unchangedRecovery?:BuildDiagnostic[];reprepareParagraph?:boolean;inkBleedBp?:number;}
 export interface LocalCandidate {pageLocations?:{page:number;locations:ReturnType<typeof flowLocations>;blocked?:{x:number;y:number;width:number;height:number}[]}[];retainedFlow?:boolean;retainedSource?:string;}
 type DiskInput={file:string;mtime:number;ctime:number;ino:number;size:number;};
-type Slot={diagnosticSource?:string;pageProbe?:{source:string;range:RegionRange;output:Awaited<ReturnType<ResidentCompiler['previewRegionPage']>>};neutralLast?:boolean;cancelWork?:()=>void;epoch?:number;cancelled?:boolean;regionKey?:string;edited?:boolean;latestSource?:string;file?:string;input?:IncludedInput;sourceText?:string;otherResources?:string;basis:LocalBasis;range:RegionRange;liveEnd:number;compiledRange:RegionRange;compiler:ResidentCompiler;compositor?:RegionCompositor;ready:boolean;abort:AbortController;diskInputs:DiskInput[];pageMode?:boolean;pageReady?:boolean;pageCostMs?:number;proofPage?:number;sourcePages?:PageSpan;baselineSpan?:PageSpan;continuation?:string;verifyPageRange?:()=>Promise<void>;};
+type Slot={boundaryWindow?:boolean;diagnosticSource?:string;pageProbe?:{source:string;range:RegionRange;output:Awaited<ReturnType<ResidentCompiler['previewRegionPage']>>};neutralLast?:boolean;cancelWork?:()=>void;epoch?:number;cancelled?:boolean;regionKey?:string;edited?:boolean;latestSource?:string;file?:string;input?:IncludedInput;sourceText?:string;otherResources?:string;basis:LocalBasis;range:RegionRange;liveEnd:number;compiledRange:RegionRange;compiler:ResidentCompiler;compositor?:RegionCompositor;ready:boolean;abort:AbortController;diskInputs:DiskInput[];pageMode?:boolean;pageReady?:boolean;pageCostMs?:number;proofPage?:number;sourcePages?:PageSpan;baselineSpan?:PageSpan;continuation?:string;verifyPageRange?:()=>Promise<void>;};
 export interface LocalCandidate {neutralBlock?:{id:string;prior:string[];ranges:{id:string;from:number;to:number;baseFrom:number;baseTo:number}[];locations:ReturnType<typeof flowLocations>;caretY?:number};sourceFile?:string;root:string;baseId:string;editId:string;sourceHash:string;pdf:Uint8Array;page:number;timing:unknown;fragmentPdf?:Uint8Array;fragment?:RegionFragment;inkTopSp?:number;flowOutput?:{blocked?:{x:number;y:number;width:number;height:number}[];stateChanged?:boolean;locations?:ReturnType<typeof flowLocations>;baseRangeTo?:number;caretY?:number;rect:{x:number;y:number;width:number;height:number};leading:number;baselineLeading:number;fragmentRect:{x:number;y:number;width:number;height:number}};rangeFrom:number;rangeTo:number;footprint?:{x:number;y:number;width:number;height:number};pageOutput?:boolean;pageSpan?:PageSpan;sourcePages?:PageSpan;proofPage?:number;cursorPage?:number;cursorPosition?:ReturnType<typeof cursorPosition>;baselineSpan?:PageSpan;continuation?:string;}
 async function selectPages(pdf:Uint8Array,span:PageSpan){
   const partial=await PDFDocument.load(pdf,{throwOnInvalidObject:true}),selected=await PDFDocument.create();
@@ -118,6 +130,7 @@ export class LocalPreview{
   private cursor?:{file:string;at:number};
   private epoch=0;
   private pending?:Request;
+  private boundaryWindow?:{file:string;baseId:string;range:RegionRange};
   private running=false;
   private verifyingWithOwner=false;
   private canPrefetch=false;
@@ -231,7 +244,7 @@ export class LocalPreview{
     return slot.basis.compilerSource===basis.compilerSource&&slot.otherResources===resourceIdentity((basis.project.resources??[]).filter(([name])=>name!==slot.input!.file));
   }
   private splitPageParagraph(slot:Slot,source:string,at:number){
-    if(!this.lecture||!this.continuous||!slot.pageMode||slot.input||slot.basis.bundle.recovered)return false;
+    if(!this.lecture||!this.continuous||!slot.pageMode||slot.boundaryWindow||slot.input||slot.basis.bundle.recovered)return false;
     const baseline=slot.sourceText??slot.basis.source,prior=paragraphAt(baseline,slot.range.from),current=paragraphAt(source,at);
     // Ordinary typing shifts the old terminator by the source length delta.
     // A new, earlier terminator separates this text from formerly attached
@@ -298,7 +311,7 @@ export class LocalPreview{
   }
   private disarm(keepWarm=false){
     this.cancelIdle();
-    this.epoch++;clearTimeout(this.timer);this.pending=undefined;this.prefetched=undefined;this.canPrefetch=false;
+    this.boundaryWindow=undefined;this.epoch++;clearTimeout(this.timer);this.pending=undefined;this.prefetched=undefined;this.canPrefetch=false;
     const slot=this.slot;
     if(slot){
       // A cursor move retires the old proof immediately. Its compiler RPC is
@@ -322,8 +335,9 @@ export class LocalPreview{
     const background=!!target,basis=this.basis,cursor=target??this.cursor;if(!basis||!cursor)return;
     const selected=this.sourceFor(basis,cursor.file);if(!selected)return;const sourceText=selected.text,input=selected.input;
     const floor=input?0:Math.max(0,lineOffset(sourceText,basis.bodyLine??0));
-    const paragraph=paragraphAt(sourceText,cursor.at,floor),range=this.continuous&&!single&&!this.neutral&&process.env.PERSISTENT_TEX_DISABLE_FLOW_WINDOW!=='1'?flowWindowAt(sourceText,cursor.at,floor):paragraph;if(!range||!paragraph)return;
-    const expanded=range.to!==paragraph.to;
+    const boundary=this.boundaryWindow?.file===cursor.file&&this.boundaryWindow.baseId===basis.bundle.id?this.boundaryWindow:undefined;
+    const paragraph=paragraphAt(sourceText,boundary?Math.min(cursor.at,boundary.range.to-1):cursor.at,floor),range=boundary?.range??(this.continuous&&!single&&!this.neutral&&process.env.PERSISTENT_TEX_DISABLE_FLOW_WINDOW!=='1'?flowWindowAt(sourceText,cursor.at,floor):paragraph);if(!range||!paragraph)return;
+    const expanded=!boundary&&range.to!==paragraph.to;
     const before=sourceText.slice(0,range.from).split('\n').length-1,after=sourceText.slice(0,range.to).split('\n').length-1;
     const compiledRange=input?{...range}:{from:lineOffset(basis.compilerSource,before),to:lineOffset(basis.compilerSource,after)};
     if(compiledRange.from<0||compiledRange.to<0||(input?sourceText:basis.source).slice(range.from,range.to)!==(input?sourceText:basis.compilerSource).slice(compiledRange.from,compiledRange.to)){this.log('Local paragraph intersects a compilation-only repair: '+JSON.stringify({range,compiledRange,expanded})+'\n');const pending=this.pending?.editId;this.pending=undefined;if(pending)this.fallback(pending);return;}
@@ -336,7 +350,7 @@ export class LocalPreview{
       if(pending)this.fallback(pending);return;
     }
     if(borrowed){this.publishedCompiler=borrowed;this.verifyingWithOwner=false;}
-    const started=performance.now(),epoch=background?this.epoch:++this.epoch,slot:Slot={epoch,basis,file:cursor.file,input,sourceText,otherResources:input?resourceIdentity((basis.project.resources??[]).filter(([name])=>name!==input.file)):undefined,range,liveEnd:range.to,compiledRange,compiler:(background?this.slot?.compiler:undefined)??this.warmCompiler??borrowed??new ResidentCompiler(),ready:false,abort:new AbortController(),diskInputs:[]};if(background)this.backgroundSlot=slot;else{this.warmCompiler=undefined;this.slot=slot;if(this.pending)slot.liveEnd=this.pending.source.length-(sourceText.length-range.to);this.state('warming');}
+    const started=performance.now(),epoch=background?this.epoch:++this.epoch,slot:Slot={boundaryWindow:!!boundary,pageMode:!!boundary,epoch,basis,file:cursor.file,input,sourceText,otherResources:input?resourceIdentity((basis.project.resources??[]).filter(([name])=>name!==input.file)):undefined,range,liveEnd:range.to,compiledRange,compiler:(background?this.slot?.compiler:undefined)??this.warmCompiler??borrowed??new ResidentCompiler(),ready:false,abort:new AbortController(),diskInputs:[]};if(background)this.backgroundSlot=slot;else{this.warmCompiler=undefined;this.slot=slot;this.boundaryWindow=undefined;if(this.pending)slot.liveEnd=this.pending.source.length-(sourceText.length-range.to);this.state('warming');}
     const compilerInitiallyWarm=slot.compiler.initialized;
     const valid=()=>slot.epoch===this.epoch&&!slot.cancelled;
     const cancelled=new Promise<false>(resolve=>{slot.cancelWork=()=>resolve(false);});
@@ -372,7 +386,7 @@ export class LocalPreview{
         slot.sourcePages={first:recordedPage,last:recordedPage};
         // Preserve cheap text composition where it already works. Expensive
         // drawings and blocks with no glyph anchors use their recorded page.
-        slot.pageMode=!!prepared.familyRange||pictureBlock||(preparation?.baselinePageCostMs??0)>200||!anchoredPages.length;
+        slot.pageMode=!!boundary||!!prepared.familyRange||pictureBlock||(preparation?.baselinePageCostMs??0)>200||!anchoredPages.length;
       }else if(anchoredPages.length){slot.pageMode=true;slot.sourcePages={first:Math.min(...anchoredPages),last:Math.max(...anchoredPages)};}
       let original:Awaited<ReturnType<ResidentCompiler['previewRegionNodes']>>|undefined;
       try{if(!slot.pageMode)original=await (this.continuous?slot.compiler.previewRegionFlow(basis.compilerSource,compiledRange,slot.abort.signal,30000,()=>{},project,true,input,this.lecture):slot.compiler.previewRegionNodes(basis.compilerSource,compiledRange,slot.abort.signal,30000,()=>{},project,input));}
@@ -533,6 +547,17 @@ export class LocalPreview{
     if(this.verifyingWithOwner)return false;
     this.cancelIdle();
     const slot=this.slot;
+    if(slot&&file===(slot.file??slot.basis.options.root)&&this.regionText(slot,source)===undefined&&this.lecture&&this.continuous&&!this.neutral&&!slot.input&&!slot.basis.bundle.recovered&&slot.basis.bundle.id===this.basis?.bundle.id&&(slot.sourceText??slot.basis.source)===slot.basis.compilerSource&&!this.draftErrors.has(slot)&&process.env.PERSISTENT_TEX_BOUNDARY_WINDOW==='1'){
+      const range=followingParagraphWindow(slot.sourceText??slot.basis.source,source,slot.range);
+      if(range){
+        const at=this.cursor?.at??range.from,basis=slot.basis;
+        this.disarm(true);this.boundaryWindow={file,baseId:basis.bundle.id,range};this.pending={source,fullSource,editId,at};this.schedule();
+        this.log('Paragraph boundary queued on the warm page-window compiler.\n');return true;
+      }
+    }
+    if(!slot&&this.boundaryWindow?.file===file&&this.boundaryWindow.baseId===this.basis?.bundle.id){
+      if(this.regionText({basis:this.basis,range:this.boundaryWindow.range},source)!==undefined){this.pending={source,fullSource,editId,at:this.cursor?.at??this.boundaryWindow.range.from};return true;}
+    }
     if(slot&&(file!==(slot.file??slot.basis.options.root)||this.regionText(slot,source)===undefined)){const other=file!==(slot.file??slot.basis.options.root);this.releaseForFull();if(other)this.basis=undefined;return false;}
     if(!slot){
       const basis=this.basis,cursor=this.cursor;
