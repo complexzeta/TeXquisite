@@ -1,0 +1,76 @@
+name: Experimental preamble read-ahead
+on:
+  workflow_call:
+permissions:
+  contents: read
+jobs:
+  probe:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '24'
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          repository: emscripten-core/emsdk
+          ref: 93360d3670018769b424e4e8f1d3d9b26d32c977
+          path: .experimental-emsdk
+          persist-credentials: false
+      - name: Install isolated cloud tools
+        shell: bash
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends texlive-latex-base texlive-latex-recommended poppler-utils
+          .experimental-emsdk/emsdk install 3.1.46
+          .experimental-emsdk/emsdk activate 3.1.46
+          cp .experimental-emsdk/.emscripten .experimental-emsdk/checkpoint.emscripten
+          echo "PERSISTENT_TEX_TEST_ARTIFACTS=$RUNNER_TEMP/read-ahead/results" >> "$GITHUB_ENV"
+          echo "PERSISTENT_TEX_TEST_FORMAT_CACHE=$RUNNER_TEMP/read-ahead/formats" >> "$GITHUB_ENV"
+          echo "PERSISTENT_TEX_TEST_RESOURCE_FILE=$RUNNER_TEMP/read-ahead/formats/resources.json" >> "$GITHUB_ENV"
+          echo "PERSISTENT_TEX_ENGINE_BASELINE=$RUNNER_TEMP/read-ahead/source" >> "$GITHUB_ENV"
+          echo "PERSISTENT_TEX_ENGINE_SOURCE_ROOT=$RUNNER_TEMP/read-ahead/source/pdftex.wasm" >> "$GITHUB_ENV"
+          echo "PERSISTENT_TEX_ENGINE_SDK=$GITHUB_WORKSPACE/.experimental-emsdk" >> "$GITHUB_ENV"
+          echo "PERSISTENT_TEX_ENGINE_JOBS=2" >> "$GITHUB_ENV"
+      - name: Restore corresponding upstream source
+        shell: bash
+        run: |
+          mkdir -p "$PERSISTENT_TEX_ENGINE_BASELINE" "$PERSISTENT_TEX_TEST_ARTIFACTS"
+          python - <<'PY'
+          import zipfile, os, pathlib
+          root=pathlib.Path(os.environ['PERSISTENT_TEX_ENGINE_BASELINE']).resolve()
+          with zipfile.ZipFile('engine/resident/upstream-source.zip') as z:
+              for item in z.infolist():
+                  target=(root/item.filename).resolve()
+                  assert target.is_relative_to(root) and (item.external_attr >> 16) & 0o170000 != 0o120000
+              z.extractall(root)
+          PY
+          git -C "$PERSISTENT_TEX_ENGINE_BASELINE" init
+          git -C "$PERSISTENT_TEX_ENGINE_BASELINE" add .
+          git -C "$PERSISTENT_TEX_ENGINE_BASELINE" -c user.name=Fixture -c user.email=fixture@example.invalid commit -qm 'Pristine bundled corresponding source'
+      - run: node scripts/patch-checkpoint-engine.mjs
+      - run: node scripts/build-checkpoint-engine.mjs
+      - name: Bind the experimental compiler to its source
+        shell: bash
+        run: |
+          cp "$PERSISTENT_TEX_ENGINE_SOURCE_ROOT/checkpoint-build/checkpoint-pdftex.js" engine/resident/pdftex.js
+          cp "$PERSISTENT_TEX_ENGINE_SOURCE_ROOT/checkpoint-build/checkpoint-pdftex.wasm" engine/resident/pdftex.wasm
+          node - <<'JS'
+          const fs=require('fs'),crypto=require('crypto');const sha=p=>crypto.createHash('sha256').update(fs.readFileSync(p)).digest('hex');
+          fs.writeFileSync(process.env.PERSISTENT_TEX_TEST_ARTIFACTS+'/engine.json',JSON.stringify({source:process.env.GITHUB_SHA,sdk:'3.1.46',sdkSource:'93360d3670018769b424e4e8f1d3d9b26d32c977',upstream:'87dfb950eb9c8e9dcd4ee2a3ac97fbbbacfc618a',archive:sha('engine/resident/upstream-source.zip'),js:sha('engine/resident/pdftex.js'),wasm:sha('engine/resident/pdftex.wasm')},null,2));
+          JS
+      - run: npm ci --no-audit --no-fund
+      - run: npm run build
+      - run: node --test test/preamble-read-ahead.test.cjs
+      - run: node scripts/retained-test-format.cjs
+      - run: node scripts/preamble-read-ahead-probe.cjs
+      - name: Save bounded experimental evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: preamble-read-ahead-evidence
+          retention-days: 7
+          path: ${{ env.PERSISTENT_TEX_TEST_ARTIFACTS }}/*.json
