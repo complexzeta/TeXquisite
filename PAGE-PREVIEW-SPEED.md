@@ -31,3 +31,7 @@ The worker retains at most eight images and 32 MiB of counted pixel/identity byt
 The exact packaged source is `ce404e48abff267c48ca13c06febf0c5dfa44638`. [Source and packaged verification](https://github.com/complexzeta/TeXquisite/actions/runs/41649731040) passed 95 selected unit/native checks, 19 integration reports and 28 pixel cases. Each pixel case also checks a fresh-document cache lookup against a full render. The tests cover descenders, mathematics, colour, strokes, crop/rotation fallback, native page streams, identity invalidation, memory/entry limits, navigation and automatic error recovery.
 
 [Permanent Windows download and aggregate results](https://github.com/complexzeta/TeXquisite/releases/tag/v0.128.0). The previous [0.127 results](https://github.com/complexzeta/TeXquisite/releases/download/v0.127.0/PAGE-PREVIEW-SPEED.md) remain available separately.
+
+## Readiness-control correction (3 November 2026)
+
+The edit-to-canvas timestamps above remain as measured. However, the asynchronous readiness helper did not reliably wait for preparation to finish before the first edit. Corrected tests explicitly await the readiness query. Some historical first-edit outliers therefore include local preparation; these figures must not be interpreted as guaranteed warmed-input measurements. See the [subsequent controlled transport experiments](PAGE-TRANSPORT-EXPERIMENTS.md). Neither prototype was released; Windows 0.128.0 remains recommended.
