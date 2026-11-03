@@ -129,6 +129,7 @@ export class ContinuousView{
       if(entries.length<2||entries.length>3||!first||bases.length!==entries.length||entries.some((e,i)=>!e||!matchingPageGeometry(bases[i],e.size,this.scale)))throw Error('Cross-page baseline changed.');
       const top=Math.floor(plan.prefixY*factor),bottom=Math.ceil(plan.suffixY*factor),x=Math.floor(plan.x*factor),last=bases.at(-1)!;
       if(![top,bottom,x,tile.patchWidth,tile.patchHeight].every(Number.isSafeInteger)||top<0||top>bases[0].height||bottom<0||bottom>last.height||x<0||tile.patchWidth<1||tile.patchHeight<1||x+tile.patchWidth>bases[0].width||bases[0].width*tile.patchHeight>16000000)throw Error('Invalid cross-page geometry.');
+      if(!first.cross&&entries.some(e=>e!.patched||e!.coveredBy!==undefined))throw Error('Cross-page display has another live owner.');
       if(first.cross&&first.cross.key!==plan.key)throw Error('Cross-page baseline changed.');
       const make=(height:number)=>{const c=document.createElement('canvas');c.width=bases[0].width;c.height=height;c.style.width=first.size.originalWidth*this.scale+'px';c.style.height=height/this.ratio+'px';return c;};
       const position=this.position();

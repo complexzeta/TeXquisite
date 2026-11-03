@@ -29,6 +29,9 @@ export class CrossPageFlow{
   const slices=bands.map((b,i)=>({...b,from:i?(bands[i-1].to+b.from)/2:top,to:i+1<bands.length?(b.to+bands[i+1].from)/2:bottom}));
   return new CrossPageFlow(base,original,pages.map(page=>new CrossPagePart(base,original,page,slices.filter(s=>s.page===page),matched.filter(m=>m.full[3]===page).slice(0,32).map(({full:g,fragment:f})=>({code:f[8],full:[g[4],g[5],g[6],g[7]],fragment:[f[4],f[5],f[6],f[7]]})))),nav);
  }
+ // The browser may join pages only after each removed margin has been
+ // independently proved blank. Footnotes, headers and page numbers otherwise
+ // keep the document on its ordinary page-rendering path.
  get layout(){const first=this.parts[0],last=this.parts.at(-1)!,span={first:first.page,last:last.page},prefixY=first.footprint.y,suffixY=last.footprint.y+last.footprint.height,x=Math.min(...this.parts.map(p=>p.x))+this.original.fragment.paddingSp*bp-bleed;return{span,prefixY,suffixY,x,key:JSON.stringify([span,prefixY,suffixY,x])};}
  guard(part:CrossPagePart){const l=this.layout;return{top:part.page===l.span.first?l.prefixY:0,bottom:part.page===l.span.last?l.suffixY:this.base.getPage(part.page-1).getHeight(),rectangles:part.rectangles};}
  flow(output:ParagraphOutput){const a=this.original.fragment,b=output.fragment;if(!a.flowStateHash||!b.flowStateHash||a.widthSp!==b.widthSp||a.paddingSp!==b.paddingSp)return;return{...this.layout,stateChanged:a.flowStateHash!==b.flowStateHash||!!b.lectureSideEffects,fragmentRect:{x:b.paddingSp*bp-bleed,y:b.paddingSp*bp-bleed,width:b.widthSp*bp+2*bleed,height:(b.heightSp+b.depthSp)*bp+2*bleed}};}

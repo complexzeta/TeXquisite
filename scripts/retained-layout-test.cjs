@@ -44,6 +44,21 @@ const {_electron:electron}=require('playwright'),fs=require('node:fs/promises'),
    const full=make();await view.show('original',pdf,full,1,1.25,.8);if(a.width||b.width||view.retainedCanvases().length||!view.ownsCanvas(1,full))throw Error('Same-bundle canonical handoff retained provisional pixels');
    const next=view.patchRetained(1,base,tile(40),flow(100),'c');view.patch(1,base,tile(20),flow(100));if(next.width||view.retainedCanvases().length)throw Error('Single-flow fallback retained obsolete blocks');view.clear();viewport.remove();base.width=base.height=0;return {samePageIndependentBlocks:true,adjacentLeadingOwnership:true,projectedNavigation:true,clickCoordinates:true,rescale:true,sameBundleCanonicalReset:true,singleFlowRetiresRetained:true};
   });
+  result.crossPage=await page.evaluate(async()=>{
+   const make=(seed=0,height=200)=>{const c=document.createElement('canvas');c.width=80;c.height=height;const data=new Uint8ClampedArray(80*height*4);for(let i=0;i<data.length;i+=4)data.set([seed,(i/320)%255,100,255],i);c.getContext('2d').putImageData(new ImageData(data,80,height),0,0);return c;};
+   const viewport=document.createElement('div'),host=document.createElement('div');viewport.style.cssText='position:fixed;top:0;left:0;width:120px;height:80px;overflow:auto';viewport.append(host);document.body.append(viewport);
+   const view=new window.ContinuousPrototype.ContinuousView(host,viewport),bases=[make(10),make(20)],pdf={sizes:async()=>[1,2,3].map(()=>({originalWidth:80,originalHeight:200})),render:async()=>make(30)};await view.show('cross',pdf,make(10),1,1,1);
+   const tile=height=>{const c=make(70,height);return{width:80,height,data:c.getContext('2d').getImageData(0,0,80,height).data,sourceX:0,sourceY:0,patchWidth:80,patchHeight:height};},plan={key:'cross-proof',x:0,prefixY:100,suffixY:50},span={first:1,last:2};
+   viewport.scrollTop=20;const a=view.patchCrossPages(span,bases,plan,tile(140));if(a.prefix.height!==100||a.suffix.height!==150||a.block.height!==140||viewport.scrollTop!==20||!host.children[1].hidden)throw Error('Cross-page geometry or scroll anchor failed');
+   const bytes=c=>c.getContext('2d').getImageData(0,0,c.width,c.height).data;
+   const prefix=bases[0].getContext('2d').getImageData(0,0,80,100).data,suffix=bases[1].getContext('2d').getImageData(0,50,80,150).data;
+   if(bytes(a.prefix).some((v,i)=>v!==prefix[i])||bytes(a.suffix).some((v,i)=>v!==suffix[i]))throw Error('Cross-page strips changed pixels');
+   const b=view.patchCrossPages(span,bases,plan,tile(140));if(b.block!==a.block||b.prefix!==a.prefix||b.suffix!==a.suffix)throw Error('Cross-page canvases were unnecessarily reallocated');
+   if(!view.markCanvas(b.suffix,{x:5,y:5,width:5,height:5})||!view.ownsCanvas(1,b.block))throw Error('Cross-page canvas navigation failed');view.rescale(1.25);if(b.block.style.width!=='100px')throw Error('Cross-page rescale failed');view.rescale(1);
+   const c=view.patchCrossPages(span,bases,plan,tile(160));if(b.block.width||c.prefix!==a.prefix||c.suffix!==a.suffix)throw Error('Cross-page resize leaked or discarded immutable strips');
+   view.patchPages(1,[make(40),make(50)]);if(c.prefix.width||c.block.width||c.suffix.width||host.children[1].hidden)throw Error('Page fallback failed to retire cross-page canvases');view.clear();viewport.remove();for(const b of bases)b.width=b.height=0;
+   return{prefixSuffixPixelsExact:true,attachedCanvasesReused:true,scrollPreserved:true,navigation:true,rescale:true,pageFallback:true,disposed:true};
+  });
   if(process.env.PERSISTENT_TEX_RETAINED_NATIVE_FIXTURE){
    const fixture=JSON.parse(await fs.readFile(process.env.PERSISTENT_TEX_RETAINED_NATIVE_FIXTURE,'utf8'));
    result.nativePixels=await page.evaluate(async fixture=>{
