@@ -14,7 +14,7 @@ import {recoveryLocations,carryRecoveryDiagnostics} from './recovery-navigation'
 import type {BuildDiagnostic} from './diagnostics';
 type CalibrationGlyph={x:number;y:number;width:number;height:number;outline?:boolean};
 export type LocalVerification=boolean|{dx:number;dy:number;calibratedGlyphs?:CalibrationGlyph[]};
-export interface LocalCalibration {x:number;y:number;anchors:ParagraphAnchor[];calibratedGlyphs?:CalibrationGlyph[];inkBleedBp?:number;slices?:{from:number;to:number;dy:number;dx?:number}[];crossPageGuard?:{top:number;bottom:number;rectangles:{x:number;y:number;width:number;height:number}[]};}
+export interface LocalCalibration {x:number;y:number;anchors:ParagraphAnchor[];calibratedGlyphs?:CalibrationGlyph[];inkBleedBp?:number;slices?:{from:number;to:number;dy:number;dx?:number}[];crossPageGuard?:{pageHeight?:number;top:number;bottom:number;rectangles:{x:number;y:number;width:number;height:number}[]};}
 const hash=(s:string)=>createHash('sha256').update(s).digest('hex');
 export function plainTextChange(before:string,after:string){
   if(before===after)return false;

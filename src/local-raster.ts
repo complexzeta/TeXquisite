@@ -148,10 +148,15 @@ export function placementCorrection(offsets:{x:number;y:number}[],current:{x:num
   return {dx,dy};
 }
 
-export function crossPageClearOutside(data:Uint8Array|Uint8ClampedArray,width:number,height:number,guard:{top:number;bottom:number;rectangles:{x:number;y:number;width:number;height:number}[]},factor:number,onOutside?:(detail:{x:number;y:number;rgba:number[]})=>void){
+export function crossPageClearOutside(data:Uint8Array|Uint8ClampedArray,width:number,height:number,guard:{pageHeight?:number;top:number;bottom:number;rectangles:{x:number;y:number;width:number;height:number}[]},factor:number,onOutside?:(detail:{x:number;y:number;rgba:number[]})=>void){
  if(!Number.isFinite(factor)||factor<=0||!Number.isSafeInteger(width)||!Number.isSafeInteger(height)||width<=0||height<=0||data.length!==width*height*4||!guard||!Number.isFinite(guard.top)||!Number.isFinite(guard.bottom)||guard.bottom<=guard.top||guard.rectangles.length<1||guard.rectangles.length>64)return false;
  const rs=guard.rectangles.map(r=>({x:Math.floor(r.x*factor),y:Math.floor(r.y*factor),right:Math.ceil((r.x+r.width)*factor),bottom:Math.ceil((r.y+r.height)*factor)}));if(rs.some(r=>!Object.values(r).every(Number.isFinite)||r.x<0||r.y<0||r.right>width||r.bottom>height||r.right<=r.x||r.bottom<=r.y))return false;
- const start=Math.floor(guard.top*factor),stop=Math.ceil(guard.bottom*factor);if(start<0||stop>height)return false;
+ const pageHeight=guard.pageHeight??height/factor;
+ if(!Number.isFinite(pageHeight)||pageHeight<=0||Math.abs(pageHeight*factor-height)>1||guard.top<0||guard.bottom>pageHeight)return false;
+ // PDFium rounds the physical page height to pixels; a full-page bottom
+ // can therefore ceil one pixel past the bitmap. Check its physical extent
+ // first, then inspect every pixel actually present in that verified page.
+ const start=Math.min(height,Math.floor(guard.top*factor)),stop=Math.min(height,Math.ceil(guard.bottom*factor));if(start<0)return false;
  for(let y=start;y<stop;y++){const intervals=rs.filter(r=>y>=r.y&&y<r.bottom).sort((a,b)=>a.x-b.x);let x=0;for(const r of [...intervals,{x:width,right:width}]){for(;x<r.x;x++){const p=(y*width+x)*4;if(data[p]!==255||data[p+1]!==255||data[p+2]!==255||data[p+3]!==255){onOutside?.({x,y,rgba:Array.from(data.subarray(p,p+4))});return false;}}x=Math.max(x,r.right);}}
  return true;
 }

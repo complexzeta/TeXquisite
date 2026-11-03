@@ -33,6 +33,6 @@ export class CrossPageFlow{
  // independently proved blank. Footnotes, headers and page numbers otherwise
  // keep the document on its ordinary page-rendering path.
  get layout(){const first=this.parts[0],last=this.parts.at(-1)!,span={first:first.page,last:last.page},prefixY=first.footprint.y,suffixY=last.footprint.y+last.footprint.height,x=Math.min(...this.parts.map(p=>p.x))+this.original.fragment.paddingSp*bp-bleed;return{span,prefixY,suffixY,x,key:JSON.stringify([span,prefixY,suffixY,x])};}
- guard(part:CrossPagePart){const l=this.layout;return{top:part.page===l.span.first?l.prefixY:0,bottom:part.page===l.span.last?l.suffixY:this.base.getPage(part.page-1).getHeight(),rectangles:part.rectangles};}
+ guard(part:CrossPagePart){const l=this.layout;return{pageHeight:this.base.getPage(part.page-1).getHeight(),top:part.page===l.span.first?l.prefixY:0,bottom:part.page===l.span.last?l.suffixY:this.base.getPage(part.page-1).getHeight(),rectangles:part.rectangles};}
  flow(output:ParagraphOutput){const a=this.original.fragment,b=output.fragment;if(!a.flowStateHash||!b.flowStateHash||a.widthSp!==b.widthSp||a.paddingSp!==b.paddingSp)return;return{...this.layout,stateChanged:a.flowStateHash!==b.flowStateHash||!!b.lectureSideEffects,fragmentRect:{x:b.paddingSp*bp-bleed,y:b.paddingSp*bp-bleed,width:b.widthSp*bp+2*bleed,height:(b.heightSp+b.depthSp)*bp+2*bleed}};}
 }
