@@ -1,5 +1,5 @@
 // Fast opaque-page rasterization. Keep the same full-page pixel phase and
-// resolution, but avoid allocating/copying a native bitmap for empty margins.
+// resolution, but avoid clearing/copying empty margins.
 // Unsupported objects/annotations/boxes retain the ordinary PDFium renderer.
 export function renderInkPage(page:any,scale:number,diagnostic?:{reason?:string}){
   let stage="page geometry or annotations";
@@ -44,11 +44,14 @@ export function renderInkPage(page:any,scale:number,diagnostic?:{reason?:string}
     const r=Math.min(size.width,Math.ceil((right+2)*sx)+2),b=Math.min(size.height,Math.ceil((actual.originalHeight-bottom+2)*sy)+2);
     const width=r-x,height=b-y;
     stage="ink area";if(width<1||height<1||width*height>16000000||width*height>=size.width*size.height*.75)return;
-    stage="bitmap allocation";ptr=m.wasmExports.malloc(width*height*4);if(!ptr)return;
-    bitmap=m._FPDFBitmap_CreateEx(width,height,4,ptr,width*4);if(!bitmap)return;
-    m._FPDFBitmap_FillRect(bitmap,0,0,width,height,4294967295);
-    m._FPDF_RenderPageBitmap(bitmap,id,-x,-y,size.width,size.height,0,1|2|16);
-    stage="canvas upload";const tile=new Uint8ClampedArray(m.HEAPU8.buffer,ptr,width*height*4),canvas=new OffscreenCanvas(size.width,size.height),ctx=canvas.getContext('2d')!;
+    stage="bitmap allocation";ptr=m.wasmExports.malloc(size.width*size.height*4);if(!ptr)return;
+    bitmap=m._FPDFBitmap_CreateEx(size.width,size.height,4,ptr,size.width*4);if(!bitmap)return;
+    m._FPDFBitmap_FillRect(bitmap,x,y,width,height,4294967295);
+    // Keep PDFium at the exact full-page origin. Translating even by an
+    // integer can perturb float rounding on fractional-size pages.
+    m._FPDF_RenderPageBitmap(bitmap,id,0,0,size.width,size.height,0,1|2|16);
+    stage="canvas upload";const tile=new Uint8ClampedArray(width*height*4);for(let row=0;row<height;row++){const from=ptr+((y+row)*size.width+x)*4;tile.set(m.HEAPU8.subarray(from,from+width*4),row*width*4);}
+    const canvas=new OffscreenCanvas(size.width,size.height),ctx=canvas.getContext('2d')!;
     ctx.fillStyle='white';ctx.fillRect(0,0,size.width,size.height);ctx.putImageData(new ImageData(tile,width,height),x,y);
     stage="complete";return {image:canvas.transferToImageBitmap(),width:size.width,height:size.height,...actual,inkPixels:width*height,fullPixels:size.width*size.height};
   }catch(error){stage+=": "+String(error);return;}finally{if(diagnostic&&stage!=="complete")diagnostic.reason=stage;if(bitmap)m._FPDFBitmap_Destroy(bitmap);if(ptr)m.wasmExports.free(ptr);if(scratch)m.wasmExports.free(scratch);}
