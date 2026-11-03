@@ -3,7 +3,7 @@
 This is an early Windows x64 test release. You do not need to clone the repository, build the program, install VS Code or Node.js, or connect a GitHub account. TeXquisite runs locally.
 
 1. Install [TeX Live](https://tug.org/texlive/windows.html), including latexmk, if you do not already have it. Your TeX installation supplies packages and fonts; TeXquisite does not install a distribution or missing packages.
-2. Download **TeXquisite-0.132.0-Windows.exe** from the [0.132 release page](https://github.com/complexzeta/TeXquisite/releases/tag/v0.132.0) and put it in a folder of your choice. It is a portable application: run the executable directly. The first launch can take a while to unpack. It is an unsigned preview build, so Windows may show a publisher warning. The release page provides its SHA-256 checksum.
+2. Download **TeXquisite-0.133.0-Windows.exe** from the [0.132 release page](https://github.com/complexzeta/TeXquisite/releases/tag/v0.133.0) and put it in a folder of your choice. It is a portable application: run the executable directly. The first launch can take a while to unpack. It is an unsigned preview build, so Windows may show a publisher warning. The release page provides its SHA-256 checksum.
 3. Confirm the TeX installation in Build Settings, or select its installation/executable folder. Choose **Check installation**, then **Apply**. If fast preview is unavailable for the detected TeX Live installation, try **Prepare matching fast preview**, then **Apply**; this optional setup can take a couple of minutes once.
 4. Open your `.tex` file. For teaching, choose **Build → Working mode → Lecture** and **Continuous scroll**. Automatic saving and preview are on by default.
 
@@ -22,3 +22,4 @@ The compiler no longer prefers paths from the developer's machine. Installation 
 Switching to a standalone .tex tab also selects that document for the preview and Build. Included chapter/support tabs retain their known parent document. Live can be paused while editing; Build still compiles the selected document.
 
 Choose **Build → Working mode → Lecture** for interactive teaching, preferably with Continuous scroll. Successful local edits retain the interactive formatter instead of triggering an idle full-document check. Build verifies the entire document on demand; Export PDF verifies current source before exporting. Broader edits still trigger a full build when needed, so Lecture mode does not guarantee a particular latency. **Document** is the default and verifies the whole document automatically after typing pauses. Working mode is remembered across restarts; automatic saving and backups work in both modes.
+
