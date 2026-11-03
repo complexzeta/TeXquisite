@@ -29,3 +29,12 @@ test('The widened context requires a complete page proof, retains the worker, an
   finally{lane.stop();}
  }
 });
+test('Cold, stale, recovered, included, expensive, or disabled contexts keep the normal full route',()=>{
+ const previous=process.env.PERSISTENT_TEX_BOUNDARY_WINDOW;
+ try{for(const variant of ['cold','stale','recovered','included','expensive','disabled']){
+  process.env.PERSISTENT_TEX_BOUNDARY_WINDOW=variant==='disabled'?'0':'1';
+  const compiler={initialized:variant!=='cold',busy:false,stop(){}},basis={source,compilerSource:source,bundle:{id:'base',recovered:variant==='recovered'},options:{root},project:{},returnCompiler:()=>true};
+  const lane=new LocalPreview(async()=>true,async()=>true,()=>{},()=>{},()=>{});lane.lecture=true;lane.continuous=true;lane.basis=variant==='stale'?{...basis,bundle:{id:'new'}}:basis;lane.cursor={file:root,at:range.to-1};lane.schedule=()=>assert.fail('Unsafe context must not queue widening');lane.slot={basis,range,liveEnd:range.to,compiledRange:range,sourceText:source,file:root,compiler,ready:true,abort:new AbortController(),...(variant==='included'?{input:{file:'child.tex'}}:{}),...(variant==='expensive'?{pageCostMs:201}:{})};
+  try{assert.equal(lane.request(root,joined,'guard-'+variant),false,variant);assert.equal(lane.boundaryWindow,undefined);}finally{lane.stop();}
+ }}finally{if(previous===undefined)delete process.env.PERSISTENT_TEX_BOUNDARY_WINDOW;else process.env.PERSISTENT_TEX_BOUNDARY_WINDOW=previous;}
+});

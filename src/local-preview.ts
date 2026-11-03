@@ -81,6 +81,7 @@ export function flowWindowAt(source:string,at:number,floor=0):RegionRange|undefi
 // proof: ordinary exact-source native checks and full page-baseline proof still
 // authorize every resulting frame. No new heap or document snapshot is cached.
 export function followingParagraphWindow(baseline:string,source:string,range:RegionRange){
+  if(!Number.isSafeInteger(range.from)||!Number.isSafeInteger(range.to)||range.from<0||range.to<=range.from||range.to>baseline.length)return;
   const next=paragraphAt(baseline,range.to);
   if(!next||next.from!==range.to||next.to-range.from>1200)return;
   const window={from:range.from,to:next.to},prefix=baseline.slice(0,window.from),suffix=baseline.slice(window.to);
@@ -547,7 +548,7 @@ export class LocalPreview{
     if(this.verifyingWithOwner)return false;
     this.cancelIdle();
     const slot=this.slot;
-    if(slot&&file===(slot.file??slot.basis.options.root)&&this.regionText(slot,source)===undefined&&this.lecture&&this.continuous&&!this.neutral&&!slot.input&&!slot.basis.bundle.recovered&&slot.basis.bundle.id===this.basis?.bundle.id&&(slot.sourceText??slot.basis.source)===slot.basis.compilerSource&&!this.draftErrors.has(slot)&&(slot.pageCostMs??0)<=200&&process.env.PERSISTENT_TEX_BOUNDARY_WINDOW==='1'){
+    if(slot&&file===(slot.file??slot.basis.options.root)&&this.regionText(slot,source)===undefined&&this.lecture&&this.continuous&&!this.neutral&&!slot.input&&!slot.basis.bundle.recovered&&slot.compiler.initialized&&slot.basis.bundle.id===this.basis?.bundle.id&&(slot.sourceText??slot.basis.source)===slot.basis.compilerSource&&!this.draftErrors.has(slot)&&(slot.pageCostMs??0)<=200&&process.env.PERSISTENT_TEX_BOUNDARY_WINDOW!=='0'){
       const range=followingParagraphWindow(slot.sourceText??slot.basis.source,source,slot.range);
       if(range){
         const at=this.cursor?.at??range.from,basis=slot.basis;
