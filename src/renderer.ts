@@ -896,7 +896,7 @@ api.on(async message=>{
       const a=frame.value.canvas,pa=frame.value.pixels,pb=composedRaster.pixels;
       const factor=scale*(window.devicePixelRatio||1),box=message.footprint;let result=matchLocalPatchRaster(pa,pb,a.width,a.height,{x:box.x*factor,y:box.y*factor,width:box.width*factor,height:box.height*factor},(message.calibration?.calibratedGlyphs??[]).map((g:any)=>({x:g.x*factor,y:g.y*factor,width:g.width*factor,height:g.height*factor,outline:g.outline===true})),factor);
       if(!result.ok&&message.calibration?.crossPageVectorComplete){
-        const pixels=(r:any)=>({x:r.x*factor,y:r.y*factor,width:r.width*factor,height:r.height*factor,outline:r.outline===true});
+        const pixels=(r:any)=>({x:r.x*factor,y:r.y*factor,width:r.width*factor,height:r.height*factor,...('outline' in r?{outline:r.outline===true}:{})});
         const checked=matchCrossPageRaster(pa,pb,a.width,a.height,pixels(box),(message.calibration.crossPageRows??[]).map(pixels),(message.calibration.calibratedGlyphs??[]).map(pixels),factor,true);
         if(checked.ok)result={...result,...checked};
       }
