@@ -49,26 +49,23 @@ export function carryUndefinedRepair(previous:string,repaired:string,current:str
   if(current.slice(at,at+command.length)!==command||/[A-Za-z@]/.test(current[at+command.length]??''))return;
   return {source:current.slice(0,at)+' '.repeat(command.length)+current.slice(at+command.length),message:'Preview skipped undefined command '+command+'.',line:current.slice(0,at).split('\n').length};
 }
-export function paragraphAt(source:string,at:number,floor=0):RegionRange|undefined{
-  if(at<floor||at>source.length||floor<0)return;
+export function paragraphAt(source:string,at:number):RegionRange|undefined{
+  if(at<0||at>source.length)return;
   // Treat a run of blank lines as one terminator. A caret within that run
   // still belongs to the preceding paragraph, rather than accidentally
   // preparing both it and the following paragraph.
   const separators=[...source.matchAll(/\n(?:[\t ]*\n)+/g)],left=separators.filter(m=>m.index!+m[0].length<=at).at(-1),right=separators.find(m=>m.index!+m[0].length>at);
-  let from=Math.max(floor,left?left.index!+left[0].length:0);const to=right?right.index!+right[0].length:source.length;
-  // Include leading body whitespace in the first region. Removing a blank
-  // line must not suddenly turn the preamble into part of that paragraph.
-  if(from>floor&&!source.slice(floor,from).trim())from=floor;
+  const from=left?left.index!+left[0].length:0,to=right?right.index!+right[0].length:source.length;
   const text=source.slice(from,to);
   if(!right||!text.trim()||text.length>12000)return;
   return {from,to};
 }
-export function flowWindowAt(source:string,at:number,floor=0):RegionRange|undefined{
-  const current=paragraphAt(source,at,floor);if(!current)return;
+export function flowWindowAt(source:string,at:number):RegionRange|undefined{
+  const current=paragraphAt(source,at);if(!current)return;
   let pictureDepth=0;
   for(const m of source.slice(0,current.from).matchAll(/\\(begin|end)\{tikzpicture\}/g))pictureDepth=m[1]==='begin'?pictureDepth+1:Math.max(0,pictureDepth-1);
   if(pictureDepth)return current;
-  const next=paragraphAt(source,current.to,floor);
+  const next=paragraphAt(source,current.to);
   // Small forward windows amortize preparation across nearby paragraphs. This
   // is just a candidate range: ordinary compiler/raster proof still authorizes
   // it, and preparation retries the current paragraph if the window fails.
@@ -321,8 +318,7 @@ export class LocalPreview{
   private async arm(single=false,target?:{file:string;at:number;recent?:boolean}):Promise<void>{
     const background=!!target,basis=this.basis,cursor=target??this.cursor;if(!basis||!cursor)return;
     const selected=this.sourceFor(basis,cursor.file);if(!selected)return;const sourceText=selected.text,input=selected.input;
-    const floor=input?0:Math.max(0,lineOffset(sourceText,basis.bodyLine??0));
-    const paragraph=paragraphAt(sourceText,cursor.at,floor),range=this.continuous&&!single&&!this.neutral&&process.env.PERSISTENT_TEX_DISABLE_FLOW_WINDOW!=='1'?flowWindowAt(sourceText,cursor.at,floor):paragraph;if(!range||!paragraph)return;
+    const paragraph=paragraphAt(sourceText,cursor.at),range=this.continuous&&!single&&!this.neutral&&process.env.PERSISTENT_TEX_DISABLE_FLOW_WINDOW!=='1'?flowWindowAt(sourceText,cursor.at):paragraph;if(!range||!paragraph)return;
     const expanded=range.to!==paragraph.to;
     const before=sourceText.slice(0,range.from).split('\n').length-1,after=sourceText.slice(0,range.to).split('\n').length-1;
     const compiledRange=input?{...range}:{from:lineOffset(basis.compilerSource,before),to:lineOffset(basis.compilerSource,after)};
@@ -538,8 +534,7 @@ export class LocalPreview{
       const basis=this.basis,cursor=this.cursor;
       if(!basis||!cursor||cursor.file!==file){this.releaseForFull();if(cursor&&cursor.file!==file)this.basis=undefined;return false;}
       const selected=this.sourceFor(basis,file);if(!selected){this.releaseForFull();return false;}
-      const floor=selected.input?0:Math.max(0,lineOffset(selected.text,basis.bodyLine??0));
-      const range=this.continuous&&!this.neutral?flowWindowAt(selected.text,cursor.at,floor):paragraphAt(selected.text,cursor.at,floor);
+      const range=this.continuous&&!this.neutral?flowWindowAt(selected.text,cursor.at):paragraphAt(selected.text,cursor.at);
       if(!range||this.regionText({basis,range,sourceText:selected.text,input:selected.input},source)===undefined){this.releaseForFull();return false;}
       // The first keystroke can beat the scheduled preparation after a cursor
       // move. Queue it against the checked baseline instead of cold-building
