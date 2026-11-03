@@ -1,0 +1,182 @@
+{
+  "passed": true,
+  "synthetic": true,
+  "privateSourceUploaded": false,
+  "endpoint": "hidden completed canvas, not physical paint",
+  "dpr": 2.5,
+  "sameFixtureAndMagnification": true,
+  "readinessExplicitlyAwaited": true,
+  "binarySourceCommit": "d10652e9cc2692f22cbe4a68fef523d0e5342d8a",
+  "binaryVerificationRun": 41661130981,
+  "benchmarkCommit": "c99da3230bb7f12d0be489b05964b1b67254b0a4",
+  "benchmarkRun": 41662692008,
+  "baseline": {
+    "text": {
+      "n": 40,
+      "median": 140,
+      "p95": 204,
+      "max": 272
+    },
+    "math": {
+      "n": 20,
+      "median": 141,
+      "p95": 206,
+      "max": 218
+    },
+    "burst": {
+      "n": 120,
+      "median": 287.5,
+      "p95": 371,
+      "max": 429
+    },
+    "restore": {
+      "n": 2,
+      "median": 134,
+      "p95": 137,
+      "max": 137
+    },
+    "burstFrames": 107,
+    "perRun": [
+      {
+        "version": "0.128.0",
+        "text": {
+          "n": 20,
+          "median": 150,
+          "p95": 204,
+          "max": 272
+        },
+        "math": {
+          "n": 10,
+          "median": 152,
+          "p95": 218,
+          "max": 218
+        },
+        "burst": {
+          "n": 60,
+          "median": 328,
+          "p95": 391,
+          "max": 429
+        },
+        "burstFrames": 50,
+        "localReadinessWaitAfterInitialPreviewMs": 29,
+        "images": 3,
+        "width": 3410,
+        "height": 2131
+      },
+      {
+        "version": "0.128.0",
+        "text": {
+          "n": 20,
+          "median": 124,
+          "p95": 155,
+          "max": 269
+        },
+        "math": {
+          "n": 10,
+          "median": 122.5,
+          "p95": 180,
+          "max": 180
+        },
+        "burst": {
+          "n": 60,
+          "median": 249,
+          "p95": 330,
+          "max": 366
+        },
+        "burstFrames": 57,
+        "localReadinessWaitAfterInitialPreviewMs": 22,
+        "images": 3,
+        "width": 3410,
+        "height": 2131
+      }
+    ]
+  },
+  "candidate": {
+    "text": {
+      "n": 40,
+      "median": 125,
+      "p95": 154,
+      "max": 261
+    },
+    "math": {
+      "n": 20,
+      "median": 126,
+      "p95": 179,
+      "max": 181
+    },
+    "burst": {
+      "n": 120,
+      "median": 290.5,
+      "p95": 375,
+      "max": 410
+    },
+    "restore": {
+      "n": 2,
+      "median": 134,
+      "p95": 142,
+      "max": 142
+    },
+    "burstFrames": 108,
+    "perRun": [
+      {
+        "version": "0.129.0",
+        "text": {
+          "n": 20,
+          "median": 125.5,
+          "p95": 152,
+          "max": 258
+        },
+        "math": {
+          "n": 10,
+          "median": 129,
+          "p95": 181,
+          "max": 181
+        },
+        "burst": {
+          "n": 60,
+          "median": 317,
+          "p95": 398,
+          "max": 410
+        },
+        "burstFrames": 51,
+        "localReadinessWaitAfterInitialPreviewMs": 27,
+        "images": 3,
+        "width": 3410,
+        "height": 2131
+      },
+      {
+        "version": "0.129.0",
+        "text": {
+          "n": 20,
+          "median": 124,
+          "p95": 154,
+          "max": 261
+        },
+        "math": {
+          "n": 10,
+          "median": 126,
+          "p95": 179,
+          "max": 179
+        },
+        "burst": {
+          "n": 60,
+          "median": 271.5,
+          "p95": 348,
+          "max": 366
+        },
+        "burstFrames": 57,
+        "localReadinessWaitAfterInitialPreviewMs": 30,
+        "images": 3,
+        "width": 3410,
+        "height": 2131
+      }
+    ]
+  },
+  "limitations": [
+    "Synthetic Windows cloud-runner timings, not timings on the user computer or private lecture.",
+    "Completed hidden canvas, not physical display paint.",
+    "Initial full document build and local preparation are outside the edit timings.",
+    "Small alternating comparison, not a 99.9th-percentile guarantee.",
+    "Earlier whole-band candidate was withheld after sustained-typing regressions; its results are separate."
+  ]
+}
