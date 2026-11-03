@@ -38,9 +38,9 @@ worker.onmessage=event=>{
           if(args.imageBitmap&&!args.includePixels&&!args.fullRaster&&typeof OffscreenCanvas!=='undefined'){
             const identity=args.live?(await identities.get(args.documentId))?.[args.page-1]:undefined;
             const cached=identity?rasterCache.get(identity,args.scale):undefined;
-            if(cached){const image=await createImageBitmap(cached.image);worker.postMessage({id,result:{...cached,image,rasterCacheHit:true,rasterMs:0,workerMs:performance.now()-started}},[image]);return;}
+            if(cached){try{const image=await createImageBitmap(cached.image);worker.postMessage({id,result:{...cached,image,rasterCacheHit:true,rasterMs:0,workerMs:performance.now()-started}},[image]);return;}catch{rasterCache.clear();}}
             const diagnostic:{reason?:string}={};const ink=renderInkPage(page,args.scale,diagnostic);inkFallbackReason=diagnostic.reason;
-            if(ink){if(identity){const image=await createImageBitmap(ink.image);rasterCache.set(identity,args.scale,{...ink,image,pageWidth:ink.originalWidth,pageHeight:ink.originalHeight});}worker.postMessage({id,result:{...ink,pageWidth:ink.originalWidth,pageHeight:ink.originalHeight,rasterMs:performance.now()-started,workerMs:performance.now()-started}},[ink.image]);return;}
+            if(ink){if(identity){try{const image=await createImageBitmap(ink.image);rasterCache.set(identity,args.scale,{...ink,image,pageWidth:ink.originalWidth,pageHeight:ink.originalHeight});}catch{rasterCache.clear();}}worker.postMessage({id,result:{...ink,pageWidth:ink.originalWidth,pageHeight:ink.originalHeight,rasterMs:performance.now()-started,workerMs:performance.now()-started}},[ink.image]);return;}
           }
           const bitmap=await page.render({scale:args.scale,colorSpace:'RGBA',transparent:false});
           const geometry=page.getOriginalSize(),pageWidth=geometry.originalWidth,pageHeight=geometry.originalHeight;
