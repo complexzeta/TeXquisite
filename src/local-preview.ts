@@ -547,7 +547,7 @@ export class LocalPreview{
     if(this.verifyingWithOwner)return false;
     this.cancelIdle();
     const slot=this.slot;
-    if(slot&&file===(slot.file??slot.basis.options.root)&&this.regionText(slot,source)===undefined&&this.lecture&&this.continuous&&!this.neutral&&!slot.input&&!slot.basis.bundle.recovered&&slot.basis.bundle.id===this.basis?.bundle.id&&(slot.sourceText??slot.basis.source)===slot.basis.compilerSource&&!this.draftErrors.has(slot)&&process.env.PERSISTENT_TEX_BOUNDARY_WINDOW==='1'){
+    if(slot&&file===(slot.file??slot.basis.options.root)&&this.regionText(slot,source)===undefined&&this.lecture&&this.continuous&&!this.neutral&&!slot.input&&!slot.basis.bundle.recovered&&slot.basis.bundle.id===this.basis?.bundle.id&&(slot.sourceText??slot.basis.source)===slot.basis.compilerSource&&!this.draftErrors.has(slot)&&(slot.pageCostMs??0)<=200&&process.env.PERSISTENT_TEX_BOUNDARY_WINDOW==='1'){
       const range=followingParagraphWindow(slot.sourceText??slot.basis.source,source,slot.range);
       if(range){
         const at=this.cursor?.at??range.from,basis=slot.basis;
