@@ -137,10 +137,15 @@ jobs:
         env:
           PERSISTENT_TEX_PREAMBLE_READAHEAD: '1'
         run: node --test --test-concurrency=1 test/retained-preview.test.cjs test/preview-recovery.test.cjs test/local-recovery.test.cjs test/recovery-navigation.test.cjs test/paragraph-window.test.cjs
+      - name: Compare complete edit-to-canvas latency on Windows
+        run: node scripts/preamble-read-ahead-viewer.cjs
       - name: Save bounded Windows evidence
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: preamble-read-ahead-evidence-windows
           retention-days: 7
-          path: ${{ env.PERSISTENT_TEX_TEST_ARTIFACTS }}/*.json
+          path: |
+            ${{ env.PERSISTENT_TEX_TEST_ARTIFACTS }}/*.json
+            ${{ env.PERSISTENT_TEX_TEST_ARTIFACTS }}/preamble-viewer-*/result.json
+            ${{ env.PERSISTENT_TEX_TEST_ARTIFACTS }}/preamble-viewer-*/trial-*/build.log
