@@ -6,7 +6,7 @@ on:
         description: Test suite
         type: choice
         default: compatibility
-        options: [compatibility, retained-preview, editing-position, diagnostics, miktex, miktex-fast, desktop-portability, desktop-installation, mac-release-rehearsal, mac-release-candidate, publish-desktop-preview, recovery-latency, tail-latency, page-transport]
+        options: [canvas-protocol, compatibility, retained-preview, editing-position, diagnostics, miktex, miktex-fast, desktop-portability, desktop-installation, mac-release-rehearsal, mac-release-candidate, publish-desktop-preview, recovery-latency, tail-latency, page-transport]
       tail_samples:
         description: Edits per tail-latency scenario
         type: choice
@@ -22,6 +22,9 @@ concurrency:
   group: texlive-compatibility-${{ github.ref }}-${{ inputs.suite }}
   cancel-in-progress: false
 jobs:
+  canvas-protocol:
+    if: ${{ inputs.suite == 'canvas-protocol' }}
+    uses: ./.github/workflows/canvas-reuse-protocol.yml
   page-transport:
     permissions:
       contents: read
