@@ -39,7 +39,7 @@ jobs:
           $ErrorActionPreference='Stop'
           Expand-Archive -LiteralPath "$env:TRANSPORT_DOWNLOADS/candidate.zip" -DestinationPath "$env:TRANSPORT_DOWNLOADS/candidate-portable"
           $candidate="$env:TRANSPORT_DOWNLOADS/candidate-portable/TeXquisite-0.129.0-Windows.exe"
-          if((Get-FileHash -LiteralPath $candidate).Hash.ToLowerInvariant() -ne '8dcd7a0e052ced2c0623b90d7e154a7fb4f39293ef74d2423a98213f66786572'){throw 'Candidate portable mismatch'}
+          if((Get-FileHash -LiteralPath $candidate).Hash.ToLowerInvariant() -ne 'b2228455b610abedb63940276492173241f293d523c2a73d0ef82c15d14a458a'){throw 'Candidate portable mismatch'}
           $seven=(Get-Command 7z).Source
           foreach($name in @('baseline','candidate')){
             $exe=if($name -eq 'baseline'){"$env:TRANSPORT_DOWNLOADS/baseline.exe"}else{$candidate}
@@ -47,7 +47,7 @@ jobs:
             if($LASTEXITCODE -ne 0){throw 'Portable extraction failed'}
             & $seven x "$env:TRANSPORT_DOWNLOADS/$name-archive/`$PLUGINSDIR/app-64.7z" "-o$env:TRANSPORT_DOWNLOADS/$name-runtime" -y
             if($LASTEXITCODE -ne 0){throw 'Runtime extraction failed'}
-            $expected=if($name -eq 'baseline'){'5177db446ca590f77878422959d4bf6d59def1b8db6b07e4c5392c124e8ea5c4'}else{'c03dafeb1d9c3bd188540e069f796a53aec27f46abd87fb56ec364ceb0601651'}
+            $expected=if($name -eq 'baseline'){'5177db446ca590f77878422959d4bf6d59def1b8db6b07e4c5392c124e8ea5c4'}else{'4e5f077a13a78e4bef8eb6728a13107a141e4a2b047a4c79c82f657bc4007724'}
             if((Get-FileHash -LiteralPath "$env:TRANSPORT_DOWNLOADS/$name-runtime/resources/app.asar").Hash.ToLowerInvariant() -ne $expected){throw 'Runtime ASAR mismatch'}
           }
           "TRANSPORT_BASELINE_EXE=$env:TRANSPORT_DOWNLOADS/baseline-runtime/TeXquisite.exe" >> $env:GITHUB_ENV
