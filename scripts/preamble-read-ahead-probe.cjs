@@ -13,7 +13,8 @@ const fixtures=[
  {name:'changed-preamble',preamble:'\\newcommand{\\Prefix}{First}\n',start:'',texts:['Alpha \\Prefix.','Beta \\Prefix.','Gamma \\Prefix.'],change:true},
  {name:'line-number',preamble:'',start:'',texts:['Line \\the\\inputlineno.','\nLine \\the\\inputlineno.','Line \\the\\inputlineno.']},
  {name:'transformed-consumed',preamble:'',begin:'\\beg^^69n{document}',start:'',texts:['Alpha paragraph.','Beta paragraph.','Gamma words.']},
- {name:'macro-start',preamble:'\\newcommand{\\StartDoc}{\\begin{document}}\n',begin:'\\StartDoc',start:'',texts:['Alpha paragraph.','Beta paragraph.','Gamma words.']},
+ {name:'macro-start',preamble:'\\newcommand{\\StartDoc}{\\begin{document}}\n',begin:'\\StartDoc ',start:'',texts:['Alpha paragraph.','Beta paragraph.','Gamma words.']},
+ {name:'packages',preamble:'\\usepackage{amsmath,amsthm,graphicx,xcolor,geometry,hyperref}\n',start:'',texts:['Alpha paragraph.','Beta paragraph with $\\sqrt{\\pi}$.','Gamma words.']},
  {name:'references',preamble:'',start:'',texts:['\\section{Alpha}\\label{a}See \\ref{a}.','\\section{Beta}\\label{a}See \\ref{a}.','\\section{Gamma}\\label{a}See \\ref{a}.']}
 ];
 let pdfium;
