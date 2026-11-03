@@ -23,8 +23,8 @@ test('The widened context requires a complete page proof, retains the worker, an
  const {PDFDocument}=require('pdf-lib'),doc=await PDFDocument.create();doc.addPage([100,100]);const pdf=await doc.save();
  for(const accepted of [true,false]){
   let prepared=0,proved=0,composed=0,published=0;const compiler={initialized:true,busy:false,prepareRegion:async(text,r)=>{prepared++;assert.equal(text,source);assert.deepEqual(r,window);return{regionKey:'wide',navigation:JSON.stringify({glyph:['main.tex',3,0,1,10,10,5,8,65]})};},previewRegionFlow:async()=>{composed++;assert.fail('Boundary preparation must use page output');},previewRegionPage:async(text,r)=>{assert.equal(text,source);assert.deepEqual(r,window);return{pdf,pageSpan:{first:1,last:1},timing:{}};},useRegion(){},prepareNextRegionEdit(){},stop(){}};
-  const basis={source,compilerSource:source,pdf,bundle:{id:'base'},options:{root},project:{jobName:'main'},returnCompiler:()=>true};
-  const lane=new LocalPreview(async()=>true,async()=>{published++;return true;},()=>{},()=>{},()=>{},async()=>{proved++;return accepted;});lane.lecture=true;lane.continuous=true;lane.basis=basis;lane.cursor={file:root,at:range.to-1};lane.warmCompiler=compiler;lane.boundaryWindow={file:root,baseId:'base',range:window};
+  const basis={source,compilerSource:source,pdf,bundle:{id:'base'},options:{root},bodyLine:2,project:{jobName:'main'},returnCompiler:()=>true};
+  const lane=new LocalPreview(async()=>true,async()=>{published++;return true;},()=>{},()=>{},()=>{},async()=>{proved++;return accepted;});lane.lecture=true;lane.continuous=true;lane.basis=basis;lane.cursor={file:root,at:0};lane.warmCompiler=compiler;lane.boundaryWindow={file:root,baseId:'base',range:window};
   try{await lane.arm();assert.equal(prepared,1);assert.equal(proved,1);assert.equal(composed,0);assert.equal(published,0);assert.equal(lane.ready,accepted);if(accepted){assert.equal(lane.slot.compiler,compiler);assert.equal(lane.slot.boundaryWindow,true);assert.equal(lane.slot.pageReady,true);assert.equal(lane.splitPageParagraph(lane.slot,source,range.from+1),false);}}
   finally{lane.stop();}
  }
@@ -47,4 +47,11 @@ test('Backspace into the preceding paragraph selects an exact bounded window and
  assert.equal(adjacentParagraphWindow(source,source.replace('First','First changed'),second),undefined,'A changed preceding paragraph without a join must not widen');
  const picture=source.replace('First paragraph.','\\begin{tikzpicture}x\\end{tikzpicture}');const r=paragraphAt(picture,picture.indexOf('Second'));
  assert.equal(adjacentParagraphWindow(picture,picture.replace('\n\nSecond','\nSecond'),r),undefined);
+});
+
+test('Whole-document replacement without a paragraph join cannot enter boundary preparation',()=>{
+ const replacement=source.replace('First','First changed').replace('Second','Second \\unknownCommand');
+ assert.equal(adjacentParagraphWindow(source,replacement,range),undefined);
+ const typed=source.replace('First','First typed'),coalesced=typed.replace('paragraph.\n\nSecond','paragraph.\nSecond').replace('typed','typed more');
+ assert.deepEqual(adjacentParagraphWindow(source,coalesced,range,typed),window,'Typing coalesced with the join must still be supported');
 });

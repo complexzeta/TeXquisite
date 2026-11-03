@@ -90,18 +90,20 @@ export function followingParagraphWindow(baseline:string,source:string,range:Reg
   if(!/\n[\t ]*\n$/.test(source.slice(prefix.length,source.length-suffix.length)))return;
   return window;
 }
-export function adjacentParagraphWindow(baseline:string,source:string,range:RegionRange){
-  const forward=followingParagraphWindow(baseline,source,range);if(forward)return forward;
-  const previous=paragraphAt(baseline,range.from-1);
-  if(!previous||previous.to!==range.from||range.to-previous.from>1200)return;
-  // Backspace at the start of the current paragraph removes its preceding
-  // separator. Require the two paragraphs to have actually joined, with exact
-  // unchanged outer bytes; an unrelated edit is not a boundary transition.
-  const prefix=baseline.slice(0,previous.from),suffix=baseline.slice(range.to),end=range.to+source.length-baseline.length;
-  if(!source.startsWith(prefix)||!source.endsWith(suffix)||end<previous.from)return;
-  const joined=paragraphAt(source,previous.from);
-  if(!joined||joined.from!==previous.from||joined.to!==end||/\\begin\{tikzpicture\}/.test(baseline.slice(previous.from,range.to)))return;
-  return {from:previous.from,to:range.to};
+export function adjacentParagraphWindow(baseline:string,source:string,range:RegionRange,previous=baseline){
+  const joins=(window:RegionRange)=>{
+    const prefix=baseline.slice(0,window.from),suffix=baseline.slice(window.to);
+    if(![previous,source].every(text=>text.startsWith(prefix)&&text.endsWith(suffix)&&text.length>=prefix.length+suffix.length))return false;
+    const count=(text:string)=>[...text.slice(prefix.length,text.length-suffix.length).matchAll(/\n(?:[\t ]*\n)+/g)].length;
+    return count(source)<count(previous)&&!/\\begin\{tikzpicture\}/.test(baseline.slice(window.from,window.to));
+  };
+  const forward=followingParagraphWindow(baseline,source,range);if(forward&&joins(forward))return forward;
+  const prior=paragraphAt(baseline,range.from-1);
+  if(!prior||prior.to!==range.from||range.to-prior.from>1200)return;
+  const backward={from:prior.from,to:range.to};
+  // Require an actual separator removal, including coalesced typing, rather
+  // than routing ordinary neighbor edits or whole-document replacement here.
+  if(joins(backward)&&/\n[\t ]*\n$/.test(source.slice(backward.from,source.length-baseline.length+backward.to)))return backward;
 }
 const lineOffset=(source:string,line:number)=>{let at=0;while(line-->0){at=source.indexOf('\n',at);if(at<0)return -1;at++;}return at;};
 type Request={source:string;fullSource?:string;editId:string;at:number;recovery?:{message:string;line:number};};
@@ -350,7 +352,7 @@ export class LocalPreview{
     const selected=this.sourceFor(basis,cursor.file);if(!selected)return;const sourceText=selected.text,input=selected.input;
     const floor=input?0:Math.max(0,lineOffset(sourceText,basis.bodyLine??0));
     const boundary=this.boundaryWindow?.file===cursor.file&&this.boundaryWindow.baseId===basis.bundle.id?this.boundaryWindow:undefined;
-    const paragraph=paragraphAt(sourceText,boundary?Math.min(cursor.at,boundary.range.to-1):cursor.at,floor),range=boundary?.range??(this.continuous&&!single&&!this.neutral&&process.env.PERSISTENT_TEX_DISABLE_FLOW_WINDOW!=='1'?flowWindowAt(sourceText,cursor.at,floor):paragraph);if(!range||!paragraph)return;
+    const paragraph=paragraphAt(sourceText,boundary?Math.max(boundary.range.from,Math.min(cursor.at,boundary.range.to-1)):cursor.at,floor),range=boundary?.range??(this.continuous&&!single&&!this.neutral&&process.env.PERSISTENT_TEX_DISABLE_FLOW_WINDOW!=='1'?flowWindowAt(sourceText,cursor.at,floor):paragraph);if(!range||!paragraph){if(boundary){const pending=this.pending?.editId;this.boundaryWindow=undefined;this.pending=undefined;if(pending)this.fallback(pending);}return;}
     const expanded=!boundary&&range.to!==paragraph.to;
     const before=sourceText.slice(0,range.from).split('\n').length-1,after=sourceText.slice(0,range.to).split('\n').length-1;
     const compiledRange=input?{...range}:{from:lineOffset(basis.compilerSource,before),to:lineOffset(basis.compilerSource,after)};
@@ -562,8 +564,8 @@ export class LocalPreview{
     this.cancelIdle();
     const slot=this.slot;
     if(slot&&!slot.boundaryWindow&&file===(slot.file??slot.basis.options.root)&&this.regionText(slot,source)===undefined&&this.lecture&&this.continuous&&!this.neutral&&!slot.input&&!slot.basis.bundle.recovered&&slot.compiler.initialized&&slot.basis.bundle.id===this.basis?.bundle.id&&(slot.sourceText??slot.basis.source)===slot.basis.compilerSource&&!this.draftErrors.has(slot)&&(slot.pageCostMs??0)<=200&&process.env.PERSISTENT_TEX_BOUNDARY_WINDOW!=='0'){
-      const range=adjacentParagraphWindow(slot.sourceText??slot.basis.source,source,slot.range);
-      if(range){
+      const baseline=slot.sourceText??slot.basis.source,range=adjacentParagraphWindow(baseline,source,slot.range,slot.latestSource??baseline),floor=Math.max(0,lineOffset(baseline,slot.basis.bodyLine??0));
+      if(range&&range.from>=floor){
         const at=this.cursor?.at??range.from,basis=slot.basis;
         this.disarm(true);this.boundaryWindow={file,baseId:basis.bundle.id,range};this.pending={source,fullSource,editId,at};this.schedule();
         this.log('Paragraph boundary queued on the warm page-window compiler.\n');return true;
