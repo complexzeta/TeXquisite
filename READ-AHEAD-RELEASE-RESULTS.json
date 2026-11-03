@@ -1,0 +1,970 @@
+{
+  "schema": 1,
+  "version": "0.133.0",
+  "sourceCommit": "986eaf33ef33ef530ec6b7ced811a602795adb35",
+  "validationRun": 41728950972,
+  "localAppBenchmarked": false,
+  "privateDocumentsUsed": false,
+  "defaultEnabled": true,
+  "control": "Same compiler and app with PERSISTENT_TEX_PREAMBLE_READAHEAD=0",
+  "endpoint": "Completed hidden canvas, not physical display paint",
+  "scope": "First body paragraph sharing the physical begin-document line; ten-page synthetic lecture; does not speed up every edit",
+  "checks": {
+    "unitAndNative": 107,
+    "packageReports": 65,
+    "exactSparseRasterCases": 28,
+    "cachedCanvasPixelCases": 24,
+    "paragraphCanonicalPixelCases": 32,
+    "tenPageCanvasFrames": 128,
+    "compatibilityNativePixelComparisons": 474
+  },
+  "compiler": {
+    "source": "eb0d9aefaf36cd025d10fdd33b1d1fafa4ef6e79",
+    "sdk": "3.1.46",
+    "sdkSource": "93360d3670018769b424e4e8f1d3d9b26d32c977",
+    "upstream": "87dfb950eb9c8e9dcd4ee2a3ac97fbbbacfc618a",
+    "archive": "0beac6bbf8913d41574d80f55b34179ed023ef146878421a955a7ba3b4c37247",
+    "js": "5d2f42d8852796a66a1afa04890878915173e2651ebdd45f94ed36394fe3e3d9",
+    "wasm": "fc7c3b405b57e6c9fa94e6d7d27d54ec3136b229a20e4b5fbd3e2aadbeabf5de",
+    "buildRun": 41725897902,
+    "buildUrl": "https://github.com/complexzeta/TeXquisite/actions/runs/41725897902",
+    "preambleReadAheadGuard": 1,
+    "bundledFormat": "Unchanged TeX Live 2025 format; per-installation formats remain fingerprinted and engine-bound."
+  },
+  "tenPage": [
+    {
+      "runtime": "packaged",
+      "pages": 10,
+      "endpoint": "completed hidden canvas, not physical paint",
+      "trials": [
+        {
+          "enabled": false,
+          "version": "0.133.0",
+          "pageCount": 10,
+          "sourcePreserved": true,
+          "fullCommits": 16,
+          "samples": 16,
+          "medianMs": 479.8499999999767,
+          "maxMs": 548.3000000000466,
+          "edits": [
+            {
+              "kind": "insert",
+              "ms": 500.0999999999767,
+              "layout": "full"
+            },
+            {
+              "kind": "undo",
+              "ms": 539,
+              "layout": "full"
+            },
+            {
+              "kind": "insert",
+              "ms": 548.3000000000466,
+              "layout": "full"
+            },
+            {
+              "kind": "undo",
+              "ms": 539.6999999999534,
+              "layout": "full"
+            },
+            {
+              "kind": "insert",
+              "ms": 522.9000000000233,
+              "layout": "full"
+            },
+            {
+              "kind": "undo",
+              "ms": 513.3000000000466,
+              "layout": "full"
+            },
+            {
+              "kind": "insert",
+              "ms": 535.4000000000233,
+              "layout": "full"
+            },
+            {
+              "kind": "undo",
+              "ms": 488.9000000000233,
+              "layout": "full"
+            },
+            {
+              "kind": "insert",
+              "ms": 445.30000000004657,
+              "layout": "full"
+            },
+            {
+              "kind": "undo",
+              "ms": 460.69999999995343,
+              "layout": "full"
+            },
+            {
+              "kind": "insert",
+              "ms": 445.30000000004657,
+              "layout": "full"
+            },
+            {
+              "kind": "undo",
+              "ms": 470.79999999993015,
+              "layout": "full"
+            },
+            {
+              "kind": "insert",
+              "ms": 455.69999999995343,
+              "layout": "full"
+            },
+            {
+              "kind": "undo",
+              "ms": 468.9000000000233,
+              "layout": "full"
+            },
+            {
+              "kind": "insert",
+              "ms": 448.69999999995343,
+              "layout": "full"
+            },
+            {
+              "kind": "undo",
+              "ms": 441.9000000000233,
+              "layout": "full"
+            }
+          ]
+        },
+        {
+          "enabled": true,
+          "version": "0.133.0",
+          "pageCount": 10,
+          "sourcePreserved": true,
+          "fullCommits": 16,
+          "samples": 16,
+          "medianMs": 98.40000000002328,
+          "maxMs": 125.20000000006985,
+          "edits": [
+            {
+              "kind": "insert",
+              "ms": 125.20000000006985,
+              "layout": "full"
+            },
+            {
+              "kind": "undo",
+              "ms": 111.20000000006985,
+              "layout": "full"
+            },
+            {
+              "kind": "insert",
+              "ms": 108.80000000004657,
+              "layout": "full"
+            },
+            {
+              "kind": "undo",
+              "ms": 97.19999999995343,
+              "layout": "full"
+            },
+            {
+              "kind": "insert",
+              "ms": 98.5,
+              "layout": "full"
+            },
+            {
+              "kind": "undo",
+              "ms": 97.80000000004657,
+              "layout": "full"
+            },
+            {
+              "kind": "insert",
+              "ms": 95.40000000002328,
+              "layout": "full"
+            },
+            {
+              "kind": "undo",
+              "ms": 118.59999999997672,
+              "layout": "full"
+            },
+            {
+              "kind": "insert",
+              "ms": 99.90000000002328,
+              "layout": "full"
+            },
+            {
+              "kind": "undo",
+              "ms": 103.09999999997672,
+              "layout": "full"
+            },
+            {
+              "kind": "insert",
+              "ms": 98.30000000004657,
+              "layout": "full"
+            },
+            {
+              "kind": "undo",
+              "ms": 110.29999999993015,
+              "layout": "full"
+            },
+            {
+              "kind": "insert",
+              "ms": 96.5,
+              "layout": "full"
+            },
+            {
+              "kind": "undo",
+              "ms": 94.80000000004657,
+              "layout": "full"
+            },
+            {
+              "kind": "insert",
+              "ms": 90.40000000002328,
+              "layout": "full"
+            },
+            {
+              "kind": "undo",
+              "ms": 96.39999999990687,
+              "layout": "full"
+            }
+          ]
+        },
+        {
+          "enabled": false,
+          "version": "0.133.0",
+          "pageCount": 10,
+          "sourcePreserved": true,
+          "fullCommits": 16,
+          "samples": 16,
+          "medianMs": 463.70000000001164,
+          "maxMs": 491.4000000000233,
+          "edits": [
+            {
+              "kind": "insert",
+              "ms": 491.4000000000233,
+              "layout": "full"
+            },
+            {
+              "kind": "undo",
+              "ms": 487.19999999995343,
+              "layout": "full"
+            },
+            {
+              "kind": "insert",
+              "ms": 477.29999999993015,
+              "layout": "full"
+            },
+            {
+              "kind": "undo",
+              "ms": 475.0999999999767,
+              "layout": "full"
+            },
+            {
+              "kind": "insert",
+              "ms": 449,
+              "layout": "full"
+            },
+            {
+              "kind": "undo",
+              "ms": 452.80000000004657,
+              "layout": "full"
+            },
+            {
+              "kind": "insert",
+              "ms": 456,
+              "layout": "full"
+            },
+            {
+              "kind": "undo",
+              "ms": 458,
+              "layout": "full"
+            },
+            {
+              "kind": "insert",
+              "ms": 460.5,
+              "layout": "full"
+            },
+            {
+              "kind": "undo",
+              "ms": 470.9000000000233,
+              "layout": "full"
+            },
+            {
+              "kind": "insert",
+              "ms": 474.5,
+              "layout": "full"
+            },
+            {
+              "kind": "undo",
+              "ms": 460.19999999995343,
+              "layout": "full"
+            },
+            {
+              "kind": "insert",
+              "ms": 458.30000000004657,
+              "layout": "full"
+            },
+            {
+              "kind": "undo",
+              "ms": 468.0999999999767,
+              "layout": "full"
+            },
+            {
+              "kind": "insert",
+              "ms": 450.79999999993015,
+              "layout": "full"
+            },
+            {
+              "kind": "undo",
+              "ms": 466.9000000000233,
+              "layout": "full"
+            }
+          ]
+        },
+        {
+          "enabled": true,
+          "version": "0.133.0",
+          "pageCount": 10,
+          "sourcePreserved": true,
+          "fullCommits": 16,
+          "samples": 16,
+          "medianMs": 102.39999999996508,
+          "maxMs": 125.5,
+          "edits": [
+            {
+              "kind": "insert",
+              "ms": 125.5,
+              "layout": "full"
+            },
+            {
+              "kind": "undo",
+              "ms": 111.09999999997672,
+              "layout": "full"
+            },
+            {
+              "kind": "insert",
+              "ms": 119.5,
+              "layout": "full"
+            },
+            {
+              "kind": "undo",
+              "ms": 103,
+              "layout": "full"
+            },
+            {
+              "kind": "insert",
+              "ms": 100.10000000009313,
+              "layout": "full"
+            },
+            {
+              "kind": "undo",
+              "ms": 103.39999999990687,
+              "layout": "full"
+            },
+            {
+              "kind": "insert",
+              "ms": 103.59999999997672,
+              "layout": "full"
+            },
+            {
+              "kind": "undo",
+              "ms": 101.79999999993015,
+              "layout": "full"
+            },
+            {
+              "kind": "insert",
+              "ms": 101.40000000002328,
+              "layout": "full"
+            },
+            {
+              "kind": "undo",
+              "ms": 100.09999999997672,
+              "layout": "full"
+            },
+            {
+              "kind": "insert",
+              "ms": 94.09999999997672,
+              "layout": "full"
+            },
+            {
+              "kind": "undo",
+              "ms": 104.19999999995343,
+              "layout": "full"
+            },
+            {
+              "kind": "insert",
+              "ms": 90.19999999995343,
+              "layout": "full"
+            },
+            {
+              "kind": "undo",
+              "ms": 108,
+              "layout": "full"
+            },
+            {
+              "kind": "insert",
+              "ms": 96.90000000002328,
+              "layout": "full"
+            },
+            {
+              "kind": "undo",
+              "ms": 100.39999999990687,
+              "layout": "full"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "runtime": "source",
+      "pages": 10,
+      "endpoint": "completed hidden canvas, not physical paint",
+      "trials": [
+        {
+          "enabled": false,
+          "version": "0.133.0",
+          "pageCount": 10,
+          "sourcePreserved": true,
+          "fullCommits": 16,
+          "samples": 16,
+          "medianMs": 501.6000000000058,
+          "maxMs": 535.8000000000466,
+          "edits": [
+            {
+              "kind": "insert",
+              "ms": 530.1000000000349,
+              "layout": "full"
+            },
+            {
+              "kind": "undo",
+              "ms": 519.7999999999884,
+              "layout": "full"
+            },
+            {
+              "kind": "insert",
+              "ms": 535.8000000000466,
+              "layout": "full"
+            },
+            {
+              "kind": "undo",
+              "ms": 515.6000000000349,
+              "layout": "full"
+            },
+            {
+              "kind": "insert",
+              "ms": 482,
+              "layout": "full"
+            },
+            {
+              "kind": "undo",
+              "ms": 501.20000000001164,
+              "layout": "full"
+            },
+            {
+              "kind": "insert",
+              "ms": 502,
+              "layout": "full"
+            },
+            {
+              "kind": "undo",
+              "ms": 496.79999999998836,
+              "layout": "full"
+            },
+            {
+              "kind": "insert",
+              "ms": 499.6000000000349,
+              "layout": "full"
+            },
+            {
+              "kind": "undo",
+              "ms": 528.7000000000116,
+              "layout": "full"
+            },
+            {
+              "kind": "insert",
+              "ms": 510,
+              "layout": "full"
+            },
+            {
+              "kind": "undo",
+              "ms": 504,
+              "layout": "full"
+            },
+            {
+              "kind": "insert",
+              "ms": 445.29999999998836,
+              "layout": "full"
+            },
+            {
+              "kind": "undo",
+              "ms": 460.79999999998836,
+              "layout": "full"
+            },
+            {
+              "kind": "insert",
+              "ms": 446.29999999998836,
+              "layout": "full"
+            },
+            {
+              "kind": "undo",
+              "ms": 452.5999999999767,
+              "layout": "full"
+            }
+          ]
+        },
+        {
+          "enabled": true,
+          "version": "0.133.0",
+          "pageCount": 10,
+          "sourcePreserved": true,
+          "fullCommits": 16,
+          "samples": 16,
+          "medianMs": 98.64999999996508,
+          "maxMs": 123.09999999997672,
+          "edits": [
+            {
+              "kind": "insert",
+              "ms": 123.09999999997672,
+              "layout": "full"
+            },
+            {
+              "kind": "undo",
+              "ms": 105,
+              "layout": "full"
+            },
+            {
+              "kind": "insert",
+              "ms": 101.09999999997672,
+              "layout": "full"
+            },
+            {
+              "kind": "undo",
+              "ms": 100.39999999996508,
+              "layout": "full"
+            },
+            {
+              "kind": "insert",
+              "ms": 93.19999999995343,
+              "layout": "full"
+            },
+            {
+              "kind": "undo",
+              "ms": 98.89999999996508,
+              "layout": "full"
+            },
+            {
+              "kind": "insert",
+              "ms": 94.29999999998836,
+              "layout": "full"
+            },
+            {
+              "kind": "undo",
+              "ms": 99.39999999996508,
+              "layout": "full"
+            },
+            {
+              "kind": "insert",
+              "ms": 95.70000000001164,
+              "layout": "full"
+            },
+            {
+              "kind": "undo",
+              "ms": 97.60000000003492,
+              "layout": "full"
+            },
+            {
+              "kind": "insert",
+              "ms": 97.90000000002328,
+              "layout": "full"
+            },
+            {
+              "kind": "undo",
+              "ms": 104.70000000001164,
+              "layout": "full"
+            },
+            {
+              "kind": "insert",
+              "ms": 97.79999999998836,
+              "layout": "full"
+            },
+            {
+              "kind": "undo",
+              "ms": 90.70000000001164,
+              "layout": "full"
+            },
+            {
+              "kind": "insert",
+              "ms": 103.60000000003492,
+              "layout": "full"
+            },
+            {
+              "kind": "undo",
+              "ms": 98.39999999996508,
+              "layout": "full"
+            }
+          ]
+        },
+        {
+          "enabled": false,
+          "version": "0.133.0",
+          "pageCount": 10,
+          "sourcePreserved": true,
+          "fullCommits": 16,
+          "samples": 16,
+          "medianMs": 467.94999999998254,
+          "maxMs": 492.1000000000349,
+          "edits": [
+            {
+              "kind": "insert",
+              "ms": 492.1000000000349,
+              "layout": "full"
+            },
+            {
+              "kind": "undo",
+              "ms": 476.4000000000233,
+              "layout": "full"
+            },
+            {
+              "kind": "insert",
+              "ms": 463,
+              "layout": "full"
+            },
+            {
+              "kind": "undo",
+              "ms": 472.29999999998836,
+              "layout": "full"
+            },
+            {
+              "kind": "insert",
+              "ms": 456,
+              "layout": "full"
+            },
+            {
+              "kind": "undo",
+              "ms": 466.8999999999651,
+              "layout": "full"
+            },
+            {
+              "kind": "insert",
+              "ms": 466,
+              "layout": "full"
+            },
+            {
+              "kind": "undo",
+              "ms": 453.8999999999651,
+              "layout": "full"
+            },
+            {
+              "kind": "insert",
+              "ms": 469,
+              "layout": "full"
+            },
+            {
+              "kind": "undo",
+              "ms": 478.9000000000233,
+              "layout": "full"
+            },
+            {
+              "kind": "insert",
+              "ms": 476,
+              "layout": "full"
+            },
+            {
+              "kind": "undo",
+              "ms": 473.29999999998836,
+              "layout": "full"
+            },
+            {
+              "kind": "insert",
+              "ms": 487.9000000000233,
+              "layout": "full"
+            },
+            {
+              "kind": "undo",
+              "ms": 465.79999999998836,
+              "layout": "full"
+            },
+            {
+              "kind": "insert",
+              "ms": 457.19999999995343,
+              "layout": "full"
+            },
+            {
+              "kind": "undo",
+              "ms": 448,
+              "layout": "full"
+            }
+          ]
+        },
+        {
+          "enabled": true,
+          "version": "0.133.0",
+          "pageCount": 10,
+          "sourcePreserved": true,
+          "fullCommits": 16,
+          "samples": 16,
+          "medianMs": 100.10000000000582,
+          "maxMs": 118.79999999998836,
+          "edits": [
+            {
+              "kind": "insert",
+              "ms": 118.79999999998836,
+              "layout": "full"
+            },
+            {
+              "kind": "undo",
+              "ms": 114.59999999997672,
+              "layout": "full"
+            },
+            {
+              "kind": "insert",
+              "ms": 108.70000000001164,
+              "layout": "full"
+            },
+            {
+              "kind": "undo",
+              "ms": 100.90000000002328,
+              "layout": "full"
+            },
+            {
+              "kind": "insert",
+              "ms": 102.59999999997672,
+              "layout": "full"
+            },
+            {
+              "kind": "undo",
+              "ms": 98.39999999996508,
+              "layout": "full"
+            },
+            {
+              "kind": "insert",
+              "ms": 101.90000000002328,
+              "layout": "full"
+            },
+            {
+              "kind": "undo",
+              "ms": 111.60000000003492,
+              "layout": "full"
+            },
+            {
+              "kind": "insert",
+              "ms": 98.30000000004657,
+              "layout": "full"
+            },
+            {
+              "kind": "undo",
+              "ms": 97.70000000001164,
+              "layout": "full"
+            },
+            {
+              "kind": "insert",
+              "ms": 101.79999999998836,
+              "layout": "full"
+            },
+            {
+              "kind": "undo",
+              "ms": 95.20000000001164,
+              "layout": "full"
+            },
+            {
+              "kind": "insert",
+              "ms": 92.89999999996508,
+              "layout": "full"
+            },
+            {
+              "kind": "undo",
+              "ms": 97.70000000001164,
+              "layout": "full"
+            },
+            {
+              "kind": "insert",
+              "ms": 97.5,
+              "layout": "full"
+            },
+            {
+              "kind": "undo",
+              "ms": 99.29999999998836,
+              "layout": "full"
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "compatibility": {
+    "passed": true,
+    "exactReleaseRuntimeVerified": true,
+    "exactPortable": {
+      "passed": true,
+      "run": 41732236186,
+      "validationSourceCommit": "e4b1dd488a11077e16d6248eacd9f0a6f8897ca2",
+      "releaseBinarySource": "986eaf33ef33ef530ec6b7ced811a602795adb35",
+      "officialAsarSha256": "9b56f99d9844ae3bc41838f6fe7eac2b72e421c6cc4aa8840d7f80a5ba6a40d2",
+      "rebuiltAsarSha256": "e9dd24e17059682cf14a57e46cadddec826078adb0cf8c57193b4096b6004154",
+      "filesCompared": 1184,
+      "differingFiles": [
+        "media/texquisite-icon-dark.ico",
+        "media/texquisite-icon-dark.png",
+        "media/texquisite-icon-light.ico",
+        "media/texquisite-icon-light.png",
+        "media/texquisite-icon.ico"
+      ],
+      "codeAndCompilerIdentical": true,
+      "packagedWindows2022UI": true
+    },
+    "asarSha256": "9b56f99d9844ae3bc41838f6fe7eac2b72e421c6cc4aa8840d7f80a5ba6a40d2",
+    "version": "0.133.0",
+    "sourceCommit": "986eaf33ef33ef530ec6b7ced811a602795adb35",
+    "validationSourceCommit": "19da0e1af5d5d77249f43655b1d9486428902349",
+    "runtimeEquivalent": true,
+    "workflowOnlyDifferences": [
+      ".github/workflows/miktex-compatibility.yml",
+      ".github/workflows/read-ahead-release.yml"
+    ],
+    "run": 41729831693,
+    "url": "https://github.com/complexzeta/TeXquisite/actions/runs/41729831693",
+    "nativePixelComparisons": 474,
+    "reports": [
+      {
+        "name": "read-ahead-texlive-2024",
+        "passed": true,
+        "reportCount": 4,
+        "year": "2024",
+        "fastFormat": true,
+        "nativePixelComparisons": 158,
+        "fixtures": [
+          {
+            "name": "math",
+            "rasterParity": true
+          },
+          {
+            "name": "preamble",
+            "rasterParity": true
+          },
+          {
+            "name": "tikz",
+            "rasterParity": true
+          }
+        ],
+        "packagedUI": {
+          "editMs": 68,
+          "autosave": true,
+          "restartCacheReused": true
+        },
+        "asarSha256": "9b56f99d9844ae3bc41838f6fe7eac2b72e421c6cc4aa8840d7f80a5ba6a40d2",
+        "portableSha256": "372e8188c804883bacc9e73843f3df2b2b1e9c4c260a0f96faed7bcab5e84f7b"
+      },
+      {
+        "name": "read-ahead-texlive-2025",
+        "passed": true,
+        "reportCount": 4,
+        "year": "2025",
+        "fastFormat": true,
+        "nativePixelComparisons": 158,
+        "fixtures": [
+          {
+            "name": "math",
+            "rasterParity": true
+          },
+          {
+            "name": "preamble",
+            "rasterParity": true
+          },
+          {
+            "name": "tikz",
+            "rasterParity": true
+          }
+        ],
+        "packagedUI": {
+          "editMs": 55,
+          "autosave": true,
+          "restartCacheReused": true
+        },
+        "asarSha256": "9b56f99d9844ae3bc41838f6fe7eac2b72e421c6cc4aa8840d7f80a5ba6a40d2",
+        "portableSha256": "70078e94e1be8b5eb04554ab75fff40730935617be8a712bbb1a3e5f4eb7028c"
+      },
+      {
+        "name": "read-ahead-texlive-2026",
+        "passed": true,
+        "reportCount": 4,
+        "year": "2026",
+        "fastFormat": true,
+        "nativePixelComparisons": 158,
+        "fixtures": [
+          {
+            "name": "math",
+            "rasterParity": true
+          },
+          {
+            "name": "preamble",
+            "rasterParity": true
+          },
+          {
+            "name": "tikz",
+            "rasterParity": true
+          }
+        ],
+        "packagedUI": {
+          "editMs": 42,
+          "autosave": true,
+          "restartCacheReused": true
+        },
+        "asarSha256": "9b56f99d9844ae3bc41838f6fe7eac2b72e421c6cc4aa8840d7f80a5ba6a40d2",
+        "portableSha256": "d0e9cc2875142989b0b07e3bfd199f1c67d74a6199d40d4692d1335e431d6159"
+      },
+      {
+        "name": "miktex-windows-2022",
+        "passed": true,
+        "reportCount": 4,
+        "nativeOnly": true,
+        "windows": "2022",
+        "twoWayNavigation": true,
+        "sourceAndPackagedUI": true,
+        "ui": [
+          {
+            "packaged": false,
+            "version": "0.133.0",
+            "editMs": 1988,
+            "automaticRecovery": true,
+            "strictExport": true
+          },
+          {
+            "packaged": true,
+            "version": "0.133.0",
+            "editMs": 1989,
+            "automaticRecovery": true,
+            "strictExport": true
+          }
+        ],
+        "asarSha256": "e9dd24e17059682cf14a57e46cadddec826078adb0cf8c57193b4096b6004154",
+        "portableSha256": "6b3c1ca1db804f583717f8a5cf40a5defdc20de1ecee55c3d13e9d65e0f47076"
+      },
+      {
+        "name": "miktex-windows-2025",
+        "passed": true,
+        "reportCount": 4,
+        "nativeOnly": true,
+        "windows": "2025",
+        "twoWayNavigation": true,
+        "sourceAndPackagedUI": true,
+        "ui": [
+          {
+            "packaged": false,
+            "version": "0.133.0",
+            "editMs": 1988,
+            "automaticRecovery": true,
+            "strictExport": true
+          },
+          {
+            "packaged": true,
+            "version": "0.133.0",
+            "editMs": 2987,
+            "automaticRecovery": true,
+            "strictExport": true
+          }
+        ],
+        "asarSha256": "9b56f99d9844ae3bc41838f6fe7eac2b72e421c6cc4aa8840d7f80a5ba6a40d2",
+        "portableSha256": "9e122c7ede85995cb85759093a871ab7058e0bbaf18f4763ab5e316b884fc9cd"
+      }
+    ]
+  },
+  "limitations": [
+    "Small fixed-size synthetic trials, not long-session or 99.9th-percentile proof.",
+    "Hidden-canvas timing excludes physical paint and is not a private-document/local-hardware measurement.",
+    "Real preamble changes and unsupported input states use the normal rebuild.",
+    "MiKTeX remains native-only; no persistent local lecture preview or TeX Live latency promise.",
+    "Mac/Linux downloads remain the separate 0.123 previews."
+  ]
+}
