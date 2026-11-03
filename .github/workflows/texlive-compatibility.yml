@@ -6,7 +6,7 @@ on:
         description: Test suite
         type: choice
         default: compatibility
-        options: [canvas-protocol, compatibility, retained-preview, editing-position, diagnostics, miktex, miktex-fast, desktop-portability, desktop-installation, mac-release-rehearsal, mac-release-candidate, publish-desktop-preview, recovery-latency, tail-latency, page-transport]
+        options: [lecture-tail, canvas-protocol, compatibility, retained-preview, editing-position, diagnostics, miktex, miktex-fast, desktop-portability, desktop-installation, mac-release-rehearsal, mac-release-candidate, publish-desktop-preview, recovery-latency, tail-latency, page-transport]
       tail_samples:
         description: Edits per tail-latency scenario
         type: choice
@@ -31,6 +31,12 @@ jobs:
       actions: read
     if: ${{ inputs.suite == 'page-transport' }}
     uses: ./.github/workflows/page-transport.yml
+  lecture-tail:
+    if: ${{ inputs.suite == 'lecture-tail' }}
+    uses: ./.github/workflows/tail-latency.yml
+    with:
+      samples: ${{ inputs.tail_samples }}
+      scenarios: '["lecture","lecture-standard"]'
   tail-latency:
     if: ${{ inputs.suite == 'tail-latency' }}
     uses: ./.github/workflows/tail-latency.yml

@@ -2,6 +2,9 @@ name: Preview tail latency
 on:
   workflow_call:
     inputs:
+      scenarios:
+        type: string
+        default: '["boundary","long","theorem","low-memory","high-dpr","contention"]'
       samples:
         type: string
         default: '256'
@@ -12,7 +15,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        scenario: [boundary, long, theorem, low-memory, high-dpr, contention]
+        scenario: ${{ fromJSON(inputs.scenarios) }}
     runs-on: windows-2025
     timeout-minutes: 60
     steps:
