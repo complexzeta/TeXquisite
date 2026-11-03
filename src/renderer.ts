@@ -839,7 +839,9 @@ async function localCorrection(message:any,base:any,fragment:any){
   if(!proposal&&outlines<3)return false;
   console.debug('Local glyph calibration',JSON.stringify({glyphs:calibratedGlyphs.length,outlines,translationConsensus:!!proposal,dx:correction.dx,dy:correction.dy}));
   const box=message.footprint;
-  const crossPageVectorComplete=!!message.calibration?.crossPageGuard&&!!box&&calibratedGlyphs.every(g=>g.outline===true)&&fullGlyphs.filter(g=>g[1]<box.x+box.width&&g[1]+g[3]>box.x&&g[2]<box.y+box.height&&g[2]+g[4]>box.y).every(g=>vectorMatched.has(g));
+  const ownedGlyphs=box?fullGlyphs.filter(g=>g[1]<box.x+box.width&&g[1]+g[3]>box.x&&g[2]<box.y+box.height&&g[2]+g[4]>box.y):[];
+  const crossPageVectorComplete=!!message.calibration?.crossPageGuard&&!!box&&calibratedGlyphs.every(g=>g.outline===true)&&ownedGlyphs.every(g=>vectorMatched.has(g));
+  if(message.calibration?.crossPageGuard)console.debug('Cross-page vector coverage',JSON.stringify({complete:crossPageVectorComplete,owned:ownedGlyphs.length,matched:vectorMatched.size,unmatched:ownedGlyphs.filter(g=>!vectorMatched.has(g)).slice(0,6)}));
   return {...correction,calibratedGlyphs,crossPageVectorComplete};
 }
 api.on(async message=>{
@@ -898,7 +900,7 @@ api.on(async message=>{
       if(!result.ok&&message.calibration?.crossPageVectorComplete){
         const pixels=(r:any)=>({x:r.x*factor,y:r.y*factor,width:r.width*factor,height:r.height*factor,...('outline' in r?{outline:r.outline===true}:{})});
         const checked=matchCrossPageRaster(pa,pb,a.width,a.height,pixels(box),(message.calibration.crossPageRows??[]).map(pixels),(message.calibration.calibratedGlyphs??[]).map(pixels),factor,true);
-        if(checked.ok)result={...result,...checked};
+        console.debug('Cross-page line proof',JSON.stringify(checked));if(checked.ok)result={...result,...checked};
       }
       const owned=!message.calibration?.crossPageGuard||crossPageClearOutside(pa,a.width,a.height,message.calibration.crossPageGuard,factor,detail=>console.debug('Cross-page unowned ink',JSON.stringify({detail,guard:message.calibration.crossPageGuard,factor})));
       ok=owned&&ink&&a.width===composedRaster.width&&a.height===composedRaster.height&&result.ok;
