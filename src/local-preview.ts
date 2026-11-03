@@ -90,6 +90,19 @@ export function followingParagraphWindow(baseline:string,source:string,range:Reg
   if(!/\n[\t ]*\n$/.test(source.slice(prefix.length,source.length-suffix.length)))return;
   return window;
 }
+export function adjacentParagraphWindow(baseline:string,source:string,range:RegionRange){
+  const forward=followingParagraphWindow(baseline,source,range);if(forward)return forward;
+  const previous=paragraphAt(baseline,range.from-1);
+  if(!previous||previous.to!==range.from||range.to-previous.from>1200)return;
+  // Backspace at the start of the current paragraph removes its preceding
+  // separator. Require the two paragraphs to have actually joined, with exact
+  // unchanged outer bytes; an unrelated edit is not a boundary transition.
+  const prefix=baseline.slice(0,previous.from),suffix=baseline.slice(range.to),end=range.to+source.length-baseline.length;
+  if(!source.startsWith(prefix)||!source.endsWith(suffix)||end<previous.from)return;
+  const joined=paragraphAt(source,previous.from);
+  if(!joined||joined.from!==previous.from||joined.to!==end||/\\begin\{tikzpicture\}/.test(baseline.slice(previous.from,range.to)))return;
+  return {from:previous.from,to:range.to};
+}
 const lineOffset=(source:string,line:number)=>{let at=0;while(line-->0){at=source.indexOf('\n',at);if(at<0)return -1;at++;}return at;};
 type Request={source:string;fullSource?:string;editId:string;at:number;recovery?:{message:string;line:number};};
 export interface LocalCandidate {recovery?:{message:string;line:number};reusedRecovery?:boolean;sourceMatchesDraft?:boolean;sourceHealthy?:boolean;recoveryCleared?:boolean;recoveredBasis?:boolean;unchangedRecovery?:BuildDiagnostic[];reprepareParagraph?:boolean;inkBleedBp?:number;}
@@ -548,8 +561,8 @@ export class LocalPreview{
     if(this.verifyingWithOwner)return false;
     this.cancelIdle();
     const slot=this.slot;
-    if(slot&&file===(slot.file??slot.basis.options.root)&&this.regionText(slot,source)===undefined&&this.lecture&&this.continuous&&!this.neutral&&!slot.input&&!slot.basis.bundle.recovered&&slot.compiler.initialized&&slot.basis.bundle.id===this.basis?.bundle.id&&(slot.sourceText??slot.basis.source)===slot.basis.compilerSource&&!this.draftErrors.has(slot)&&(slot.pageCostMs??0)<=200&&process.env.PERSISTENT_TEX_BOUNDARY_WINDOW!=='0'){
-      const range=followingParagraphWindow(slot.sourceText??slot.basis.source,source,slot.range);
+    if(slot&&!slot.boundaryWindow&&file===(slot.file??slot.basis.options.root)&&this.regionText(slot,source)===undefined&&this.lecture&&this.continuous&&!this.neutral&&!slot.input&&!slot.basis.bundle.recovered&&slot.compiler.initialized&&slot.basis.bundle.id===this.basis?.bundle.id&&(slot.sourceText??slot.basis.source)===slot.basis.compilerSource&&!this.draftErrors.has(slot)&&(slot.pageCostMs??0)<=200&&process.env.PERSISTENT_TEX_BOUNDARY_WINDOW!=='0'){
+      const range=adjacentParagraphWindow(slot.sourceText??slot.basis.source,source,slot.range);
       if(range){
         const at=this.cursor?.at??range.from,basis=slot.basis;
         this.disarm(true);this.boundaryWindow={file,baseId:basis.bundle.id,range};this.pending={source,fullSource,editId,at};this.schedule();
