@@ -16,8 +16,10 @@ Latency runs from the scheduled input time to a completed preview frame for that
 | Nine-page document and distant edits | 12,928 ms | 1,393 ms | 13,188 ms | 1,487 ms |
 | Theorem/math document | 13,106 ms | 1,076 ms | 13,201 ms | 1,185 ms |
 | Low-memory policy | 1,693 ms | 1,017 ms | 1,774 ms | 1,069 ms |
-| High pixel density (2.5) | 38,278 ms | 971 ms | 38,538 ms | 1,029 ms |
+| Additional theorem run (see correction below) | 38,278 ms | 971 ms | 38,538 ms | 1,029 ms |
 | CPU contention | 1,588 ms | 1,055 ms | 1,616 ms | 1,064 ms |
+
+**DPI coverage correction:** A later local measurement found that the historical `high-dpr` job set an environment variable without applying Chromium's scale-factor argument. That row is an additional theorem run; its actual DPI was not recorded, so it does not establish 2.5-DPI coverage. The measured numbers remain unchanged. The harness now passes the scale argument explicitly and asserts/records the observed device pixel ratio. New results are required to claim high-DPI tail coverage.
 
 These are separate Windows 2025 GitHub runner sessions with TeX Live 2026, not a timing guarantee on every machine. The low-memory scenario mocks the application's free-memory reading to 256 MiB; it does not reproduce operating-system paging. Contention uses two duty-cycled CPU workers. The long-document scenario deliberately changes editing location frequently. The campaign does not cover arbitrary TikZ programs or all preambles. No private manuscript, profile, or user source was uploaded.
 
