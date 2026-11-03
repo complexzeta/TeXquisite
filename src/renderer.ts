@@ -892,7 +892,7 @@ api.on(async message=>{
       readAt=performance.now();
       const a=frame.value.canvas,pa=frame.value.pixels,pb=composedRaster.pixels;
       const factor=scale*(window.devicePixelRatio||1),box=message.footprint,result=matchLocalPatchRaster(pa,pb,a.width,a.height,{x:box.x*factor,y:box.y*factor,width:box.width*factor,height:box.height*factor},(message.calibration?.calibratedGlyphs??[]).map((g:any)=>({x:g.x*factor,y:g.y*factor,width:g.width*factor,height:g.height*factor,outline:g.outline===true})),factor);
-      const owned=!message.calibration?.crossPageGuard||crossPageClearOutside(pa,a.width,a.height,message.calibration.crossPageGuard,factor);
+      const owned=!message.calibration?.crossPageGuard||crossPageClearOutside(pa,a.width,a.height,message.calibration.crossPageGuard,factor,detail=>console.debug('Cross-page unowned ink',JSON.stringify({detail,guard:message.calibration.crossPageGuard,factor})));
       ok=owned&&ink&&a.width===composedRaster.width&&a.height===composedRaster.height&&result.ok;
       // Tiny matched math glyphs can be entirely gray at display resolution.
       // Repeat the COMPLETE proof at a bounded higher density instead of
@@ -919,7 +919,7 @@ api.on(async message=>{
       }
       reply=ok?true:owned&&ink&&proofToken===localProofToken&&key===proofKey(message)?await localCorrection(message,base,fragment):false;
       console.debug('Local paragraph proof',JSON.stringify({loadMs:loadedAt-proofStarted,readMs:readAt-loadedAt,compareMs:comparedAt-readAt,tileMs:tileAt-comparedAt,correctionMs:performance.now()-tileAt,totalMs:performance.now()-proofStarted,ok,correction:typeof reply==='object'}));
-    }}catch{reply=false;}finally{cached?.release();baseline.release();void Promise.all(tasks.map(task=>task.destroy())).catch(()=>{});await api.call('localAck',message.token,reply);}
+    }}catch(error){console.debug('Local proof rejected',String(error));reply=false;}finally{cached?.release();baseline.release();void Promise.all(tasks.map(task=>task.destroy())).catch(()=>{});await api.call('localAck',message.token,reply);}
     return;
   }
   if(message.type==='localPage'){
