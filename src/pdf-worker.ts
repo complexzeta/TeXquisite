@@ -1,5 +1,7 @@
 import {PDFiumLibrary,PDFiumDocument} from '@hyzyla/pdfium';
 import {renderInkPage} from './page-ink-raster';
+import {pdfPageIdentities} from './pdf-page-identity';
+import {PageRasterCache} from './page-raster-cache';
 import {inkFitsRaster,flowInkBounds,rasterBytesEqual,glyphOutlineKey} from './local-raster';
 import {PdfWorkQueue,pdfWorkPriority} from './pdf-work-queue';
 
@@ -7,6 +9,8 @@ const library=PDFiumLibrary.init({wasmUrl:new URL('./vendor/pdfium.wasm',import.
 void library.catch(()=>{});
 const documents=new Map<number,PDFiumDocument>();
 let nextDocument=0;
+const identities=new Map<number,Promise<(Uint8Array|undefined)[]>>();
+const rasterCache=new PageRasterCache<any>();
 const work=new PdfWorkQueue();
 const worker=globalThis as unknown as {onmessage:(event:MessageEvent)=>void;postMessage:(value:unknown,transfer?:Transferable[])=>void};
 worker.onmessage=event=>{
@@ -20,6 +24,7 @@ worker.onmessage=event=>{
       if(method==='load'){
         const document=await lib.loadDocument(args.bytes),documentId=++nextDocument;
         documents.set(documentId,document);
+        if(args.live)identities.set(documentId,pdfPageIdentities(args.bytes));
         worker.postMessage({id,result:{documentId,numPages:document.getPageCount()}});
       }else if(method==='sizes'){
         const document=documents.get(args.documentId);if(!document)throw new Error('PDF was closed.');
@@ -31,8 +36,11 @@ worker.onmessage=event=>{
         try{
           const started=performance.now();let inkFallbackReason:string|undefined;
           if(args.imageBitmap&&!args.includePixels&&!args.fullRaster&&typeof OffscreenCanvas!=='undefined'){
+            const identity=args.live?(await identities.get(args.documentId))?.[args.page-1]:undefined;
+            const cached=identity?rasterCache.get(identity,args.scale):undefined;
+            if(cached){const image=await createImageBitmap(cached.image);worker.postMessage({id,result:{...cached,image,rasterCacheHit:true,rasterMs:0,workerMs:performance.now()-started}},[image]);return;}
             const diagnostic:{reason?:string}={};const ink=renderInkPage(page,args.scale,diagnostic);inkFallbackReason=diagnostic.reason;
-            if(ink){worker.postMessage({id,result:{...ink,pageWidth:ink.originalWidth,pageHeight:ink.originalHeight,rasterMs:performance.now()-started,workerMs:performance.now()-started}},[ink.image]);return;}
+            if(ink){if(identity){const image=await createImageBitmap(ink.image);rasterCache.set(identity,args.scale,{...ink,image,pageWidth:ink.originalWidth,pageHeight:ink.originalHeight});}worker.postMessage({id,result:{...ink,pageWidth:ink.originalWidth,pageHeight:ink.originalHeight,rasterMs:performance.now()-started,workerMs:performance.now()-started}},[ink.image]);return;}
           }
           const bitmap=await page.render({scale:args.scale,colorSpace:'RGBA',transparent:false});
           const geometry=page.getOriginalSize(),pageWidth=geometry.originalWidth,pageHeight=geometry.originalHeight;
@@ -165,7 +173,7 @@ worker.onmessage=event=>{
           worker.postMessage({id,result:method==='glyphProofs'?proofs:characters});
         }finally{if(buffer)m.wasmExports.free(buffer);if(text)m._FPDFText_ClosePage(text);page.close();}
       }else if(method==='close'){
-        documents.get(args.documentId)?.destroy();documents.delete(args.documentId);
+        documents.get(args.documentId)?.destroy();documents.delete(args.documentId);identities.delete(args.documentId);
         worker.postMessage({id,result:null});
       }else throw new Error('Unknown PDF worker request.');
     }catch(error){worker.postMessage({id,error:String(error)});}
