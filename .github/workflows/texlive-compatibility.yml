@@ -227,6 +227,8 @@ jobs:
       - name: Native retained ownership and unsupported math fallback
         id: native_retained
         run: node --test --test-concurrency=1 test/retained-preview.test.cjs
+      - name: Exact pixels for sparse high-DPI page rasterization
+        run: node scripts/page-ink-raster-test.cjs
       - name: Default-mode report privacy, menu and canonical handoff
         run: node scripts/performance-report-test.cjs
       - name: Repaired preview navigation, actionable errors and correction
@@ -335,7 +337,7 @@ jobs:
           if ('${{ inputs.suite }}' -eq 'diagnostics') {
             $env:PERSISTENT_TEX_MULTI_BLOCK='0'
             $env:PERSISTENT_TEX_RETAINED_FLOW='0'
-            foreach($test in @('performance-report','recovery-navigation','status-bar','compact-fit','recovery-idle','automatic-recovery','recovery-latency','math-deletion')) {
+            foreach($test in @('page-ink-raster','performance-report','recovery-navigation','status-bar','compact-fit','recovery-idle','automatic-recovery','recovery-latency','math-deletion')) {
               node "scripts/$test-test.cjs"
               if($LASTEXITCODE -ne 0){exit $LASTEXITCODE}
             }

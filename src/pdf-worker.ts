@@ -1,4 +1,5 @@
 import {PDFiumLibrary,PDFiumDocument} from '@hyzyla/pdfium';
+import {renderInkPage} from './page-ink-raster';
 import {inkFitsRaster,flowInkBounds,rasterBytesEqual,glyphOutlineKey} from './local-raster';
 import {PdfWorkQueue,pdfWorkPriority} from './pdf-work-queue';
 
@@ -29,6 +30,10 @@ worker.onmessage=event=>{
         const page=document.getPage(args.page-1);
         try{
           const started=performance.now();
+          if(args.imageBitmap&&!args.includePixels&&!args.fullRaster&&typeof OffscreenCanvas!=='undefined'){
+            const ink=renderInkPage(page,args.scale);
+            if(ink){worker.postMessage({id,result:{...ink,pageWidth:ink.originalWidth,pageHeight:ink.originalHeight,rasterMs:performance.now()-started,workerMs:performance.now()-started}},[ink.image]);return;}
+          }
           const bitmap=await page.render({scale:args.scale,colorSpace:'RGBA',transparent:false});
           const geometry=page.getOriginalSize(),pageWidth=geometry.originalWidth,pageHeight=geometry.originalHeight;
           const rasterMs=performance.now()-started;
