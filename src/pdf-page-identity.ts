@@ -14,7 +14,13 @@ export async function pdfPageIdentities(bytes:Uint8Array):Promise<(Uint8Array|un
         const visit=(input:any,root=false)=>{
           if(++objects>20000)throw Error('Complex page identity');
           const value=input instanceof PDFRef?pdf.context.lookup(input):input;
-          if(!value)throw Error('Unresolved PDF object');
+          if(!value){
+            // Bounded native page PDFs can retain unused resource references.
+            // Keep the exact unresolved reference, never equate it with a
+            // resolved object or a differently numbered missing resource.
+            if(input instanceof PDFRef){text('missing-reference:'+input.toString()+';');return;}
+            throw Error('Unresolved PDF object');
+          }
           if(value instanceof PDFDict||value instanceof PDFArray||value instanceof PDFRawStream){const prior=seen.get(value);if(prior!==undefined){text('@'+prior+';');return;}seen.set(value,seen.size);}
           if(value instanceof PDFRawStream){text('stream{');visit(value.dict);text('bytes:'+value.contents.length+':');add(value.contents);text('}');}
           else if(value instanceof PDFDict){text('dict{');const entries=value.entries().filter(([k])=>!root||!['Parent','Resources','MediaBox','CropBox','Rotate'].includes(k.decodeText())).sort(([a],[b])=>a.toString()<b.toString()?-1:a.toString()>b.toString()?1:0);for(const [k,v]of entries){text(k.toString()+':');visit(v);}if(root)for(const name of ['Resources','MediaBox','CropBox','Rotate']){const inherited=page.node.getInheritableAttribute(PDFName.of(name));text('inherited/'+name+':');if(inherited)visit(inherited);else text('absent;');}text('}');}
