@@ -261,7 +261,7 @@ export class BuildController {
         // interruptible because it cannot donate a resident checkpoint.
         if(this.residentTask)return;
         this.log('Stopping obsolete automatic typesetting so the newest edit can continue.\n');
-        this.active?.abort();this.residentTask?.abort.abort();
+        this.active?.abort();
       },Math.max(0,1000-(performance.now()-draft.startedAt)));this.staleDraftTimer.unref();
     }
     // A capability retry for an obsolete draft must not hold newer input behind
