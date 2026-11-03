@@ -51,8 +51,8 @@ export function renderInkPage(page:any,scale:number,diagnostic?:{reason?:string}
     // integer can perturb float rounding on fractional-size pages.
     m._FPDF_RenderPageBitmap(bitmap,id,0,0,size.width,size.height,0,1|2|16);
     stage="canvas upload";const tile=new Uint8ClampedArray(width*height*4);for(let row=0;row<height;row++){const from=ptr+((y+row)*size.width+x)*4;tile.set(m.HEAPU8.subarray(from,from+width*4),row*width*4);}
-    const canvas=new OffscreenCanvas(size.width,size.height),ctx=canvas.getContext('2d')!;
-    ctx.fillStyle='white';ctx.fillRect(0,0,size.width,size.height);ctx.putImageData(new ImageData(tile,width,height),x,y);
-    stage="complete";return {image:canvas.transferToImageBitmap(),width:size.width,height:size.height,...actual,inkPixels:width*height,fullPixels:size.width*size.height};
+    const canvas=new OffscreenCanvas(width,height),ctx=canvas.getContext('2d')!;
+    ctx.putImageData(new ImageData(tile,width,height),0,0);
+    stage="complete";return {image:canvas.transferToImageBitmap(),width:size.width,height:size.height,...actual,inkTile:{x,y,width,height},inkPixels:width*height,fullPixels:size.width*size.height};
   }catch(error){stage+=": "+String(error);return;}finally{if(diagnostic&&stage!=="complete")diagnostic.reason=stage;if(bitmap)m._FPDFBitmap_Destroy(bitmap);if(ptr)m.wasmExports.free(ptr);if(scratch)m.wasmExports.free(scratch);}
 }
