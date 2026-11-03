@@ -1,0 +1,71 @@
+name: Synthetic lecture page transport
+on:
+  workflow_call:
+permissions:
+  contents: read
+  actions: read
+jobs:
+  benchmark:
+    runs-on: windows-2025
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '24'
+      - shell: pwsh
+        run: |
+          $root=Join-Path $env:RUNNER_TEMP 'page-transport'
+          New-Item -ItemType Directory -Path "$root/temporary","$root/artifacts","$root/downloads" -Force|Out-Null
+          "PERSISTENT_TEX_TEST_ARTIFACTS=$root/artifacts" >> $env:GITHUB_ENV
+          "PERSISTENT_TEX_TEST_FORMAT_CACHE=$root/formats" >> $env:GITHUB_ENV
+          "PERSISTENT_TEX_TEST_RESOURCE_FILE=$root/formats/resources.json" >> $env:GITHUB_ENV
+          "TEMP=$root/temporary" >> $env:GITHUB_ENV
+          "TMP=$root/temporary" >> $env:GITHUB_ENV
+          "npm_config_cache=$root/npm" >> $env:GITHUB_ENV
+          "COMPATIBILITY_ROOT=$root" >> $env:GITHUB_ENV
+          "TRANSPORT_DOWNLOADS=$root/downloads" >> $env:GITHUB_ENV
+      - run: npm ci --no-audit --no-fund
+      - run: npm run build
+      - name: Download exact verified baseline and candidate
+        run: node scripts/download-transport-candidates.cjs
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+      - name: Extract and verify both Windows runtimes
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          Expand-Archive -LiteralPath "$env:TRANSPORT_DOWNLOADS/candidate.zip" -DestinationPath "$env:TRANSPORT_DOWNLOADS/candidate-portable"
+          $candidate="$env:TRANSPORT_DOWNLOADS/candidate-portable/TeXquisite-0.129.0-Windows.exe"
+          if((Get-FileHash -LiteralPath $candidate).Hash.ToLowerInvariant() -ne '8dcd7a0e052ced2c0623b90d7e154a7fb4f39293ef74d2423a98213f66786572'){throw 'Candidate portable mismatch'}
+          $seven=(Get-Command 7z).Source
+          foreach($name in @('baseline','candidate')){
+            $exe=if($name -eq 'baseline'){"$env:TRANSPORT_DOWNLOADS/baseline.exe"}else{$candidate}
+            & $seven x $exe "-o$env:TRANSPORT_DOWNLOADS/$name-archive" -y
+            if($LASTEXITCODE -ne 0){throw 'Portable extraction failed'}
+            & $seven x "$env:TRANSPORT_DOWNLOADS/$name-archive/`$PLUGINSDIR/app-64.7z" "-o$env:TRANSPORT_DOWNLOADS/$name-runtime" -y
+            if($LASTEXITCODE -ne 0){throw 'Runtime extraction failed'}
+            $expected=if($name -eq 'baseline'){'5177db446ca590f77878422959d4bf6d59def1b8db6b07e4c5392c124e8ea5c4'}else{'c03dafeb1d9c3bd188540e069f796a53aec27f46abd87fb56ec364ceb0601651'}
+            if((Get-FileHash -LiteralPath "$env:TRANSPORT_DOWNLOADS/$name-runtime/resources/app.asar").Hash.ToLowerInvariant() -ne $expected){throw 'Runtime ASAR mismatch'}
+          }
+          "TRANSPORT_BASELINE_EXE=$env:TRANSPORT_DOWNLOADS/baseline-runtime/TeXquisite.exe" >> $env:GITHUB_ENV
+          "TRANSPORT_CANDIDATE_EXE=$env:TRANSPORT_DOWNLOADS/candidate-runtime/TeXquisite.exe" >> $env:GITHUB_ENV
+      - shell: pwsh
+        run: |
+          & scripts/install-test-texlive.ps1 -Year 2026 -WorkRoot "$env:COMPATIBILITY_ROOT/installation"
+          if($LASTEXITCODE -ne 0){exit $LASTEXITCODE}
+          "$env:COMPATIBILITY_ROOT/installation/texlive/bin/windows" >> $env:GITHUB_PATH
+      - run: node scripts/retained-test-format.cjs
+      - name: Compare high-DPI lecture typing in alternating order
+        run: node scripts/page-transport-benchmark.cjs
+      - name: Save bounded synthetic evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: page-transport-report
+          retention-days: 7
+          path: |
+            ${{ env.PERSISTENT_TEX_TEST_ARTIFACTS }}/**/result.json
+            ${{ env.PERSISTENT_TEX_TEST_ARTIFACTS }}/**/build.log
