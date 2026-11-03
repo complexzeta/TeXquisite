@@ -2,7 +2,7 @@
 
 This is an unreleased experiment. The installed and published Windows version remains 0.128.0 until packaged validation and a repeatable performance comparison justify a change.
 
-The candidate lets a single paragraph span two or three old pages in Lecture + Continuous scroll. It renders the native unpaginated paragraph between immutable prefix and suffix strips. Build and Export retain the canonical paginated PDF.
+The candidate lets a single paragraph span two or three old pages in Lecture + Continuous scroll. It renders the native unpaginated paragraph between immutable prefix and suffix strips. Build and Export retain the canonical paginated PDF. The new display extracts a bitmap from a checked whole-fragment render; it never displays a crop rendered from the old composed page. Its baseline witness therefore checks the complete composed page, while the ordinary patch route keeps its separate page-crop equivalence check.
 
 Preparation requires unique source anchors, supported page geometry, complete fragment ink bounds, and independently rendered baseline checks for every affected page. The removed margins must contain only opaque white pixels outside the proved paragraph. Footers, headers, footnotes and other unowned ink retain the page-rendering fallback.
 

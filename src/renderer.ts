@@ -883,6 +883,7 @@ api.on(async message=>{
     }catch{ok=false;}finally{baseline.release();void task.destroy().catch(()=>{});await api.call('localAck',message.token,ok);}return;
   }
   if(message.type==='localVerify'){
+    const crossPageProof=!!message.calibration?.crossPageGuard;
     const proofStarted=performance.now();let loadedAt=proofStarted,readAt=proofStarted,comparedAt=proofStarted,tileAt=proofStarted;
     let ok=false,reply:boolean|{dx:number;dy:number}=false;const proofToken=localProofToken,key=proofKey(message),baseline=acceptedBaseline(message),tasks=[loadPdf(message.pdf,true),loadPdf(message.fragmentPdf,true)];
     let cached:Awaited<ReturnType<typeof baseline.page>>|undefined;
@@ -892,7 +893,7 @@ api.on(async message=>{
       // Submit the independent proof reads together. Otherwise an idle page
       // render can start between each round trip and delay the same proof
       // repeatedly. PDFium still executes each request serially.
-      const reads=[baseline.page(message.page).then(frame=>cached=frame),composed.renderPixels(1,scale,window.devicePixelRatio||1),localInkFits(message,fragment),composed.regionPixels(1,message.footprint,scale,window.devicePixelRatio||1)] as const;
+      const reads=[baseline.page(message.page).then(frame=>cached=frame),composed.renderPixels(1,scale,window.devicePixelRatio||1),localInkFits(message,fragment),crossPageProof?Promise.resolve(undefined):composed.regionPixels(1,message.footprint,scale,window.devicePixelRatio||1)] as const;
       const [frame,composedRaster,ink,tile]=await Promise.all(reads).catch(async error=>{await Promise.allSettled(reads);throw error;});
       readAt=performance.now();
       const a=frame.value.canvas,pa=frame.value.pixels,pb=composedRaster.pixels;
@@ -900,14 +901,14 @@ api.on(async message=>{
       if(!result.ok&&message.calibration?.crossPageVectorComplete){
         const pixels=(r:any)=>({x:r.x*factor,y:r.y*factor,width:r.width*factor,height:r.height*factor,...('outline' in r?{outline:r.outline===true}:{})});
         const checked=matchCrossPageRaster(pa,pb,a.width,a.height,pixels(box),(message.calibration.crossPageRows??[]).map(pixels),(message.calibration.calibratedGlyphs??[]).map(pixels),factor,true);
-        console.debug('Cross-page line proof',JSON.stringify(checked));if(checked.ok)result={...result,...checked};
+        console.debug('Cross-page line proof',JSON.stringify(checked));if(checked.ok)result={ok:true,differingPixels:checked.differingPixels??0,maxDifference:checked.maxDifference??0};
       }
       const owned=!message.calibration?.crossPageGuard||crossPageClearOutside(pa,a.width,a.height,message.calibration.crossPageGuard,factor,detail=>console.debug('Cross-page unowned ink',JSON.stringify({detail,guard:message.calibration.crossPageGuard,factor})));
       ok=owned&&ink&&a.width===composedRaster.width&&a.height===composedRaster.height&&result.ok;
       // Tiny matched math glyphs can be entirely gray at display resolution.
       // Repeat the COMPLETE proof at a bounded higher density instead of
       // waiving its dark-core, color, ink, geometry or coverage requirements.
-      const proofFactor=owned&&ink&&a.width===composedRaster.width&&a.height===composedRaster.height?proofDensityRetry(result,factor,a.width,a.height):undefined;
+      const proofFactor=!crossPageProof&&owned&&ink&&a.width===composedRaster.width&&a.height===composedRaster.height?proofDensityRetry(result,factor,a.width,a.height):undefined;
       if(!ok&&proofFactor){
         const bounds=localInkBounds(message),multiple=proofFactor/factor;
         const checks=[base.renderPixels(message.page,proofFactor,1),composed.renderPixels(1,proofFactor,1),fragment.inkFits(message.fragment.page,{left:bounds.left*multiple,top:bounds.top*multiple,right:bounds.right*multiple,bottom:bounds.bottom*multiple},proofFactor,1),composed.regionPixels(1,box,proofFactor,1)] as const;
@@ -917,7 +918,10 @@ api.on(async message=>{
         console.debug('Local higher-density proof',JSON.stringify({factor:proofFactor,ink:inkHi.safe,...high,ok}));
       }
       comparedAt=performance.now();
-      if(ok)ok=await tileMatchesFull(composed,message.footprint,composedRaster,pb,tile);
+      // Cross-page flow displays a checked whole-fragment bitmap, not a crop
+      // rendered from this composed page. Its baseline witness is the FULL
+      // page raster above. The ordinary patch route still proves its crop.
+      if(ok&&!crossPageProof)ok=await tileMatchesFull(composed,message.footprint,composedRaster,pb,tile);
       tileAt=performance.now();
       console.debug('Local raster verification',JSON.stringify({ink,owned,...result,scale,ratio:window.devicePixelRatio}));
       ok=ok&&proofToken===localProofToken&&key===proofKey(message)&&message.root===model.root;
