@@ -909,7 +909,7 @@ api.on(async message=>{
       comparedAt=performance.now();
       if(ok)ok=await tileMatchesFull(composed,message.footprint,composedRaster,pb,tile);
       tileAt=performance.now();
-      console.debug('Local raster verification',JSON.stringify({ink,...result,scale,ratio:window.devicePixelRatio}));
+      console.debug('Local raster verification',JSON.stringify({ink,owned,...result,scale,ratio:window.devicePixelRatio}));
       ok=ok&&proofToken===localProofToken&&key===proofKey(message)&&message.root===model.root;
       if(ok){
         // Page verification may have completed in parallel. Evict only the
