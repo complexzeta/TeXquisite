@@ -140,7 +140,7 @@ const localPreview=new LocalPreview(
         // Lecture flow already permits provisional state changes for healthy
         // text. A confirmed skip keeps those same rules, without a full check
         // between every word. It remains approximate and cannot be exported.
-        if(state.previewMode==='lecture'&&candidate.reusedRecovery){clearTimeout(fullVerification);fullVerification=undefined;tracePreview({event:'recovery-local-retained',editId:candidate.editId});}
+        if(state.previewMode==='lecture'&&(candidate.reusedRecovery||process.env.PERSISTENT_TEX_TEST_KEEP_INITIAL_REPAIR==='1')){clearTimeout(fullVerification);fullVerification=undefined;tracePreview({event:'recovery-local-retained',editId:candidate.editId});}
         else scheduleFullVerification(candidate.editId,650,true);
       }else{
         const errors=[...currentProblems,...(currentDiagnostic?[currentDiagnostic]:[])].filter(issue=>issue.severity!=='warning');
