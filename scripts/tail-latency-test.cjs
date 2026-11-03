@@ -25,7 +25,7 @@ const hash=s=>createHash('sha256').update(s).digest('hex');
    const host=document.querySelector('#pages');const record=()=>{const raw=host.dataset.displayedFrame;if(!raw)return;const f=JSON.parse(raw);if(seen.has(f.id))return;seen.add(f.id);const canvases=[...host.querySelectorAll('canvas')].filter(c=>c.dataset.localEditId===f.id);window.tailFrames.push({...f,local:f.layout!=='full',errors:Number(document.querySelector('#errorCount').dataset.errors),pipelines:canvases.map(c=>({width:c.width,height:c.height,reused:c.dataset.pdfCanvasReused==='true',timing:c.dataset.localPipeline?JSON.parse(c.dataset.localPipeline):undefined}))});};new MutationObserver(record).observe(host,{attributes:true,attributeFilter:['data-displayed-frame']});
    let checking=false;window.tailWatch=setInterval(()=>{const input=window.tailInputs.at(-1),frame=window.tailFrames.at(-1);if(!input||checking||frame?.id===input.id)return;checking=true;void window.desktop.call('previewPerformance',true).then(p=>{window.tailStalls.push({n:input.n,phase:'preview-pending',lastFrame:frame?.id,performance:p});if(window.tailStalls.length>24)window.tailStalls.shift();}).finally(()=>checking=false);},1000);
   });
-  await page.evaluate(async({count,scenario,first})=>{
+  await page.evaluate(async({count,scenario,first,lecture})=>{
    const v=document.querySelector('.cm-content').cmTile.root.view,begin=performance.now(),cadence=lecture?100:65;let pause=0,joinedAt=0;
    for(let n=0;n<count;n++){
     if(n&&n%64===0)pause+=900;if(n&&n%512===0)pause+=2500;
@@ -43,7 +43,7 @@ const hash=s=>createHash('sha256').update(s).digest('hex');
     const id=v.dom.dataset.editorEditId;window.tailInputs.push({n,id,due,applied,returned:performance.now(),kind,valid,section:lecture?(from>=text.indexOf('Block099')?'end':from>=text.indexOf('Block049')?'middle':'beginning'):undefined,change:{from,to,insert}});
     if(performance.now()-applied>300){void window.desktop.call('previewPerformance',true).then(p=>{window.tailStalls.push({n,phase:'input-dispatch',ms:performance.now()-applied,performance:p});if(window.tailStalls.length>24)window.tailStalls.shift();});}
    }
-  },{count,scenario,first});
+  },{count,scenario,first,lecture});
   await page.waitForFunction(()=>{const last=window.tailInputs.at(-1);return window.tailFrames.some(f=>f.id===last.id);},null,{timeout:30000}).catch(()=>{result.finalFrameTimedOut=true;});
   await page.evaluate(()=>clearInterval(window.tailWatch));
   const data=await page.evaluate(()=>({inputs:window.tailInputs,frames:window.tailFrames,stalls:window.tailStalls,now:performance.now(),source:document.querySelector('.cm-content').cmTile.root.view.state.doc.toString()}));
