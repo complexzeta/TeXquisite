@@ -19,6 +19,7 @@ const hash=s=>createHash('sha256').update(s).digest('hex');
   await page.evaluate(()=>{
    window.tailInputs=[];window.tailFrames=[];window.tailStalls=[];window.tailErrors=[];const seen=new Set();
    const host=document.querySelector('#pages');const record=()=>{const raw=host.dataset.displayedFrame;if(!raw)return;const f=JSON.parse(raw);if(seen.has(f.id))return;seen.add(f.id);window.tailFrames.push({...f,local:f.layout!=='full'});};new MutationObserver(record).observe(host,{attributes:true,attributeFilter:['data-displayed-frame']});
+   let checking=false;window.tailWatch=setInterval(()=>{const input=window.tailInputs.at(-1),frame=window.tailFrames.at(-1);if(!input||checking||frame?.id===input.id)return;checking=true;void window.desktop.call('previewPerformance',true).then(p=>{window.tailStalls.push({n:input.n,phase:'preview-pending',lastFrame:frame?.id,performance:p});if(window.tailStalls.length>24)window.tailStalls.shift();}).finally(()=>checking=false);},1000);
   });
   await page.evaluate(async({count,scenario,first})=>{
    const v=document.querySelector('.cm-content').cmTile.root.view,begin=performance.now(),cadence=65;let pause=0,joinedAt=0;
@@ -28,10 +29,11 @@ const hash=s=>createHash('sha256').update(s).digest('hex');
     const text=v.state.doc.toString(),slot=n%64,body=text.indexOf('\\begin{document}')+'\\begin{document}'.length;let from,to,insert,kind,valid=true;
     const front=text.indexOf('FirstSentinel'),second=text.indexOf('SecondSentinel');
     if(slot===24||slot===25||slot===26||slot===27){from=body;to=second;insert=(slot===24?'':slot===25?'\n':slot===26?'\n\n':'\n\n')+first+(slot===27?' reset'+Math.floor(n/64):'')+'\n\n';kind=['inline-document-start','one-leading-newline','restore-leading-blank','body-reset'][slot-24];}
-    else if(slot===40||slot===41){from=slot===40?text.indexOf('$ describes a chain.'):text.indexOf(' describes a chain.');to=from+(slot===40?1:0);insert=slot===40?'':'$';kind=slot===40?'remove-math-closer':'restore-math-closer';valid=slot!==40;}
-    else if(slot===46||slot===47){from=text.indexOf(' describes a chain.');to=from;insert=slot===46?' \\unfinishedTail':' ';if(slot===47){from=text.indexOf(' \\unfinishedTail');to=from+' \\unfinishedTail'.length;insert='';}kind=slot===46?'undefined-command':'correct-command';valid=slot!==46;}
+    else if(slot===40||slot===45){from=slot===40?text.indexOf('$ describes a chain.'):text.indexOf(' describes a chain.');to=from+(slot===40?1:0);insert=slot===40?'':'$';kind=slot===40?'remove-math-closer':'restore-math-closer';valid=slot!==40;}
+    else if(slot===46||slot===51){from=text.indexOf(' describes a chain.');to=from;insert=slot===46?' \\unfinishedTail':' ';if(slot===51){from=text.indexOf(' \\unfinishedTail');to=from+' \\unfinishedTail'.length;insert='';}kind=slot===46?'undefined-command':'correct-command';valid=slot!==46;}
     else if(slot===32||slot===33){from=slot===32?(joinedAt=text.indexOf('\n\n',front)):joinedAt;to=from+(slot===32?1:0);insert=slot===32?'':'\n';kind=slot===32?'join-paragraphs':'split-paragraphs';}
     else{const marker=scenario==='long'&&slot%8>=4?'Block'+String((Math.floor(n/64)*17)%100).padStart(3,'0')+':':scenario==='theorem'&&slot%8>=4?'MathSentinel':slot%8>=4?'SecondSentinel':'FirstSentinel';from=text.indexOf(marker)+marker.length;to=from;insert=slot%4===3?'':n%7===0?' ':'x';if(slot%4===3){from=to;to=Math.min(text.length,from+1);}kind=insert?'typing':'backspace';}
+    if(slot>=40&&slot<45||slot>=46&&slot<51)valid=false;
     if(from<0||to<from)throw Error('Invalid synthetic operation '+kind+' '+n);
     const applied=performance.now();v.dispatch({changes:{from,to,insert},selection:{anchor:from+insert.length},userEvent:insert?'input.type':'delete.backward'});
     const id=v.dom.dataset.editorEditId;window.tailInputs.push({n,id,due,applied,returned:performance.now(),kind,valid});
@@ -39,6 +41,7 @@ const hash=s=>createHash('sha256').update(s).digest('hex');
    }
   },{count,scenario,first});
   await page.waitForFunction(()=>{const last=window.tailInputs.at(-1);return window.tailFrames.some(f=>f.id===last.id);},null,{timeout:30000}).catch(()=>{result.finalFrameTimedOut=true;});
+  await page.evaluate(()=>clearInterval(window.tailWatch));
   const data=await page.evaluate(()=>({inputs:window.tailInputs,frames:window.tailFrames,stalls:window.tailStalls,now:performance.now(),source:document.querySelector('.cm-content').cmTile.root.view.state.doc.toString()}));
   const sequence=new Map(data.inputs.map(i=>[i.id,i.n])),frames=data.frames.map(f=>({...f,n:sequence.get(f.id)})).filter(f=>f.n!==undefined).sort((a,b)=>a.at-b.at);
   result.samples=data.inputs.map(i=>{const f=frames.find(f=>f.n>=i.n&&f.at>=i.applied);return {...i,ms:Math.ceil((f?.at??data.now)-i.applied),scheduledMs:Math.ceil((f?.at??data.now)-i.due),inputQueueMs:Math.ceil(i.applied-i.due),coalescedTo:f?.n,censored:!f,local:f?.local,layout:f?.layout};});

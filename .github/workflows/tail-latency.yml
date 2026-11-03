@@ -36,6 +36,7 @@ jobs:
       - run: npm ci --no-audit --no-fund
       - run: npm run build
       - run: node --test test/editor-dispatch.test.cjs test/local-preview.test.cjs
+      - run: node --test --test-name-pattern='Continuous input cannot' test/core.test.cjs
       - shell: pwsh
         run: |
           & scripts/install-test-texlive.ps1 -Year 2026 -WorkRoot "$env:COMPATIBILITY_ROOT/installation"

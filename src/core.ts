@@ -254,6 +254,12 @@ export class BuildController {
     if(draft?.automatic&&options.automatic&&draft.identity!==this.sourceIdentity(options)){
       this.staleDraftTimer=setTimeout(()=>{
         if(this.activeDraft!==draft||!draft.compiling||!this.pending?.automatic||this.sourceIdentity(this.pending)===draft.identity)return;
+        // Killing a resident worker loses its preamble checkpoint. If startup
+        // takes just over this timer, continuous typing can restart it forever.
+        // Let that bounded compile publish once, then consume the newest draft.
+        // Its own timeout still bounds runaway TeX; native fallback stays
+        // interruptible because it cannot donate a resident checkpoint.
+        if(this.residentTask)return;
         this.log('Stopping obsolete automatic typesetting so the newest edit can continue.\n');
         this.active?.abort();this.residentTask?.abort.abort();
       },Math.max(0,1000-(performance.now()-draft.startedAt)));this.staleDraftTimer.unref();
@@ -357,10 +363,11 @@ export class BuildController {
           if(!pdf&&options.automatic&&(failure instanceof ResidentSourceError||recoverableTexError(String(failure)))){
             const deadline=performance.now()+4000;
             // A handful of known, local repairs may keep a lecture moving.
-            // New edits cancel recovery; repeated/unsafe errors never spin.
-            this.retryingNativeFor=this.sourceIdentity(options);
+            // Skip obsolete repairs between compiler calls. Aborting a live
+            // resident repair would destroy the worker needed by the next edit.
             for(let attempt=0;attempt<3;attempt++){
               check();
+              if(this.pending?.automatic&&this.sourceIdentity(this.pending)!==this.sourceIdentity(options))throw failure;
               const parsed=parseDiagnostic(String(failure),diagnosticInputs);
               if(parsed.file!==options.root)break;
               const repair=previewRepair(compilerSource,String(failure));if(!repair||repair.source===compilerSource||performance.now()>=deadline)break;
