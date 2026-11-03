@@ -13,8 +13,8 @@ import {previewRepair,previewRegionRepair} from './preview-recovery';
 import {recoveryLocations,carryRecoveryDiagnostics} from './recovery-navigation';
 import type {BuildDiagnostic} from './diagnostics';
 type CalibrationGlyph={x:number;y:number;width:number;height:number;outline?:boolean};
-export type LocalVerification=boolean|{dx:number;dy:number;calibratedGlyphs?:CalibrationGlyph[]};
-export interface LocalCalibration {x:number;y:number;anchors:ParagraphAnchor[];calibratedGlyphs?:CalibrationGlyph[];inkBleedBp?:number;slices?:{from:number;to:number;dy:number;dx?:number}[];crossPageGuard?:{pageHeight?:number;top:number;bottom:number;rectangles:{x:number;y:number;width:number;height:number}[]};}
+export type LocalVerification=boolean|{dx:number;dy:number;calibratedGlyphs?:CalibrationGlyph[];crossPageVectorComplete?:boolean};
+export interface LocalCalibration {crossPageVectorComplete?:boolean;crossPageRows?:{x:number;y:number;width:number;height:number}[];x:number;y:number;anchors:ParagraphAnchor[];calibratedGlyphs?:CalibrationGlyph[];inkBleedBp?:number;slices?:{from:number;to:number;dy:number;dx?:number}[];crossPageGuard?:{pageHeight?:number;top:number;bottom:number;rectangles:{x:number;y:number;width:number;height:number}[]};}
 const hash=(s:string)=>createHash('sha256').update(s).digest('hex');
 export function plainTextChange(before:string,after:string){
   if(before===after)return false;
@@ -401,7 +401,7 @@ export class LocalPreview{
       }catch(error){if(background||expanded||!this.verifyPages)throw error;this.log('Paragraph composition unavailable: '+String(error)+'\n');slot.pageMode=true;
         if(original&&this.lecture&&this.continuous&&!input&&!this.neutral&&!basis.bundle.recovered&&basis.source===basis.compilerSource&&process.env.PERSISTENT_TEX_DISABLE_CROSS_PAGE_FLOW!=='1')try{
           const base=await this.compositionBase!.pdf,cross=await CrossPageFlow.create(base,prepared.navigation,original);
-          for(const part of cross.parts){let accepted=false,calibratedGlyphs:CalibrationGlyph[]|undefined;for(let attempt=0;attempt<2;attempt++){const composed=await part.compose();const reply=await Promise.race([this.verify(basis,composed.pdf,part.page,original.pdf,original.fragment,composed.footprint,{x:part.x,y:part.y,anchors:part.anchors,calibratedGlyphs,slices:part.slices,crossPageGuard:cross.guard(part)}),cancelled]);if(!valid())return;if(reply===true){accepted=true;break;}if(attempt===0&&typeof reply==='object'){part.adjust(reply.dx,reply.dy);calibratedGlyphs=reply.calibratedGlyphs;}else break;}if(!accepted)throw Error('Cross-page baseline or surrounding ink did not match on page '+part.page);}
+          for(const part of cross.parts){let accepted=false,calibratedGlyphs:CalibrationGlyph[]|undefined,crossPageVectorComplete=false;for(let attempt=0;attempt<2;attempt++){const composed=await part.compose();const reply:LocalVerification=await Promise.race([this.verify(basis,composed.pdf,part.page,original.pdf,original.fragment,composed.footprint,{x:part.x,y:part.y,anchors:part.anchors,calibratedGlyphs,crossPageVectorComplete,crossPageRows:part.proofRows,slices:part.slices,crossPageGuard:cross.guard(part)}),cancelled]);if(!valid())return;if(reply===true){accepted=true;break;}if(attempt===0&&typeof reply==='object'){part.adjust(reply.dx,reply.dy);calibratedGlyphs=reply.calibratedGlyphs;crossPageVectorComplete=reply.crossPageVectorComplete===true;}else break;}if(!accepted)throw Error('Cross-page baseline or surrounding ink did not match on page '+part.page);}
           slot.crossPage=cross;slot.pageMode=false;this.log('Cross-page paragraph baseline verified: '+JSON.stringify(cross.layout.span)+'\n');
         }catch(crossError){this.log('Cross-page paragraph unavailable: '+String(crossError)+'\n');}
       }

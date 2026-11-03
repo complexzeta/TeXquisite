@@ -160,3 +160,13 @@ export function crossPageClearOutside(data:Uint8Array|Uint8ClampedArray,width:nu
  for(let y=start;y<stop;y++){const intervals=rs.filter(r=>y>=r.y&&y<r.bottom).sort((a,b)=>a.x-b.x);let x=0;for(const r of [...intervals,{x:width,right:width}]){for(;x<r.x;x++){const p=(y*width+x)*4;if(data[p]!==255||data[p+1]!==255||data[p+2]!==255||data[p+3]!==255){onOutside?.({x,y,rgba:Array.from(data.subarray(p,p+4))});return false;}}x=Math.max(x,r.right);}}
  return true;
 }
+
+// A long cross-page paragraph is proved as disjoint lines, each under the
+// ordinary raster limits. Only complete, independently matched vector coverage
+// may select this route; generic paragraphs keep their whole-patch proof.
+export function matchCrossPageRaster(a:Uint8ClampedArray,b:Uint8ClampedArray,width:number,height:number,rect:RasterRect,rows:RasterRect[],glyphs:RasterRect[],factor:number,complete:boolean){
+ if(!complete||!Array.isArray(rows)||!rows.length||rows.length>64||!glyphs.length||!glyphs.every(g=>g.outline===true))return{ok:false};
+ let edge=rect.y,count=0,maxDifference=0;
+ for(const row of rows){if(!Object.values(row).every(Number.isFinite)||Math.abs(row.x-rect.x)>.001||Math.abs(row.width-rect.width)>.001||Math.abs(row.y-edge)>.001||row.height<=0||row.height>64*factor)return{ok:false};edge=row.y+row.height;const checked=matchLocalPatchRaster(a,b,width,height,row,glyphs,factor);if(!checked.ok)return checked;count+=checked.differingPixels;maxDifference=Math.max(maxDifference,checked.maxDifference);}
+ if(Math.abs(edge-rect.y-rect.height)>.001)return{ok:false};return{ok:true,differingPixels:count,maxDifference,verifiedLines:rows.length};
+}

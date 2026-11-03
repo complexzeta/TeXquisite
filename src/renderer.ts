@@ -1,6 +1,6 @@
 import {queueEditorEdit} from './editor-dispatch';
 import {decodeNavigation} from './navigation-codec';
-import {matchLocalPatchRaster,crossPageClearOutside,proofDensityRetry,LOCAL_INK_BLEED_BP} from './local-raster';
+import {matchLocalPatchRaster,matchCrossPageRaster,crossPageClearOutside,proofDensityRetry,LOCAL_INK_BLEED_BP} from './local-raster';
 import {placementCorrection,GlyphLookup} from './local-raster';
 import {mathSpans,isMath,nearestMathCaret,mathCaretBox,moveMath,moveMathAcross,changeMath,parseMath,MathFormula,MathSpan,MathAction} from './math-edit';
 import {EditorView,basicSetup} from 'codemirror';
@@ -829,15 +829,18 @@ async function localCorrection(message:any,base:any,fragment:any){
   // for bounded antialiasing coverage. Do not repeat an identical proposal
   // after those boxes have already failed their raster check.
   if(correction.dx===0&&correction.dy===0&&message.calibration?.calibratedGlyphs?.length)return false;
-  const x=message.calibration.x+correction.dx,y=message.calibration.y+correction.dy,calibratedGlyphs:{x:number;y:number;width:number;height:number;outline?:boolean}[]=[];
+  const vectorMatched=new Set<PdfCharacter>();
+  const calibratedGlyphs:{x:number;y:number;width:number;height:number;outline?:boolean}[]=[];
   for(const g of fragmentGlyphs){
     const gx=horizontal(g[2])+correction.dx,gy=vertical(g[2])+correction.dy,full=fullLookup.nearest(g[0],[g[1]+gx,g[2]+gy,g[3],g[4]]);if(!full)continue;
-    if(Math.abs(full[1]-g[1]-gx)<=.02&&Math.abs(full[2]-g[2]-gy)<=.02&&Math.abs(full[3]-g[3])<=.02&&Math.abs(full[4]-g[4])<=.02){const outline=fullOutlines.get(full);calibratedGlyphs.push({x:full[1],y:full[2],width:full[3],height:full[4],outline:typeof outline==='string'&&outline.length===64&&outline===fragmentOutlines.get(g)});}
+    if(Math.abs(full[1]-g[1]-gx)<=.02&&Math.abs(full[2]-g[2]-gy)<=.02&&Math.abs(full[3]-g[3])<=.02&&Math.abs(full[4]-g[4])<=.02){const outline=fullOutlines.get(full);if(typeof outline==='string'&&outline.length===64&&outline===fragmentOutlines.get(g))vectorMatched.add(full);calibratedGlyphs.push({x:full[1],y:full[2],width:full[3],height:full[4],outline:typeof outline==='string'&&outline.length===64&&outline===fragmentOutlines.get(g)});}
   }
   const outlines=calibratedGlyphs.filter(g=>g.outline).length;
   if(!proposal&&outlines<3)return false;
   console.debug('Local glyph calibration',JSON.stringify({glyphs:calibratedGlyphs.length,outlines,translationConsensus:!!proposal,dx:correction.dx,dy:correction.dy}));
-  return {...correction,calibratedGlyphs};
+  const box=message.footprint;
+  const crossPageVectorComplete=!!message.calibration?.crossPageGuard&&!!box&&calibratedGlyphs.every(g=>g.outline===true)&&fullGlyphs.filter(g=>g[1]<box.x+box.width&&g[1]+g[3]>box.x&&g[2]<box.y+box.height&&g[2]+g[4]>box.y).every(g=>vectorMatched.has(g));
+  return {...correction,calibratedGlyphs,crossPageVectorComplete};
 }
 api.on(async message=>{
   if(message.type==='toolchainStatus'){model.toolchain=message.report;renderToolchain(message.report,true);return;}
@@ -891,7 +894,12 @@ api.on(async message=>{
       const [frame,composedRaster,ink,tile]=await Promise.all(reads).catch(async error=>{await Promise.allSettled(reads);throw error;});
       readAt=performance.now();
       const a=frame.value.canvas,pa=frame.value.pixels,pb=composedRaster.pixels;
-      const factor=scale*(window.devicePixelRatio||1),box=message.footprint,result=matchLocalPatchRaster(pa,pb,a.width,a.height,{x:box.x*factor,y:box.y*factor,width:box.width*factor,height:box.height*factor},(message.calibration?.calibratedGlyphs??[]).map((g:any)=>({x:g.x*factor,y:g.y*factor,width:g.width*factor,height:g.height*factor,outline:g.outline===true})),factor);
+      const factor=scale*(window.devicePixelRatio||1),box=message.footprint;let result=matchLocalPatchRaster(pa,pb,a.width,a.height,{x:box.x*factor,y:box.y*factor,width:box.width*factor,height:box.height*factor},(message.calibration?.calibratedGlyphs??[]).map((g:any)=>({x:g.x*factor,y:g.y*factor,width:g.width*factor,height:g.height*factor,outline:g.outline===true})),factor);
+      if(!result.ok&&message.calibration?.crossPageVectorComplete){
+        const pixels=(r:any)=>({x:r.x*factor,y:r.y*factor,width:r.width*factor,height:r.height*factor,outline:r.outline===true});
+        const checked=matchCrossPageRaster(pa,pb,a.width,a.height,pixels(box),(message.calibration.crossPageRows??[]).map(pixels),(message.calibration.calibratedGlyphs??[]).map(pixels),factor,true);
+        if(checked.ok)result={...result,...checked};
+      }
       const owned=!message.calibration?.crossPageGuard||crossPageClearOutside(pa,a.width,a.height,message.calibration.crossPageGuard,factor,detail=>console.debug('Cross-page unowned ink',JSON.stringify({detail,guard:message.calibration.crossPageGuard,factor})));
       ok=owned&&ink&&a.width===composedRaster.width&&a.height===composedRaster.height&&result.ok;
       // Tiny matched math glyphs can be entirely gray at display resolution.

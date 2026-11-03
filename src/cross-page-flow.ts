@@ -4,12 +4,13 @@ const bp=72/(72.27*65536),bleed=1;
 export type CrossSlice={from:number;to:number;dx:number;dy:number};
 export class CrossPagePart{
  private correction={x:0,y:0};
- constructor(private base:PDFDocument,private original:ParagraphOutput,readonly page:number,private cuts:CrossSlice[],readonly anchors:ParagraphAnchor[]){}
+ constructor(private base:PDFDocument,private original:ParagraphOutput,readonly page:number,private cuts:CrossSlice[],readonly anchors:ParagraphAnchor[],private rows:{from:number;to:number}[]){}
  get x(){return Math.min(...this.cuts.map(s=>s.dx))+this.correction.x;}
  get y(){return this.cuts[0].dy+this.correction.y;}
  get slices(){return this.cuts.map(s=>({...s,dx:s.dx+this.correction.x,dy:s.dy+this.correction.y}));}
  get rectangles(){const f=this.original.fragment;return this.slices.map(s=>({x:s.dx+f.paddingSp*bp-bleed,y:s.from+s.dy,width:f.widthSp*bp+2*bleed,height:s.to-s.from}));}
  get footprint(){const r=this.rectangles,x=Math.min(...r.map(b=>b.x)),y=Math.min(...r.map(b=>b.y));return{x,y,width:Math.max(...r.map(b=>b.x+b.width))-x,height:Math.max(...r.map(b=>b.y+b.height))-y};}
+ get proofRows(){const f=this.footprint,rows=this.rows.map(r=>({...r})).sort((a,b)=>a.from-b.from);const bands:{from:number;to:number}[]=[];for(const r of rows){const prior=bands.at(-1);if(prior&&r.from<=prior.to+.01)prior.to=Math.max(prior.to,r.to);else bands.push(r);}if(!bands.length||bands.length>64)throw Error('Unsupported cross-page line proof');return bands.map((b,i)=>{const y=i?(bands[i-1].to+b.from)/2:f.y,bottom=i+1<bands.length?(b.to+bands[i+1].from)/2:f.y+f.height;if(bottom-y>64)throw Error('Cross-page proof line is too tall');return{x:f.x,y,width:f.width,height:bottom-y};});}
  adjust(dx:number,dy:number){if(![dx,dy].every(n=>Number.isFinite(n)&&Math.abs(n)<=.01))throw Error('Invalid cross-page correction');this.correction.x+=dx;this.correction.y+=dy;}
  async compose(){const doc=await PDFDocument.create(),[page]=await doc.copyPages(this.base,[this.page-1]);doc.addPage(page);const [tile]=await doc.embedPdf(this.original.pdf,[this.original.fragment.page-1]);
   for(const [i,s]of this.slices.entries()){const r=this.rectangles[i];if(r.x<0||r.y<0||r.x+r.width>page.getWidth()+.01||r.y+r.height>page.getHeight()+.01)throw Error('Cross-page ink lies outside its page');const bottom=page.getHeight()-r.y-r.height;page.drawRectangle({x:r.x,y:bottom,width:r.width,height:r.height,color:rgb(1,1,1)});page.pushOperators(pushGraphicsState(),rectangle(r.x,bottom,r.width,r.height),clip(),endPath());page.drawPage(tile,{x:s.dx,y:page.getHeight()-s.dy-tile.height});page.pushOperators(popGraphicsState());}
@@ -27,7 +28,7 @@ export class CrossPageFlow{
   const f=original.fragment,top=f.paddingSp*bp-bleed,bottom=(f.paddingSp+f.heightSp+f.depthSp)*bp+bleed;
   if(rows.some(r=>r.from<top-.01||r.to>bottom+.01))throw Error('Fragment anchors exceed ink bounds');
   const slices=bands.map((b,i)=>({...b,from:i?(bands[i-1].to+b.from)/2:top,to:i+1<bands.length?(b.to+bands[i+1].from)/2:bottom}));
-  return new CrossPageFlow(base,original,pages.map(page=>new CrossPagePart(base,original,page,slices.filter(s=>s.page===page),matched.filter(m=>m.full[3]===page).slice(0,32).map(({full:g,fragment:f})=>({code:f[8],full:[g[4],g[5],g[6],g[7]],fragment:[f[4],f[5],f[6],f[7]]})))),nav);
+  return new CrossPageFlow(base,original,pages.map(page=>new CrossPagePart(base,original,page,slices.filter(s=>s.page===page),matched.filter(m=>m.full[3]===page).slice(0,32).map(({full:g,fragment:f})=>({code:f[8],full:[g[4],g[5],g[6],g[7]],fragment:[f[4],f[5],f[6],f[7]]})),matched.filter(m=>m.full[3]===page).map(({full:g})=>({from:g[5],to:g[5]+g[7]})))),nav);
  }
  // The browser may join pages only after each removed margin has been
  // independently proved blank. Footnotes, headers and page numbers otherwise
