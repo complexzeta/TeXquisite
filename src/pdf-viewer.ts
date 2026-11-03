@@ -49,7 +49,7 @@ export function loadPdf(bytes:Uint8Array,interactive=false,live=false){
         const pixels=bitmap.data?new Uint8ClampedArray(bitmap.data.buffer,bitmap.data.byteOffset,bitmap.data.byteLength):undefined;
         if(pixels&&!bitmap.image){canvas.getContext('2d')!.putImageData(new ImageData(pixels,bitmap.width,bitmap.height),0,0);}
         if(includePixels&&pixels)proofPixels.set(canvas,pixels);
-        canvas.dataset.rasterMs=String(bitmap.rasterMs);canvas.dataset.workerMs=String(bitmap.workerMs);canvas.dataset.renderMs=String(performance.now()-started);
+        canvas.dataset.rasterCacheHit=String(bitmap.rasterCacheHit===true);canvas.dataset.rasterMs=String(bitmap.rasterMs);canvas.dataset.workerMs=String(bitmap.workerMs);canvas.dataset.renderMs=String(performance.now()-started);
         return {canvas,pixels};
       };
     return {
