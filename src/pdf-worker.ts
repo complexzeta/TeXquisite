@@ -50,12 +50,14 @@ worker.onmessage=event=>{
         if(args.live)identities.set(documentId,pdfPageIdentities(args.bytes));
         worker.postMessage({id,result:{documentId,numPages:document.getPageCount()}});
       }else if(method==='loadBand'){
-        if(!Number.isFinite(args.scale)||args.scale<=0||args.scale>16)throw Error('Invalid live band scale.');
+        if(!Number.isSafeInteger(args.bandId)||args.bandId<1||!Number.isFinite(args.scale)||args.scale<=0||args.scale>16)throw Error('Invalid live band request.');
         const document=await lib.loadDocument(args.bytes),documentId=++nextDocument;documents.set(documentId,document);
         const numPages=document.getPageCount();if(numPages<1||numPages>3){document.destroy();documents.delete(documentId);throw Error('Invalid live page band.');}
-        identities.set(documentId,pdfPageIdentities(args.bytes));const rasters:any[]=[],transfers:Transferable[]=[];
-        try{for(let page=1;page<=numPages;page++){const rendered=await renderPage(document,{...args,page,documentId,live:true,imageBitmap:true});rasters.push(rendered.result);transfers.push(...rendered.transfer);}worker.postMessage({id,result:{documentId,numPages,rasters}},transfers);}
-        catch(error){for(const raster of rasters)raster.image?.close();document.destroy();documents.delete(documentId);identities.delete(documentId);throw error;}
+        identities.set(documentId,pdfPageIdentities(args.bytes));worker.postMessage({id,result:{documentId,numPages}});
+        // Keep native work together, but deliver each image immediately so the
+        // viewer can compose it while the next page is rasterized.
+        try{for(let page=1;page<=numPages;page++){const rendered=await renderPage(document,{...args,page,documentId,live:true,imageBitmap:true});worker.postMessage({bandId:args.bandId,page,result:rendered.result,done:page===numPages},rendered.transfer);}}
+        catch(error){document.destroy();documents.delete(documentId);identities.delete(documentId);worker.postMessage({bandId:args.bandId,error:String(error)});}
       }else if(method==='sizes'){
         const document=documents.get(args.documentId);if(!document)throw new Error('PDF was closed.');
         const sizes=[];for(let i=0;i<document.getPageCount();i++){const page=document.getPage(i);try{sizes.push(page.getOriginalSize());}finally{page.close();}}
