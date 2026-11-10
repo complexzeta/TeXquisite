@@ -1,0 +1,1 @@
+Windows x64 portable patch release. Fixes the garbled dash in the window title. The executable is unsigned.
