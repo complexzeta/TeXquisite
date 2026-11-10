@@ -1,13 +1,13 @@
-name: Windows 0.134.1 test release
+name: Windows 0.135.0 test release
 on:
   push:
-    branches: [codex/preview-0.134.1]
+    branches: [codex/preview-0.135.0]
 permissions:
   contents: read
 jobs:
   package:
     runs-on: windows-2025
-    timeout-minutes: 20
+    timeout-minutes: 40
     permissions:
       contents: write
     steps:
@@ -24,7 +24,7 @@ jobs:
       - name: Verify the generated window title
         shell: pwsh
         run: |
-          $expected = '<title>TeXquisite 0.134.1 ' + [char]0x2014 + ' continuous scroll</title>'
+          $expected = '<title>TeXquisite 0.135.0 ' + [char]0x2014 + ' continuous scroll</title>'
           if (!(Get-Content -Raw -Encoding utf8 media/index.html).Contains($expected)) { throw 'Wrong window title' }
       - name: Build and verify the Windows portable package
         shell: pwsh
@@ -35,12 +35,42 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           node scripts/verify-retained-package.cjs release/win-unpacked/resources/app.asar
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          $asset = 'TeXquisite-0.134.1-Windows.exe'
+          $asset = 'TeXquisite-0.135.0-Windows.exe'
           $digest = (Get-FileHash -Algorithm SHA256 "release/$asset").Hash.ToLowerInvariant()
           "$digest  $asset" | Set-Content -Encoding ascii release/SHA256SUMS.txt
+      - name: Prepare isolated TeX Live and Forest for the comparison
+        shell: pwsh
+        run: |
+          $root=Join-Path $env:RUNNER_TEMP 'drawing-preview'
+          New-Item -ItemType Directory -Path "$root/results" -Force | Out-Null
+          & scripts/install-test-texlive.ps1 -Year 2026 -WorkRoot "$root/installation"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $bin="$root/installation/texlive/bin/windows"
+          & "$bin/tlmgr.bat" install forest
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          "$bin" >> $env:GITHUB_PATH
+          "PERSISTENT_TEX_TEST_ARTIFACTS=$root/results" >> $env:GITHUB_ENV
+          "PERSISTENT_TEX_TEST_FORMAT_CACHE=$root/formats" >> $env:GITHUB_ENV
+          "PERSISTENT_TEX_TEST_RESOURCE_FILE=$root/formats/resources.json" >> $env:GITHUB_ENV
+      - run: node scripts/retained-test-format.cjs
+      - name: Compare preview edits with and without the crop change
+        shell: pwsh
+        env:
+          PERSISTENT_TEX_DRAWING_TRIALS: '1'
+        run: |
+          $env:PERSISTENT_TEX_EXECUTABLE=(Resolve-Path 'release/win-unpacked/TeXquisite.exe').Path
+          $env:PERSISTENT_TEX_DISABLE_DRAWING_CROP_HINT='1'
+          Write-Output 'Control'
+          node scripts/editing-position-test.cjs
+          $control=$LASTEXITCODE
+          $env:PERSISTENT_TEX_DISABLE_DRAWING_CROP_HINT='0'
+          Write-Output 'Candidate'
+          node scripts/editing-position-test.cjs
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          if ($control -ne 0) { Write-Warning 'The control could not complete all preview edits' }
       - name: Publish the Windows test release
         env:
           GH_TOKEN: ${{ github.token }}
         shell: pwsh
         run: |
-          gh release create v0.134.1 release/TeXquisite-0.134.1-Windows.exe release/SHA256SUMS.txt --target "${{ github.sha }}" --title "TeXquisite 0.134.1 Windows test release" --prerelease --latest=false --notes-file .github/preview-0.134.1.md
+          gh release create v0.135.0 release/TeXquisite-0.135.0-Windows.exe release/SHA256SUMS.txt --target "${{ github.sha }}" --title "TeXquisite 0.135.0 Windows test release" --prerelease --latest=false --notes-file .github/preview-0.135.0.md

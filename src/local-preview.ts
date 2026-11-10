@@ -1,4 +1,4 @@
-import {drawingStart,drawingBoundaries} from './drawing-environment';
+import {drawingStart,drawingBoundaries,bordersDrawing} from './drawing-environment';
 import {createHash} from 'node:crypto';
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
@@ -470,6 +470,11 @@ export class LocalPreview{
       let paragraphElapsed=0,paragraphComposeMs=0,paragraphRasterWaitMs=0,preflightMs=0,preflightApplied=false,rasterAttempts=0,calibratedGlyphs:CalibrationGlyph[]|undefined;
       try{if(slot.compositor){
         const origin={x:slot.compositor.x,y:slot.compositor.y};
+        // Close drawings can intrude into the ordinary paragraph margin.
+        // Try the tighter crop first, then the standard proof before falling back.
+        const nearDrawing=this.lecture&&this.continuous&&!background&&process.env.PERSISTENT_TEX_DISABLE_DRAWING_CROP_HINT!=='1'&&bordersDrawing(sourceText,range.from,range.to);
+        const defaultBleed=slot.compositor.inkBleedBp;
+        if(nearDrawing)slot.compositor.inkBleedBp=.5;
         // A retained focused checkpoint commonly already matches the accepted
         // raster. Estimate placement only after replaying a different prefix.
         if(this.placement&&this.continuous&&!background&&(preparation?.anchorSourceBytes??0)>0&&process.env.PERSISTENT_TEX_DISABLE_PLACEMENT_PREFLIGHT!=='1'){
@@ -491,13 +496,14 @@ export class LocalPreview{
           return result;
         };
         let verified=await checkPlacement().catch(error=>{if(!preflightApplied)throw error;return false;});if(!valid())return;
-        if(verified!==true&&preflightApplied){
+        if(verified!==true&&(preflightApplied||nearDrawing)){
           // A proposal must not discard an already-correct original baseline.
           // Restore it before narrowing the region or starting broader work.
           slot.compositor.adjust(origin.x-slot.compositor.x,origin.y-slot.compositor.y);calibratedGlyphs=undefined;
+          slot.compositor.inkBleedBp=defaultBleed;
           verified=await checkPlacement();if(!valid())return;
         }
-        if(verified!==true&&this.lecture&&this.continuous&&!background){
+        if(verified!==true&&this.lecture&&this.continuous&&!background&&!nearDrawing){
           // A neighboring diagram can touch the generous ink margin. Narrow
           // only after repeating BOTH the complete fragment ink-fit check and
           // the unchanged baseline raster proof at the proposed crop. A future

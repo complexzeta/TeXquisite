@@ -1,0 +1,1 @@
+Windows x64 portable test release. Lecture mode tries a tighter verified preview crop for text directly before or after Forest and TikZ drawings, with fewer retries before page fallback. This release includes a synthetic editing comparison around Forest and a macro-generated drawing. The executable is unsigned.

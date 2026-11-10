@@ -29,6 +29,7 @@ test('TikZ and Forest blocks stay out of adjacent text preparation',()=>{
   assert.equal(followingParagraphWindow(source,source.replace('Ordinary','Edited'),{from:0,to:first.length}),undefined);
   assert.deepEqual(flowWindowAt(source,first.length+10),{from:first.length,to:first.length+picture.length});
   assert.deepEqual(flowWindowAt(source,source.indexOf('Following')),{from:first.length+picture.length,to:source.length});
+  assert.deepEqual(flowWindowAt(source,source.indexOf('Another')),{from:first.length+picture.length+last.length,to:source.length});
   const head=first+begin+'\n\n',label=contents+'\n\n',split=head+label+end+'\n\n'+last;
   assert.deepEqual(flowWindowAt(split,head.length+1),{from:head.length,to:head.length+label.length});
  }

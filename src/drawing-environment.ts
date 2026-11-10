@@ -5,3 +5,8 @@ export const drawingStart=/\\begin\{(?:tikzpicture|forest)\}/;
 export function drawingBoundaries(source:string){
   return source.matchAll(/\\(begin|end)\{(tikzpicture|forest)\}/g);
 }
+
+export function bordersDrawing(source:string,from:number,to:number){
+  return /^\s*\\begin\{(?:tikzpicture|forest)\}/.test(source.slice(to))
+    || /\\end\{(?:tikzpicture|forest)\}\s*$/.test(source.slice(0,from));
+}
