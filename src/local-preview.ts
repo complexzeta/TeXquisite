@@ -1,3 +1,4 @@
+import {drawingStart,drawingBoundaries} from './drawing-environment';
 import {createHash} from 'node:crypto';
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
@@ -66,15 +67,15 @@ export function paragraphAt(source:string,at:number,floor=0):RegionRange|undefin
 export function flowWindowAt(source:string,at:number,floor=0):RegionRange|undefined{
   const current=paragraphAt(source,at,floor);if(!current)return;
   let pictureDepth=0;
-  for(const m of source.slice(0,current.from).matchAll(/\\(begin|end)\{tikzpicture\}/g))pictureDepth=m[1]==='begin'?pictureDepth+1:Math.max(0,pictureDepth-1);
+  for(const m of drawingBoundaries(source.slice(0,current.from)))pictureDepth=m[1]==='begin'?pictureDepth+1:Math.max(0,pictureDepth-1);
   if(pictureDepth)return current;
   const next=paragraphAt(source,current.to,floor);
   // Small forward windows amortize preparation across nearby paragraphs. This
   // is just a candidate range: ordinary compiler/raster proof still authorizes
   // it, and preparation retries the current paragraph if the window fails.
-  // TikZ's nested paragraphs/output need real page proof. Do not repeatedly
+  // Drawing environments can contain nested paragraphs and need real page proof. Do not repeatedly
   // typeset a drawing merely to discover that an expanded text window fails.
-  if(/\\begin\{tikzpicture\}/.test(source.slice(current.from,next?.to??current.to)))return current;
+  if(drawingStart.test(source.slice(current.from,next?.to??current.to)))return current;
   return next&&next.from===current.to&&next.to-current.from<=768?{from:current.from,to:next.to}:current;
 }
 // Extend only into the immediate following paragraph. This selects work, not
@@ -86,7 +87,7 @@ export function followingParagraphWindow(baseline:string,source:string,range:Reg
   if(!next||next.from!==range.to||next.to-range.from>1200)return;
   const window={from:range.from,to:next.to},prefix=baseline.slice(0,window.from),suffix=baseline.slice(window.to);
   if(!source.startsWith(prefix)||!source.endsWith(suffix)||source.length<prefix.length+suffix.length)return;
-  if(/\\begin\{tikzpicture\}/.test(baseline.slice(window.from,window.to)))return;
+  if(drawingStart.test(baseline.slice(window.from,window.to)))return;
   if(!/\n[\t ]*\n$/.test(source.slice(prefix.length,source.length-suffix.length)))return;
   return window;
 }
@@ -95,7 +96,7 @@ export function adjacentParagraphWindow(baseline:string,source:string,range:Regi
     const prefix=baseline.slice(0,window.from),suffix=baseline.slice(window.to);
     if(![previous,source].every(text=>text.startsWith(prefix)&&text.endsWith(suffix)&&text.length>=prefix.length+suffix.length))return false;
     const count=(text:string)=>[...text.slice(prefix.length,text.length-suffix.length).matchAll(/\n(?:[\t ]*\n)+/g)].length;
-    return count(source)<count(previous)&&!/\\begin\{tikzpicture\}/.test(baseline.slice(window.from,window.to));
+    return count(source)<count(previous)&&!drawingStart.test(baseline.slice(window.from,window.to));
   };
   const forward=followingParagraphWindow(baseline,source,range);if(forward&&joins(forward))return forward;
   const prior=paragraphAt(baseline,range.from-1);
@@ -216,7 +217,7 @@ export class LocalPreview{
       const targets=[...(process.env.PERSISTENT_TEX_DISABLE_RECENT_PREPARE==='1'?[]:this.recentTargets(basis)),...points.map(at=>({file,at,recent:false}))];
       for(const target of targets){const source=this.sourceFor(basis,target.file)?.text;if(source===undefined)continue;
         const {at}=target,range=paragraphAt(source,at);if(!range||target.file===file&&range.from>=slot.range.from&&range.from<slot.range.to)continue;
-        if(!target.recent&&(Math.abs(range.from-slot.range.from)>16000||/\\begin\{tikzpicture\}/.test(source.slice(range.from,range.to))))continue;
+        if(!target.recent&&(Math.abs(range.from-slot.range.from)>16000||drawingStart.test(source.slice(range.from,range.to))))continue;
         const key=JSON.stringify([basis.bundle.id,target.file,range.from]);
         if(this.idleAttempts.has(key)||this.parked.some(value=>value.file===target.file&&at>=value.range.from&&at<value.range.to&&!!value.regionKey&&value.compiler.hasRegion(value.regionKey)))continue;
         this.idleAttempts.add(key);while(this.idleAttempts.size>8)this.idleAttempts.delete(this.idleAttempts.values().next().value!);
@@ -393,7 +394,7 @@ export class LocalPreview{
         slot.pageMode=true;
       }
       const anchoredPages:number[]=[];
-      const recordedPage=preparation?.baselinePage,pictureBlock=/\\begin\{tikzpicture\}/.test(sourceText.slice(range.from,range.to));
+      const recordedPage=preparation?.baselinePage,pictureBlock=drawingStart.test(sourceText.slice(range.from,range.to));
       if(pictureBlock||recordedPage!==undefined)for(const line of prepared.navigation.split('\n')){
         if(!line)continue;const row=JSON.parse(line),g=row.glyph??row.mathGlyph;
         if(g&&g[0].split(/[\\/]/).at(-1)?.toLowerCase()===(input?path.posix.basename(input.file):(project.jobName??'main')+'.tex').toLowerCase()&&g[1]>=before+1&&g[1]<=after)anchoredPages.push(g[3]);
@@ -592,7 +593,11 @@ export class LocalPreview{
     if(source!==(slot.sourceText??slot.basis.source)){slot.edited=true;if(!this.neutral)this.parked=[];}
     slot.liveEnd=source.length-((slot.sourceText??slot.basis.source).length-slot.range.to);
     const at=this.neutral&&this.editorCursor?slot.range.from+this.editorCursor.at-this.neutral.actual(slot.range).from:this.cursor?.at??slot.range.from;
-    this.pending={source,fullSource,editId,at};if(slot.ready){if(!this.running)void this.drain();else{if(slot.pageMode&&(slot.pageCostMs??0)>200)slot.compiler.supersedeRegionEdit();this.prefetch();}}return !!this.neutral||slot.ready||!slot.basis.canBuildAlongside?.();
+    this.pending={source,fullSource,editId,at};
+    // Let an in-flight page finish even when keystrokes arrive faster than
+    // it can typeset. The single pending request always holds the latest text.
+    if(slot.ready){if(!this.running)void this.drain();else this.prefetch();}
+    return !!this.neutral||slot.ready||!slot.basis.canBuildAlongside?.();
   }
   private async output(slot:Slot,request:Request){
     slot.compiler.useRegion(slot.regionKey);
@@ -603,7 +608,7 @@ export class LocalPreview{
     // A newly inserted literal drawing cannot use text-only composition.
     // Prove the original complete page before rendering it once in the page
     // lane, rather than executing the drawing just to reject flow output.
-    if(!slot.pageMode&&/\\begin\{tikzpicture\}/.test(text)&&process.env.PERSISTENT_TEX_DISABLE_PICTURE_PAGE_HINT!=='1'){
+    if(!slot.pageMode&&drawingStart.test(text)&&process.env.PERSISTENT_TEX_DISABLE_PICTURE_PAGE_HINT!=='1'){
       if(!slot.pageReady)await slot.verifyPageRange?.();
       if(!slot.pageReady)throw new Error('A drawing insertion needs a verified page baseline.');
       slot.pageMode=true;this.log('Drawing insertion uses verified page output.\n');

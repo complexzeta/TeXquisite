@@ -19,11 +19,19 @@ test('Fractional native page geometry survives raster rounding but true changes 
  }
  assert.equal(matchingPageGeometry({dataset:{},style:{width:'612px',height:'792px'}},{originalWidth:612,originalHeight:792},1),true);
 });
-test('TikZ blocks are not repeatedly expanded into adjacent paragraph preparation',()=>{
- const {flowWindowAt}=require('../dist/local-preview'),first='Ordinary text.\n\n',picture='\\begin{tikzpicture}\\node {Label};\\end{tikzpicture}\n\n',last='Following text.\n\n',source=first+picture+last;
- assert.deepEqual(flowWindowAt(source,2),{from:0,to:first.length});assert.deepEqual(flowWindowAt(source,first.length+10),{from:first.length,to:first.length+picture.length});
- const label='\\node {Separate label};\n\n',tail='\\draw (0,0)--(1,1);\n\n',head='\\begin{tikzpicture}\n\n',split=first+head+label+tail+'\\end{tikzpicture}\n\n'+last;
- assert.deepEqual(flowWindowAt(split,split.indexOf('Separate label')),{from:first.length+head.length,to:first.length+head.length+label.length});
+test('TikZ and Forest blocks stay out of adjacent text preparation',()=>{
+ const {flowWindowAt,followingParagraphWindow}=require('../dist/local-preview');
+ const first='Ordinary text.\n\n',last='Following text.\n\n',final='Another paragraph.\n\n';
+ for(const [environment,contents] of [['tikzpicture','\\node {Label};'],['forest','[Root [Left] [Right]]']]){
+  const begin='\\begin{'+environment+'}',end='\\end{'+environment+'}';
+  const picture=begin+contents+end+'\n\n',source=first+picture+last+final;
+  assert.deepEqual(flowWindowAt(source,2),{from:0,to:first.length});
+  assert.equal(followingParagraphWindow(source,source.replace('Ordinary','Edited'),{from:0,to:first.length}),undefined);
+  assert.deepEqual(flowWindowAt(source,first.length+10),{from:first.length,to:first.length+picture.length});
+  assert.deepEqual(flowWindowAt(source,source.indexOf('Following')),{from:first.length+picture.length,to:source.length});
+  const head=first+begin+'\n\n',label=contents+'\n\n',split=head+label+end+'\n\n'+last;
+  assert.deepEqual(flowWindowAt(split,head.length+1),{from:head.length,to:head.length+label.length});
+ }
 });
 test('Patch proof checks the exact displayed crop; unrelated copied-PDF pixels are never pasted',()=>{
  const width=40,height=40,rect={x:10,y:10,width:20,height:20},a=new Uint8ClampedArray(width*height*4).fill(255),b=new Uint8ClampedArray(a);

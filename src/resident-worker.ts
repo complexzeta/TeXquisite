@@ -1,3 +1,4 @@
+import {drawingBoundaries} from './drawing-environment';
 import {checkpointInputLine} from './preamble-read-ahead';
 import {CheckpointPages} from './checkpoint-pages';
 import {TikzMathCache,buildTikzMathPlan} from './tikz-math-cache';
@@ -111,12 +112,12 @@ function pictureWitnessRanges(source:string,at:number){
   if(source.length>2*1024*1024||process.env.PERSISTENT_TEX_DISABLE_PAGE_WITNESS==='1')return [];
   // Literal environments only guide capture; TeX still interprets the source,
   // and exact byte/context checks plus a full-page pixel proof authorize reuse.
-  const pictures:{from:number;to:number;finish:number}[]=[],stack:number[]=[];
+  const pictures:{from:number;to:number;finish:number}[]=[],stack:{from:number;name:string}[]=[];
   let scanned=0,scannedBytes=0;
-  for(const m of source.matchAll(/\\(begin|end)\{tikzpicture\}/g)){
+  for(const m of drawingBoundaries(source)){
     const end=m.index!+m[0].length;scannedBytes+=Buffer.byteLength(source.slice(scanned,end));scanned=end;
-    if(m[1]==='begin')stack.push(m.index!);
-    else if(stack.length){const begin=stack.pop()!;if(!stack.length)pictures.push({from:begin,to:end,finish:scannedBytes});}
+    if(m[1]==='begin')stack.push({from:m.index!,name:m[2]});
+    else if(stack.at(-1)?.name===m[2]){const begin=stack.pop()!;if(!stack.length)pictures.push({from:begin.from,to:end,finish:scannedBytes});}
   }
   let from=0,byteFrom=0,picture=0;const ranges:{start:number;end:number;finish:number;picture:number}[]=[];
   for(const separator of source.matchAll(/\n(?:[\t ]*\n)+/g)){
@@ -849,8 +850,10 @@ async function renderRegion(source:string,request:RegionRequest,jobName:string,e
   // that unchanged history again for every character. Restore keeps its copy.
   const canContinue=request.action==='band'&&!request.input&&!request.baselineProof&&!!state.familyCheckpoints?.length&&!bytes.equals(state.source)&&context.HEAPU8.byteLength<=192*1024*1024&&projectResources.reduce((sum,[,data])=>sum+data.byteLength,0)<=16*1024*1024&&process.env.PERSISTENT_TEX_DISABLE_LOCAL_CONTINUATION!=='1'&&!!Module._persistentPageCheckpoint;
   const canCaptureFamily=request.action==='band'&&!request.input&&!request.baselineProof&&(state.familyCheckpoints?.length??0)>1&&context.HEAPU8.byteLength<=192*1024*1024&&projectResources.reduce((sum,[,data])=>sum+data.byteLength,0)<=16*1024*1024&&process.env.PERSISTENT_TEX_DISABLE_EDITED_FAMILY!=='1'&&!!Module._persistentPageCheckpoint;
-  const canCaptureDrawing=request.action==='band'&&!canCaptureFamily&&!request.input&&!request.baselineProof&&!bytes.equals(state.source)&&(!!state.drawingPrefixes?.length||/\\begin\{tikzpicture\}/.test(bytes.subarray(request.start,request.end).toString('utf8')))&&context.HEAPU8.byteLength<=192*1024*1024&&projectResources.reduce((n,[,data])=>n+data.byteLength,0)<=16*1024*1024&&process.env.PERSISTENT_TEX_DISABLE_DRAWING_PREFIX!=='1'&&!!Module._persistentPageCheckpoint;
-  const navigationPath='/work/.persistent-tex/navigation.jsonl',navigationPrefix=(canContinue||canCaptureFamily||canCaptureDrawing)&&FS.analyzePath(navigationPath).exists?new Uint8Array(FS.readFile(navigationPath)):undefined;
+  // Time spent reaching an actual TeX boundary also detects expensive macros
+  // and included package code whose drawing commands are hidden from source hints.
+  const canCaptureDrawing=request.action==='band'&&!canCaptureFamily&&!request.input&&!request.baselineProof&&!bytes.equals(state.source)&&context.HEAPU8.byteLength<=192*1024*1024&&projectResources.reduce((n,[,data])=>n+data.byteLength,0)<=16*1024*1024&&process.env.PERSISTENT_TEX_DISABLE_DRAWING_PREFIX!=='1'&&!!Module._persistentPageCheckpoint;
+  const navigationPath='/work/.persistent-tex/navigation.jsonl',navigationPrefix=(canContinue||canCaptureFamily)&&FS.analyzePath(navigationPath).exists?new Uint8Array(FS.readFile(navigationPath)):undefined;
   if(request.action!=='render'){
     const file='/work/.persistent-tex/navigation.jsonl';
     if(FS.analyzePath(file).exists){FS.truncate(file,0);for(const stream of FS.streams)if(stream?.path===file)stream.position=0;}
@@ -921,7 +924,8 @@ async function renderRegion(source:string,request:RegionRequest,jobName:string,e
       if(offset<=checkpoint.offset||offset>=request.end||!work.subarray(0,offset).equals(bytes.subarray(0,offset))||Module._persistentPageCheckpoint(2)!==0)return;
       const began=performance.now(),hadNavigation=FS.analyzePath(navigationPath).exists,partial=hadNavigation?new Uint8Array(FS.readFile(navigationPath)):new Uint8Array(),streams=FS.streams.filter((stream:any)=>stream?.path===navigationPath),positions=streams.map((stream:any)=>stream.position);drawingCaptures++;
       try{
-        writeWork(jobName+'.tex',bytes);writeWork('.persistent-tex/navigation.jsonl',Buffer.concat([navigationPrefix??new Uint8Array(),partial]));for(const stream of streams)stream.position+=(navigationPrefix?.length??0);
+        const prefix=navigationPrefix??checkpoint.files.get('.persistent-tex/navigation.jsonl');
+        writeWork(jobName+'.tex',bytes);writeWork('.persistent-tex/navigation.jsonl',Buffer.concat([prefix??new Uint8Array(),partial]));for(const stream of streams)stream.position+=(prefix?.length??0);
         const saved=capture(bytes,offset,checkpoint,state.editedDrawingPrefix);
         if(witnessWithinBudget(state.checkpoint,saved))editedDrawingPrefix=saved;
       }finally{

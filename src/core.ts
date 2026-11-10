@@ -138,11 +138,9 @@ export class BuildController {
   private retired=false;
   current?: Bundle;
   private active?: AbortController;
-  private activeDraft?:{identity:string;editId?:string;startedAt:number;automatic:boolean;compiling:boolean;supersededLocally?:boolean};
-  private staleDraftTimer?:NodeJS.Timeout;
+  private activeDraft?:{editId?:string;automatic:boolean;supersededLocally?:boolean};
   private pending?: BuildOptions;
   private pendingAt=0;
-  private retryingNativeFor?:string;
   private sourceIdentity(options:BuildOptions){return JSON.stringify([options.sourceText,options.sourceFiles,options.characterMapping]);}
   private generation = 0;
   private revision = 0;
@@ -249,31 +247,15 @@ export class BuildController {
     if(this.retired)return Promise.reject(new Error('Project closed.'));
     this.pendingAt=performance.now();
     this.pending = {...options,sourceFiles:options.sourceFiles?{...options.sourceFiles}:undefined};
-    clearTimeout(this.staleDraftTimer);
-    const draft=this.activeDraft;
-    if(draft?.automatic&&options.automatic&&draft.identity!==this.sourceIdentity(options)){
-      this.staleDraftTimer=setTimeout(()=>{
-        if(this.activeDraft!==draft||!draft.compiling||!this.pending?.automatic||this.sourceIdentity(this.pending)===draft.identity)return;
-        // Killing a resident worker loses its preamble checkpoint. If startup
-        // takes just over this timer, continuous typing can restart it forever.
-        // Let that bounded compile publish once, then consume the newest draft.
-        // Its own timeout still bounds runaway TeX; native fallback stays
-        // interruptible because it cannot donate a resident checkpoint.
-        if(this.residentTask)return;
-        this.log('Stopping obsolete automatic typesetting so the newest edit can continue.\n');
-        this.active?.abort();
-      },Math.max(0,1000-(performance.now()-draft.startedAt)));this.staleDraftTimer.unref();
-    }
-    // A capability retry for an obsolete draft must not hold newer input behind
-    // a native process. Do not interrupt required external-processor builds.
-    if(this.retryingNativeFor!==undefined&&options.automatic&&options.sourceText!==undefined&&this.sourceIdentity(options)!==this.retryingNativeFor)this.active?.abort();
+    // Finish one captured draft while typing replaces only the queued draft.
+    // Cancelling slow automatic passes can prevent any preview from appearing.
     // TeX can process the next captured revision while PDFium renders and the
     // store commits the preceding one. Publication itself remains serialized.
     if(this.loop)this.prefetchPending();
     if (!this.loop) this.loop = this.drain().finally(()=>{this.loop=undefined;});
     return this.loop;
   }
-  cancel() { clearTimeout(this.staleDraftTimer);this.standbySeed=undefined;clearTimeout(this.standbyTimer);this.priming=undefined;this.generation++; this.pending=undefined; this.active?.abort();this.residentTask?.abort.abort();this.residentTask=undefined;this.canPrefetch=false;this.warm.stop();this.resident.stop();clearTimeout(this.pruneTimer); }
+  cancel() {this.standbySeed=undefined;clearTimeout(this.standbyTimer);this.priming=undefined;this.generation++; this.pending=undefined; this.active?.abort();this.residentTask?.abort.abort();this.residentTask=undefined;this.canPrefetch=false;this.warm.stop();this.resident.stop();clearTimeout(this.pruneTimer); }
   async dispose(){if(this.retired)return;this.retired=true;this.cancel();await this.loop?.catch(()=>{});await this.warm.stop();await this.pruneTask;BuildController.protectedDirectories.delete(path.join(this.store.directory,'cache',this.cacheSession));BuildController.protectedDirectories.delete(path.join(this.store.directory,'warm',this.cacheSession));const auxiliary=path.join(this.store.directory,'auxiliary'),users=(BuildController.auxiliaryUsers.get(auxiliary)??1)-1;if(users)BuildController.auxiliaryUsers.set(auxiliary,users);else BuildController.auxiliaryUsers.delete(auxiliary);}
   private async drain() {
     while (this.pending) {
@@ -292,7 +274,7 @@ export class BuildController {
     this.canPrefetch=false;
     const began=performance.now();
     const abort = new AbortController(); this.active=abort;
-    this.activeDraft={identity:this.sourceIdentity(options),editId:options.editId,startedAt:began,automatic:!!options.automatic,compiling:true};
+    this.activeDraft={editId:options.editId,automatic:!!options.automatic};
     const generation=this.generation, revision=++this.revision;
     const check=()=>{if(abort.signal.aborted || generation!==this.generation) throw new Error('Build cancelled.');};
     // Reuse auxiliary state across edits, but never display this mutable output.
@@ -342,7 +324,6 @@ export class BuildController {
       this.log('\n'+JSON.stringify({executable:options.executable,args,cwd:input})+'\n');
       let pdf:Buffer|undefined;
       let navigation:Navigation|undefined;
-      let capabilityRetry=false;
       let backend='Native compilation.',warningLog='';
       const recoveryIssues:BuildDiagnostic[]=[];
       let localSource=source,localRecoveryEligible=true;
@@ -382,7 +363,6 @@ export class BuildController {
             }
             check();if(!pdf){this.log('Draft TeX error; keeping the last good preview. The next edit will retry automatically.\n');throw failure;}
           }else if(!pdf&&!compatibilityResolved){
-            capabilityRetry=true;
             this.log('Resident capability check failed; checking the native engine. '+String(failure)+'\n');
           }
         }finally{if(this.residentTask===task)this.residentTask=undefined;}
@@ -393,11 +373,6 @@ export class BuildController {
         }
       }
       if(!pdf){
-        if(capabilityRetry){
-          this.retryingNativeFor=this.sourceIdentity(options);
-          if(this.pending?.automatic&&this.pending.sourceText!==undefined&&this.sourceIdentity(this.pending)!==this.retryingNativeFor)abort.abort();
-          check();
-        }
         await fs.mkdir(output,{recursive:true});if(!mirrored)await mirror.capture(options.root,input,options.supportFolders,compilerSource,options.sourceFiles);
         else await fs.writeFile(path.join(input,path.basename(options.root)),compilerSource);
         const originalResources=new Set(project.resources?.map(([name])=>name)??[]),imported:string[]=[];
@@ -417,7 +392,6 @@ export class BuildController {
       }
       if(!pdf){
         nativeAttempted=true;
-        if(options.automatic)this.retryingNativeFor=this.sourceIdentity(options);
         try{await runWithPreviewCompatibility(runProcess,options.executable,args,input,options.timeoutMs,abort.signal,nativeLog);}
         catch(error){
           const transcript=await fs.readFile(path.join(output,base+'.log'),'utf8').catch(()=>'');
@@ -435,7 +409,6 @@ export class BuildController {
       if(nativeAttempted)warningLog=await fs.readFile(path.join(output,base+".log"),"utf8").catch(()=>"");
       const warnings=parseWarnings(warningLog,diagnosticInputs,nativeTranscript).map((parsed,index):BuildDiagnostic=>{const text=parsed.file?diagnosticTexts.get(parsed.file):undefined;return {...parsed,id:this.cacheSession+"-"+revision+"-warning-"+index,root:options.root,editId:options.editId,...(text!==undefined?{sourceHash:hash(typeof text==="string"?text.replace(/\r\n/g,"\n"):Buffer.from(text).toString("utf8").replace(/\r\n/g,"\n"))}:{})};});
       compilerFinished=true;
-      if(this.activeDraft)this.activeDraft.compiling=false;
       if(mirror.selective&&!mirror.discoveryComplete)throw Error('Project input discovery did not complete. Check the discovery log; the previous preview has been retained.');
       this.canPrefetch=true;
       this.prefetchPending();
@@ -532,8 +505,7 @@ export class BuildController {
         this.status(`Build failed: ${issue.message} ${this.current?'Showing the last successful version.':'No successful preview yet.'} Keep editing; preview will retry automatically.`);
       }else if(!this.activeDraft?.supersededLocally)this.status('Build cancelled. '+(this.current?'Showing the last successful version.':'No successful preview yet.'));
     } finally {
-      clearTimeout(this.staleDraftTimer);this.activeDraft=undefined;
-      this.retryingNativeFor=undefined;
+      this.activeDraft=undefined;
       this.active=undefined;
       if(bundle){this.store.releaseStage(bundle);if(this.current?.id!==bundle.id)await fs.rm(path.dirname(this.store.pdf(bundle)),{recursive:true,force:true}).catch(()=>{});}
     }
