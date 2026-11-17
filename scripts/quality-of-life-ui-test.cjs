@@ -1,8 +1,8 @@
 const {_electron:electron}=require('playwright'),fs=require('node:fs/promises'),path=require('node:path'),assert=require('node:assert/strict'),{createHash}=require('node:crypto');
 const hash=s=>createHash('sha256').update(s).digest('hex');
 (async()=>{
- const directory=require('./test-artifacts.cjs').testDirectory('quality-of-life'),profile=path.join(directory,'profile'),root=path.join(directory,'main.tex');
- await fs.mkdir(profile);require('./retained-test-format.cjs').seedProfile(profile);
+ const directory=require('./test-artifacts.cjs').testDirectory('quality-of-life'),profile=path.join(directory,'profile'),project=path.join(directory,'project'),root=path.join(project,'main.tex');
+ await fs.mkdir(project);await fs.mkdir(profile);require('./retained-test-format.cjs').seedProfile(profile);
  const source='\\documentclass{article}\n\\usepackage{amsmath}\n\\newcommand{\\sstirling}[2]{#1+#2}\n\\begin{document}\n\nMarkerTarget ordinary text with $a+b$.\n\nFollowing text.\n\n\\end{document}\n';
  await fs.writeFile(root,source);await fs.writeFile(path.join(profile,'session.json'),JSON.stringify({root,active:root,docs:[{path:root,text:source,diskHash:hash(source),dirty:false,eol:'\n'}],onSave:false,liveVersion:2,engine:'pdflatex',latexmk:'latexmk',autoClose:true,previewMode:'lecture',continuousPreview:true,followPreview:false}));
  let stage='launch',page;
