@@ -47,9 +47,12 @@ function existingEnvironments(text:string):Closer[]{
    }
    if(match[4]){
      const token=match[4];
-     if(literal?.name===token){
+     if(literal?.name==='$'){
        stack.pop();
-       if(token==='$')values.push({from:match.index,to:match.index+1,text:'$',open:'$',opening:{from:literal.from,to:literal.to}});
+       values.push({from:match.index,to:match.index+1,text:'$',open:'$',opening:{from:literal.from,to:literal.to}});
+       commands.lastIndex=match.index+1;
+     }else if(literal?.name===token){
+       stack.pop();
      }else if(literal?.name!=='$$'&&literal?.name!=='$')stack.push({name:token,from:match.index,to:match.index+token.length,open:token});
      continue;
    }

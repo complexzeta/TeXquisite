@@ -113,6 +113,7 @@ test('dollar links respect escapes, comments, verbatim, display dollars, disable
   assert.equal(e.text(),original.slice(0,at)+'\\['+original.slice(at+1));
  }
  const e=editor('$a$ and $b$');e.view.dispatch({changes:{from:8,to:9,insert:'\\begin{equation}'}});assert.equal(e.text(),'$a$ and \\begin{equation}b\\end{equation}');
+ const adjacent=editor('$a$$b$');adjacent.view.dispatch({changes:{from:3,to:4,insert:'\\['}});assert.equal(adjacent.text(),'$a$\\[b\\]');
  const off=editor('$a+b$');off.enable(false);off.view.dispatch({changes:{from:0,to:1,insert:'\\['}});assert.equal(off.text(),'\\[a+b$');
  const manual=editor('$a+b$');manual.view.dispatch({changes:{from:4,to:5,insert:'!'}});manual.view.dispatch({changes:{from:0,to:1,insert:'\\['}});assert.equal(manual.text(),'\\[a+b!');
 });
