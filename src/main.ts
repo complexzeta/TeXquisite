@@ -3,6 +3,7 @@ import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import {pathToFileURL} from 'node:url';
 import {randomUUID} from 'node:crypto';
+import {execFile} from 'node:child_process';
 import {freemem,totalmem} from 'node:os';
 import {performanceReport} from './performance-report';
 import {themeIconPath,followIconTheme} from './theme-icon';
@@ -27,6 +28,7 @@ import {generateInstalledFormat,fingerprintFiles} from './format-cache';
 import {formatFingerprint,FORMAT_FINGERPRINT_POLICY} from './format-fingerprint';
 import {probe} from './toolchain';
 import {standaloneTex,previewRootForDocument} from './document-root';
+import {packageArguments} from './tex-package-arguments';
 
 interface Doc {path:string;text:string;diskHash:string;dirty:boolean;eol:string;}
 interface State {previewMode?:'lecture'|'document';documentRoots?:Record<string,string>;texBin?:string;toolchainSeen?:boolean;projectSidebar?:boolean;docs:Doc[];active:string;root:string;engine:string;latexmk:string;onSave:boolean;backups?:boolean;liveVersion?:number;supportFolders?:string[];zoom?:number|'fit-width';statusBar?:boolean;panelLayout?:PanelPreferences;autoClose?:boolean;followPreview?:boolean;previewEditing?:boolean;continuousPreview?:boolean;lastCursor?:{file:string;at:number};}
@@ -429,6 +431,11 @@ async function handle(method:string,args:unknown[]) {
       return {...state,root:savedRoot,toolchain,showToolchainSetup:(!state.toolchainSeen&&!state.docs.length)||!!toolchain&&(!toolchain.ready||!toolchain.fast.available)&&acknowledgedToolchain!==toolchainSignature(toolchain)};
     }
     case 'toolchainCheck': return checkToolchain(typeof args[0]==='string'?args[0]:undefined,typeof args[1]==='string'?args[1]:state.engine,typeof args[2]==='string'?args[2]:state.latexmk);
+    case 'commandArguments': {
+      const doc=state.docs.find(doc=>doc.path===args[0]),kpse=toolchain?.tools.find(tool=>tool.name==='kpsewhich'&&tool.ok)?.path;
+      if(!doc||!kpse)return {};
+      return packageArguments(doc.text,[path.dirname(doc.path),...(state.supportFolders??[])],names=>new Promise(resolve=>execFile(kpse,names,{env:toolEnvironment(toolchain?.selected,initialEnvironment),windowsHide:true,timeout:10000,maxBuffer:1024*1024},(_error,stdout)=>resolve(stdout.trim().split(/\r?\n/).filter(Boolean)))));
+    }
     case 'toolchainPrepare': {
       if(preparingFormat)throw Error('A fast format is already being prepared.');preparingFormat=true;
       try{

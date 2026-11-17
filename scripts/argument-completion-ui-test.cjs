@@ -1,0 +1,25 @@
+const {_electron:electron}=require('playwright'),fs=require('node:fs/promises'),path=require('node:path'),assert=require('node:assert/strict'),{createHash}=require('node:crypto');
+(async()=>{
+ const directory=require('./test-artifacts.cjs').testDirectory('argument-completion'),profile=path.join(directory,'profile'),root=path.join(directory,'main.tex');
+ await fs.mkdir(profile);
+ const source='\\newcommand{\\triple}[3]{#1#2#3}\n';
+ await fs.writeFile(root,source);
+ await fs.writeFile(path.join(profile,'session.json'),JSON.stringify({root,active:root,docs:[{path:root,text:source,diskHash:createHash('sha256').update(source).digest('hex'),dirty:false,eol:'\n'}],onSave:false,liveVersion:2,engine:'pdflatex',latexmk:'latexmk',autoClose:true}));
+ const executablePath=process.env.PERSISTENT_TEX_EXECUTABLE;
+ const app=await electron.launch({...(executablePath?{executablePath,args:[]}:{args:['.']}),env:{...process.env,PERSISTENT_TEX_TEST_DATA:profile,PERSISTENT_TEX_TEST_HIDDEN:'1'},timeout:60000});
+ try{
+  const page=await app.firstWindow();await page.locator('.cm-content').waitFor({state:'attached'});
+  await page.evaluate(()=>document.querySelector('#settingsDialog').close());
+  const read=()=>page.locator('.cm-content').evaluate(element=>element.cmTile.root.view.state.doc.toString());
+  await page.locator('.cm-content').focus();await page.keyboard.press('Control+End');
+  await page.keyboard.type('\\frac{a');await page.keyboard.press('Tab');await page.keyboard.type('b');await page.keyboard.press('Tab');
+  assert.equal(await read(),source+'\\frac{a}{b}');
+  await page.keyboard.type('\\triple{one');await page.keyboard.press('Tab');await page.keyboard.type('two');await page.keyboard.press('Tab');await page.keyboard.type('three');await page.keyboard.press('Tab');
+  assert.equal(await read(),source+'\\frac{a}{b}\\triple{one}{two}{three}');
+  await page.keyboard.insertText('\\[x\\]');
+  await page.evaluate(()=>{const view=document.querySelector('.cm-content').cmTile.root.view,at=view.state.doc.toString().lastIndexOf('\\[');view.dispatch({selection:{anchor:at,head:at+2}});});
+  await page.keyboard.type('\\begin{align}');
+  assert.equal(await read(),source+'\\frac{a}{b}\\triple{one}{two}{three}\\begin{align}x\\end{align}');
+  console.log(JSON.stringify({passed:true,packaged:!!executablePath,keyboardTab:true,customArguments:true,mathConversion:true}));
+ }finally{await app.evaluate(({app})=>app.exit(0)).catch(()=>{});await app.close().catch(()=>{});}
+})().catch(error=>{console.error(String(error));process.exitCode=1;});

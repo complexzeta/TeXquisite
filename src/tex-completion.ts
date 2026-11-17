@@ -1,8 +1,9 @@
 import {ChangeSet,ChangeDesc,EditorSelection,EditorState,Prec,StateEffect,StateField,TransactionSpec} from '@codemirror/state';
 import {invertedEffects} from '@codemirror/commands';
 import {keymap} from '@codemirror/view';
+import {CommandArguments,multiArgumentCount} from './tex-arguments';
 
-interface Closer {environment?:{from:number;to:number};mathOpening?:{from:number;to:number;editing?:boolean};sized?:boolean;from:number;to:number;text:string;open:string;}
+interface Closer {argument?:{group:number;index:number;count:number;opening:number};environment?:{from:number;to:number};mathOpening?:{from:number;to:number;editing?:boolean};sized?:boolean;from:number;to:number;text:string;open:string;}
 function mapClosers(values:readonly Closer[],changes:ChangeDesc):Closer[]{
   return values.flatMap(value=>{
     let touched=false;
@@ -14,7 +15,8 @@ function mapClosers(values:readonly Closer[],changes:ChangeDesc):Closer[]{
       changes.iterChangedRanges((from,to)=>{if(from<opening.to&&to>opening.from||from===to&&from>=opening.from&&from<opening.to)editing=true;});
       mathOpening={from:changes.mapPos(opening.from,-1),to:changes.mapPos(opening.to,editing?1:-1),editing};
     }
-    return !touched&&to-from===value.text.length?[{...value,from,to,mathOpening,environment:value.environment?{from:changes.mapPos(value.environment.from,-1),to:changes.mapPos(value.environment.to,1)}:undefined}]:[];
+    const argument=value.argument?{...value.argument,group:changes.mapPos(value.argument.group,1),opening:changes.mapPos(value.argument.opening,1)}:undefined;
+    return !touched&&to-from===value.text.length?[{...value,from,to,argument,mathOpening,environment:value.environment?{from:changes.mapPos(value.environment.from,-1),to:changes.mapPos(value.environment.to,1)}:undefined}]:[];
   });
 }
 const remember=StateEffect.define<readonly Closer[]>({map:mapClosers});
@@ -100,11 +102,12 @@ export function surroundTex(state:EditorState,delimiter:string,enabled=true):Tra
 }
 // This runs in the synchronous input path: source, autosave and typesetting see
 // the opening and closing text in one transaction, never two separate edits.
-export function completeTex(state:EditorState,input:string,enabled=true):TransactionSpec{
+export function completeTex(state:EditorState,input:string,enabled=true,signatures:CommandArguments={}):TransactionSpec{
   const plain=()=>state.replaceSelection(input),range=state.selection.main;
   if(!enabled||state.selection.ranges.length!==1||input.length!==1)return plain();
   const from=range.from,to=range.to;
   const known=state.field(closers,false)??[];
+  if(input==='{'&&range.empty&&known.some(pair=>pair.argument?.opening===from))return {selection:{anchor:from+1}};
   const matching=range.empty&&known.find(pair=>from>=pair.from&&from<pair.to&&state.doc.sliceString(from,from+1)===input);
   const pending=state.field(pendingCloser,false);
   // Until a command closer has been fully typed, its prefix may instead be a
@@ -118,7 +121,7 @@ export function completeTex(state:EditorState,input:string,enabled=true):Transac
   if(!matching&&range.empty&&pending?.at===from&&known.some(pair=>pair.from===pending.from)){
     const prefix={changes:{from:pending.from,insert:pending.prefix},selection:{anchor:from}};
     const intermediate=state.update(prefix).state;
-    const result=state.update(prefix,{...completeTex(intermediate,input),sequential:true});
+    const result=state.update(prefix,{...completeTex(intermediate,input,true,signatures),sequential:true});
     return {changes:result.changes,selection:result.selection,effects:result.effects};
   }
   if(!matching){
@@ -139,6 +142,18 @@ export function completeTex(state:EditorState,input:string,enabled=true):Transac
   if(!matching&&!['{','}','$','[','('].includes(input))return plain();
   const line=state.doc.sliceString(state.doc.lineAt(from).from,from),before=line;
   if(comment(line))return plain();
+  if(input==='{'&&!escaped(before,before.length)){
+    const command=multiArgumentCount(before,state.doc.sliceString(0,from),signatures);
+    if(command&&!escaped(before,command.from)){
+      const selected=state.doc.sliceString(from,to),insert='{'+selected+'}'+'{}'.repeat(command.count-1),changes=state.changes({from,to,insert});
+      const group=state.doc.lineAt(from).from+command.from;
+      const arguments_:Closer[]=Array.from({length:command.count},(_,index)=>{
+        const opening=from+(index?selected.length+index*2:0),close=opening+1+(index?0:selected.length);
+        return {from:close,to:close+1,text:'}',open:'{',argument:{group,index,count:command.count,opening}};
+      });
+      return {changes,selection:range.empty?{anchor:from+1}:EditorSelection.range(from+1,from+1+selected.length),effects:remember.of([...mapClosers(known,changes),...arguments_])};
+    }
+  }
   if((input==='$'||input==='}')&&escaped(before,before.length)&&!(matching&&matching.sized))return plain();
   const environment=input==='}'&&/\\begin\{([a-zA-Z][\w*@.-]*)$/.exec(before);
   const begin=environment&&!escaped(before,before.length-environment[0].length);
@@ -168,6 +183,18 @@ export function completeTex(state:EditorState,input:string,enabled=true):Transac
   const selected=state.doc.sliceString(from,to),insert=input+selected+close,changes=state.changes({from,to,insert});
   const closeFrom=from+input.length+selected.length;
   return {changes,selection:range.empty?{anchor:from+1}:EditorSelection.range(from+1,closeFrom),effects:remember.of([...mapClosers(known,changes),{from:closeFrom,to:closeFrom+close.length,text:close,open,mathOpening:open==='\\['||open==='\\('?{from:from-1,to:from+1}:undefined}])};
+}
+
+export function nextTexArgument(state:EditorState,backward=false,enabled=true):TransactionSpec|undefined{
+ if(!enabled||state.selection.ranges.length!==1)return;
+ const range=state.selection.main,pairs=state.field(closers,false)??[];
+ const current=pairs.filter(pair=>pair.argument&&range.from>pair.argument.opening&&range.to<=pair.from).sort((a,b)=>b.argument!.opening-a.argument!.opening)[0];
+ if(!current?.argument)return;
+ const argument=current.argument,group=pairs.filter(pair=>pair.argument?.group===argument.group);
+ if(group.length!==argument.count||group.some(pair=>state.doc.sliceString(pair.argument!.opening,pair.argument!.opening+1)!=='{'))return;
+ const next=group.find(pair=>pair.argument!.index===argument.index+(backward?-1:1));
+ if(next)return {selection:{anchor:next.argument!.opening+1},scrollIntoView:true};
+ if(!backward&&argument.index===argument.count-1)return {selection:{anchor:current.to},scrollIntoView:true};
 }
 
 export function texCompletion(enabled:()=>boolean){return [closers,pendingCloser,
@@ -207,7 +234,9 @@ export function texCompletion(enabled:()=>boolean){return [closers,pendingCloser
   // CodeMirror's generic quote/parenthesis completion is deliberately disabled.
   EditorState.languageData.of(()=>[{closeBrackets:{brackets:[]}}]),
   invertedEffects.of(tr=>tr.docChanged||tr.effects.some(effect=>effect.is(remember))?[remember.of(tr.startState.field(closers))]:[]),
-  Prec.highest(keymap.of([{key:'Backspace',run(view){
+  Prec.highest(keymap.of([{key:'Tab',run(view){const spec=nextTexArgument(view.state,false,enabled());if(!spec)return false;view.dispatch(spec);return true;}},
+  {key:'Shift-Tab',run(view){const spec=nextTexArgument(view.state,true,enabled());if(!spec)return false;view.dispatch(spec);return true;}},
+  {key:'Backspace',run(view){
     const state=view.state,range=state.selection.main;
     if(!enabled()||state.selection.ranges.length!==1||!range.empty)return false;
     const pair=state.field(closers).find(pair=>pair.from===range.head&&pair.open.length<=2&&state.doc.sliceString(pair.from-pair.open.length,pair.from)===pair.open);

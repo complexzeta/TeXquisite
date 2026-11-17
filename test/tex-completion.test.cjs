@@ -1,7 +1,7 @@
 const {test}=require('node:test'),assert=require('node:assert/strict');
 const {EditorState,Transaction}=require('@codemirror/state');
 const {history,undo,redo,isolateHistory}=require('@codemirror/commands');
-const {completeTex,surroundTex,texCompletion}=require('../dist/tex-completion');
+const {completeTex,surroundTex,texCompletion,nextTexArgument}=require('../dist/tex-completion');
 function editor(doc='',at=doc.length){
  let enabled=true;
  const view={state:EditorState.create({doc,selection:{anchor:at},extensions:[history(),texCompletion(()=>enabled)]}),dispatch:spec=>{view.state=spec instanceof Transaction?spec.state:view.state.update(spec).state;}};
@@ -13,6 +13,39 @@ test('nested math and typed closers are atomic without duplicates',()=>{
 });
 test('backslash math delimiters close and skip generated characters',()=>{
  for(const [open,close] of [['\\[','\\]'],['\\(','\\)']]){const e=editor();e.type(open);assert.equal(e.text(),open+close);e.type('x'+close);assert.equal(e.text(),open+'x'+close);assert.equal(e.at(),5);}
+});
+test('multiple command arguments complete and navigate without duplicating braces',()=>{
+ for(const command of ['frac','binom']){
+  const e=editor();e.type('\\'+command+'{');
+  assert.equal(e.text(),'\\'+command+'{}{}');assert.equal(e.at(),command.length+2);
+  e.type('x_{1}');
+  e.view.dispatch(nextTexArgument(e.view.state));
+  e.type('y');
+  e.view.dispatch(nextTexArgument(e.view.state,true));
+  assert.equal(e.at(),command.length+2);
+  e.view.dispatch(nextTexArgument(e.view.state));
+  e.view.dispatch(nextTexArgument(e.view.state));
+  assert.equal(e.at(),e.text().length);
+  const typed=editor();typed.type('\\'+command+'{a}{b}');
+  assert.equal(typed.text(),'\\'+command+'{a}{b}');
+ }
+});
+test('custom argument counts support optional defaults, xparse, nesting, history and disabled completion',()=>{
+ for(const definition of ['\\newcommand{\\custom}[3]{#1#2#3}','\\NewDocumentCommand{\\custom}{O{a} m +m m}{#2#3#4}','\\def\\custom#1#2#3{#1#2#3}']){
+  const e=editor(definition+'\n');e.type('\\custom{');
+  assert.ok(e.text().endsWith('\\custom{}{}{}'));
+  const complete=e.text();assert.ok(undo(e.view));assert.ok(redo(e.view));assert.equal(e.text(),complete);
+   e.view.dispatch({selection:{anchor:definition.length+1+'\\custom{'.length}});
+  e.type('one');e.view.dispatch(nextTexArgument(e.view.state));e.type('\\frac{a');
+  e.view.dispatch(nextTexArgument(e.view.state));e.type('b');e.view.dispatch(nextTexArgument(e.view.state));
+  e.view.dispatch(nextTexArgument(e.view.state));e.type('three');
+  assert.ok(e.text().endsWith('\\custom{one}{\\frac{a}{b}}{three}'));
+ }
+ const optional=editor('\\newcommand{\\custom}[4][default]{#1#2#3#4}\n');optional.type('\\custom{');assert.ok(optional.text().endsWith('\\custom{}{}{}'));
+ const off=editor();off.enable(false);off.type('\\frac{');assert.equal(off.text(),'\\frac{');assert.equal(nextTexArgument(off.view.state,false,false),undefined);
+ const ordinary=editor('text');assert.equal(nextTexArgument(ordinary.view.state),undefined);
+ const explicit=editor();explicit.view.dispatch(completeTex(explicit.view.state,'\\unknown',true));explicit.view.dispatch(completeTex(explicit.view.state,'{',true,{unknown:4}));assert.equal(explicit.text(),'\\unknown{}{}{}{}');
+ const detached=editor();detached.type('\\frac{');detached.view.dispatch({changes:{from:6,to:7,insert:''}});assert.equal(nextTexArgument(detached.view.state),undefined);
 });
 test('math openers can become environments by replacement or incremental typing',()=>{
  for(const open of ['\\[','\\(']){

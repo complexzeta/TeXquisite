@@ -1,7 +1,7 @@
-name: Windows 0.136.0 test release
+name: Windows 0.137.0 test release
 on:
   push:
-    branches: [codex/preview-0.136.0]
+    branches: [codex/preview-0.137.0]
 permissions:
   contents: read
 jobs:
@@ -19,12 +19,12 @@ jobs:
           node-version: '24'
       - run: npm ci --no-audit --no-fund
       - run: npm run build
-      - run: node --test test/tex-completion.test.cjs test/recovery-supersession.test.cjs
+      - run: node --test test/tex-completion.test.cjs test/tex-package-arguments.test.cjs test/recovery-supersession.test.cjs
       - run: node --test --test-name-pattern "TikZ and Forest|Forward flow windows" test/local-preview.test.cjs test/flow-window.test.cjs
       - name: Verify the generated window title
         shell: pwsh
         run: |
-          $expected = '<title>TeXquisite 0.136.0 ' + [char]0x2014 + ' continuous scroll</title>'
+          $expected = '<title>TeXquisite 0.137.0 ' + [char]0x2014 + ' continuous scroll</title>'
           if (!(Get-Content -Raw -Encoding utf8 media/index.html).Contains($expected)) { throw 'Wrong window title' }
       - name: Build and verify the Windows portable package
         shell: pwsh
@@ -35,12 +35,19 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           node scripts/verify-retained-package.cjs release/win-unpacked/resources/app.asar
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          $asset = 'TeXquisite-0.136.0-Windows.exe'
+          $asset = 'TeXquisite-0.137.0-Windows.exe'
           $digest = (Get-FileHash -Algorithm SHA256 "release/$asset").Hash.ToLowerInvariant()
           "$digest  $asset" | Set-Content -Encoding ascii release/SHA256SUMS.txt
+      - name: Verify keyboard completion in the packaged editor
+        shell: pwsh
+        run: |
+          $env:PERSISTENT_TEX_EXECUTABLE=(Resolve-Path 'release/win-unpacked/TeXquisite.exe').Path
+          $env:PERSISTENT_TEX_TEST_ARTIFACTS=Join-Path $env:RUNNER_TEMP 'completion-results'
+          node scripts/argument-completion-ui-test.cjs
+          exit $LASTEXITCODE
       - name: Publish the Windows test release
         env:
           GH_TOKEN: ${{ github.token }}
         shell: pwsh
         run: |
-          gh release create v0.136.0 release/TeXquisite-0.136.0-Windows.exe release/SHA256SUMS.txt --target "${{ github.sha }}" --title "TeXquisite 0.136.0 Windows test release" --prerelease --latest=false --notes-file .github/preview-0.136.0.md
+          gh release create v0.137.0 release/TeXquisite-0.137.0-Windows.exe release/SHA256SUMS.txt --target "${{ github.sha }}" --title "TeXquisite 0.137.0 Windows test release" --prerelease --latest=false --notes-file .github/preview-0.137.0.md

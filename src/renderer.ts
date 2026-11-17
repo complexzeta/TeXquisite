@@ -15,6 +15,7 @@ import {ProjectSidebar} from './project-sidebar';
 import {ProjectSearchUI} from './project-search-ui';
 import {PanelLayout} from './panel-layout';
 import {completeTex,texCompletion,surroundTex} from './tex-completion';
+import type {CommandArguments} from './tex-arguments';
 import {imageTex} from './image-paste';
 import {loadPdf,renderCheckedPdfRegion,copyPdfRaster} from './pdf-viewer';
 import {BaselineCache} from './baseline-cache';
@@ -36,6 +37,16 @@ function recordDisplayedFrame(editId:string|undefined,sourceHash:string|undefine
 }
 let model:any={docs:[]}, active='',view:EditorView|undefined;
 const states=new Map<string,EditorState>();
+let argumentSignatures:CommandArguments={},argumentTimer:ReturnType<typeof setTimeout>|undefined,argumentKey='';
+function refreshArgumentSignatures(text:string){
+ const file=active,key=JSON.stringify([file,model.texBin,[...text.matchAll(/\\(?:documentclass|usepackage)\s*(?:\[[^\]]*\])?\s*\{[^}]+\}/g)].map(match=>match[0])]);
+ if(key===argumentKey)return;
+ clearTimeout(argumentTimer);
+ argumentKey=key;argumentSignatures={};
+ argumentTimer=setTimeout(()=>{
+  void api.call('commandArguments',file).then(signatures=>{if(argumentKey===key)argumentSignatures=signatures;}).catch(()=>{if(argumentKey===key)argumentKey='';});
+ },400);
+}
 installToolbar();
 const panelLayout=new PanelLayout(el('workspace'),el('panelDivider'),el<HTMLSelectElement>('panelLayout'),value=>{model.panelLayout=value;toolbarSelect('panelLayout','panels','Panel layout: '+el<HTMLSelectElement>('panelLayout').selectedOptions[0]?.textContent);void api.call('panels',value).catch(report);},()=>view?.requestMeasure());
 const lastSent=new Map<string,string>(),pendingEdits=new Map<string,{text:string}>();
@@ -356,12 +367,13 @@ function createState(text:string){
     if(!event.cancelable||input.inputType!=='insertText'||input.isComposing||editor.composing||!input.data)return false;
     event.preventDefault();
     if(input.data==='\\'&&model.autoClose!==false&&!editor.state.selection.main.empty&&editor.state.selection.ranges.length===1){showSurround(editor);return true;}
-    editor.dispatch({...completeTex(editor.state,input.data,model.autoClose!==false),annotations:Transaction.userEvent.of('input.type'),scrollIntoView:true});
+    editor.dispatch({...completeTex(editor.state,input.data,model.autoClose!==false,argumentSignatures),annotations:Transaction.userEvent.of('input.type'),scrollIntoView:true});
     return true;
   },pointerdown(event,editor){pointerGeneration++;pointer=event.button===0&&textHit(event,editor)?{id:event.pointerId,x:event.clientX,y:event.clientY}:undefined;return false;},pointerup(event,editor){const start=pointer;pointer=undefined;if(!start||start.id!==event.pointerId||!textHit(event,editor)||Math.abs(start.x-event.clientX)>4||Math.abs(start.y-event.clientY)>4){pointerGeneration++;renderRecoveryNotice();return false;}if(model.continuousPreview&&!suppressFollow){const generation=++pointerGeneration,doc=editor.state.doc,at=editor.state.selection.main.head;cancelAnimationFrame(followFrame);followFrame=requestAnimationFrame(()=>{if(generation===pointerGeneration&&view===editor&&editor.state.doc===doc&&editor.state.selection.main.head===at)void locateSource(true).catch(e=>{el('navState').textContent=String(e);});});}return false;},scroll(){renderRecoveryNotice();return false;},wheel(){pointer=undefined;pointerGeneration++;return false;},paste(event){if(imagePasteEvent(event))return true;markInput();return false;},cut(){markInput();return false;}}),EditorView.updateListener.of(update=>{
   if(applyingProjectReplace)return;
   if(update.docChanged||update.selectionSet){if(surroundSession)cancelSurround();navigationToken++;if(!previewApplying&&previewSession)endPreview();}
   if(update.docChanged){
+    refreshArgumentSignatures(update.state.doc.toString());
     diagnosticTracker.changed(active,at=>update.changes.mapPos(Math.min(at,update.startState.doc.length),1),update.state.doc);
     el('pages').querySelectorAll('.navigation-marker').forEach(marker=>marker.remove());
     const edit={id:editSession+'-'+(++editSequence),startedAt:inputStartedAt||performance.now(),text:update.state.doc.toString()};inputStartedAt=0;
@@ -430,7 +442,7 @@ function renderEditor(){
   const doc=model.docs.find((d:any)=>d.path===next);
   if(doc){
     if(!lastSent.has(doc.path))lastSent.set(doc.path,doc.text);
-    active=next;const cached=states.get(active);let state=cached&&cached.doc.toString()===doc.text?cached:createState(doc.text);
+    active=next;refreshArgumentSignatures(doc.text);const cached=states.get(active);let state=cached&&cached.doc.toString()===doc.text?cached:createState(doc.text);
     const restored=!cached&&model.lastCursor?.file===active&&Number.isSafeInteger(model.lastCursor.at)?Math.max(0,Math.min(doc.text.length,model.lastCursor.at)):undefined;
     if(restored!==undefined)state=state.update({selection:{anchor:restored}}).state;
     if(view)view.setState(state);else view=new EditorView({state,parent:el('editor')});
