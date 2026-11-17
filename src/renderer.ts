@@ -368,7 +368,7 @@ function createState(text:string){
     event.preventDefault();
     if(input.data==='\\'&&model.autoClose!==false&&!editor.state.selection.main.empty&&editor.state.selection.ranges.length===1){
       const selection=editor.state.selection.main,selected=editor.state.doc.sliceString(selection.from,selection.to);
-      if(selected!=='\\['&&selected!=='\\('&&!/^\\begin\{[A-Za-z][\w*@.-]*\}$/.test(selected)){showSurround(editor);return true;}
+      if(selected!=='$'&&selected!=='\\['&&selected!=='\\('&&!/^\\begin\{[A-Za-z][\w*@.-]*\}$/.test(selected)){showSurround(editor);return true;}
     }
     editor.dispatch({...completeTex(editor.state,input.data,model.autoClose!==false,argumentSignatures),annotations:Transaction.userEvent.of('input.type'),scrollIntoView:true});
     return true;

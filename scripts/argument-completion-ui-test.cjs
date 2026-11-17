@@ -28,6 +28,16 @@ const {_electron:electron}=require('playwright'),fs=require('node:fs/promises'),
    await page.keyboard.type('\\'+name+'{n');await page.keyboard.press('Tab');await page.keyboard.type('k');await page.keyboard.press('Tab');
    assert.ok((await read()).endsWith('\\'+name+'{n}{k}'));
   }
-  console.log(JSON.stringify({passed:true,packaged:!!executablePath,keyboardTab:true,customArguments:true,mathConversion:true,reverseConversion:true,forwardingCommands:true}));
+  for(const [open,close]of [['\\[','\\]'],['\\(','\\)'],['\\begin{align*}','\\end{align*}']]){
+   await page.keyboard.press('Control+End');const previous=await read();
+   await page.keyboard.insertText('$a+b$');
+   await page.evaluate(at=>{const view=document.querySelector('.cm-content').cmTile.root.view;view.dispatch({selection:{anchor:at,head:at+1}});},previous.length);
+   await page.keyboard.press('Backspace');await page.keyboard.type(open);
+   assert.equal(await read(),previous+open+'a+b'+close);
+   await page.evaluate(({at,length})=>{const view=document.querySelector('.cm-content').cmTile.root.view;view.dispatch({selection:{anchor:at,head:at+length}});},{at:previous.length,length:open.length});
+   await page.keyboard.press('Backspace');await page.keyboard.type('$');
+   assert.equal(await read(),previous+'$a+b$');
+  }
+  console.log(JSON.stringify({passed:true,packaged:!!executablePath,keyboardTab:true,customArguments:true,mathConversion:true,reverseConversion:true,forwardingCommands:true,dollarConversions:true}));
  }finally{await app.evaluate(({app})=>app.exit(0)).catch(()=>{});await app.close().catch(()=>{});}
 })().catch(error=>{console.error(String(error));process.exitCode=1;});

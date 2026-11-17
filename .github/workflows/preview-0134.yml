@@ -1,7 +1,7 @@
-name: Windows 0.138.0 test release
+name: Windows 0.139.0 test release
 on:
   push:
-    branches: [codex/preview-0.138.0]
+    branches: [codex/preview-0.139.0]
 permissions:
   contents: read
 jobs:
@@ -24,7 +24,7 @@ jobs:
       - name: Verify the generated window title
         shell: pwsh
         run: |
-          $expected = '<title>TeXquisite 0.138.0 ' + [char]0x2014 + ' continuous scroll</title>'
+          $expected = '<title>TeXquisite 0.139.0 ' + [char]0x2014 + ' continuous scroll</title>'
           if (!(Get-Content -Raw -Encoding utf8 media/index.html).Contains($expected)) { throw 'Wrong window title' }
       - name: Build and verify the Windows portable package
         shell: pwsh
@@ -35,7 +35,7 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           node scripts/verify-retained-package.cjs release/win-unpacked/resources/app.asar
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          $asset = 'TeXquisite-0.138.0-Windows.exe'
+          $asset = 'TeXquisite-0.139.0-Windows.exe'
           $digest = (Get-FileHash -Algorithm SHA256 "release/$asset").Hash.ToLowerInvariant()
           "$digest  $asset" | Set-Content -Encoding ascii release/SHA256SUMS.txt
       - name: Verify keyboard completion in the packaged editor
@@ -50,4 +50,4 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         shell: pwsh
         run: |
-          gh release create v0.138.0 release/TeXquisite-0.138.0-Windows.exe release/SHA256SUMS.txt --target "${{ github.sha }}" --title "TeXquisite 0.138.0 Windows test release" --prerelease --latest=false --notes-file .github/preview-0.138.0.md
+          gh release create v0.139.0 release/TeXquisite-0.139.0-Windows.exe release/SHA256SUMS.txt --target "${{ github.sha }}" --title "TeXquisite 0.139.0 Windows test release" --prerelease --latest=false --notes-file .github/preview-0.139.0.md

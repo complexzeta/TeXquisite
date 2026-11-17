@@ -89,6 +89,33 @@ test('environments convert back into math delimiters, including typing, nested p
   assert.equal(off.text(),open+'x+1\\end{align*}');
  }
 });
+test('dollar math converts to and from other math openers by replacing or deleting the opener',()=>{
+ const forms=[['\\[','\\]'],['\\(','\\)'],['\\begin{align*}','\\end{align*}']];
+ for(const [open,close]of forms){
+  for(const removeFirst of [false,true]){
+   const e=editor('$a+b$');
+   if(removeFirst)e.view.dispatch({changes:{from:0,to:1,insert:''},selection:{anchor:0}});
+   else e.view.dispatch({selection:{anchor:0,head:1}});
+   e.type(open);assert.equal(e.text(),open+'a+b'+close);
+   if(removeFirst)e.view.dispatch({changes:{from:0,to:open.length,insert:''},selection:{anchor:0}});
+   else e.view.dispatch({selection:{anchor:0,head:open.length}});
+   e.type('$');assert.equal(e.text(),'$a+b$');
+  }
+  const pasted=editor('$a+b$');pasted.view.dispatch({changes:{from:0,to:1,insert:open},annotations:isolateHistory.of('full')});
+  assert.equal(pasted.text(),open+'a+b'+close);assert.ok(undo(pasted.view));assert.equal(pasted.text(),'$a+b$');assert.ok(redo(pasted.view));assert.equal(pasted.text(),open+'a+b'+close);
+ }
+ const generated=editor();generated.type('$a+b$');generated.view.dispatch({selection:{anchor:0,head:1}});generated.type('\\[');assert.equal(generated.text(),'\\[a+b\\]');
+ const bulk=editor();bulk.view.dispatch(completeTex(bulk.view.state,'Text $a+b$ text'));bulk.view.dispatch({changes:{from:5,to:6,insert:'\\('}});assert.equal(bulk.text(),'Text \\(a+b\\) text');
+});
+test('dollar links respect escapes, comments, verbatim, display dollars, disabled mode and independent formulas',()=>{
+ for(const original of ['\\$a+b$','% $a+b$','\\begin{verbatim}\n$a+b$\n\\end{verbatim}','\\verb|$a+b$|','$$a+b$$']){
+  const e=editor(original),at=original.indexOf('$');e.view.dispatch({changes:{from:at,to:at+1,insert:'\\['}});
+  assert.equal(e.text(),original.slice(0,at)+'\\['+original.slice(at+1));
+ }
+ const e=editor('$a$ and $b$');e.view.dispatch({changes:{from:8,to:9,insert:'\\begin{equation}'}});assert.equal(e.text(),'$a$ and \\begin{equation}b\\end{equation}');
+ const off=editor('$a+b$');off.enable(false);off.view.dispatch({changes:{from:0,to:1,insert:'\\['}});assert.equal(off.text(),'\\[a+b$');
+ const manual=editor('$a+b$');manual.view.dispatch({changes:{from:4,to:5,insert:'!'}});manual.view.dispatch({changes:{from:0,to:1,insert:'\\['}});assert.equal(manual.text(),'\\[a+b!');
+});
 test('math conversion respects nested pairs, manual closers, comments and disabled matching',()=>{
  const e=editor('\\[a+\\(b\\)\\]');
  e.view.dispatch({changes:{from:4,to:6,insert:'\\begin{aligned}'}});
