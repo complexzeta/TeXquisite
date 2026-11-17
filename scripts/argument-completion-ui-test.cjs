@@ -2,7 +2,7 @@ const {_electron:electron}=require('playwright'),fs=require('node:fs/promises'),
 (async()=>{
  const directory=require('./test-artifacts.cjs').testDirectory('argument-completion'),profile=path.join(directory,'profile'),root=path.join(directory,'main.tex');
  await fs.mkdir(profile);
- const source='\\newcommand{\\triple}[3]{#1#2#3}\n';
+ const source='\\newcommand{\\triple}[3]{#1#2#3}\n\\DeclareRobustCommand{\\sstirling}{\\genfrac\\{\\}{0pt}{}}\n\\DeclareRobustCommand{\\fstirling}{\\genfrac[]{0pt}{}}\n\\DeclareRobustCommand{\\eulerian}{\\genfrac\\langle\\rangle{0pt}{}}\n';
  await fs.writeFile(root,source);
  await fs.writeFile(path.join(profile,'session.json'),JSON.stringify({root,active:root,docs:[{path:root,text:source,diskHash:createHash('sha256').update(source).digest('hex'),dirty:false,eol:'\n'}],onSave:false,liveVersion:2,engine:'pdflatex',latexmk:'latexmk',autoClose:true}));
  const executablePath=process.env.PERSISTENT_TEX_EXECUTABLE;
@@ -20,6 +20,14 @@ const {_electron:electron}=require('playwright'),fs=require('node:fs/promises'),
   await page.evaluate(()=>{const view=document.querySelector('.cm-content').cmTile.root.view,at=view.state.doc.toString().lastIndexOf('\\[');view.dispatch({selection:{anchor:at,head:at+2}});});
   await page.keyboard.type('\\begin{align}');
   assert.equal(await read(),source+'\\frac{a}{b}\\triple{one}{two}{three}\\begin{align}x\\end{align}');
-  console.log(JSON.stringify({passed:true,packaged:!!executablePath,keyboardTab:true,customArguments:true,mathConversion:true}));
+  await page.evaluate(()=>{const view=document.querySelector('.cm-content').cmTile.root.view,at=view.state.doc.toString().lastIndexOf('\\begin{align}');view.dispatch({selection:{anchor:at,head:at+'\\begin{align}'.length}});});
+  await page.keyboard.type('\\[');
+  assert.equal(await read(),source+'\\frac{a}{b}\\triple{one}{two}{three}\\[x\\]');
+  await page.keyboard.press('Control+End');
+  for(const name of ['sstirling','fstirling','eulerian']){
+   await page.keyboard.type('\\'+name+'{n');await page.keyboard.press('Tab');await page.keyboard.type('k');await page.keyboard.press('Tab');
+   assert.ok((await read()).endsWith('\\'+name+'{n}{k}'));
+  }
+  console.log(JSON.stringify({passed:true,packaged:!!executablePath,keyboardTab:true,customArguments:true,mathConversion:true,reverseConversion:true,forwardingCommands:true}));
  }finally{await app.evaluate(({app})=>app.exit(0)).catch(()=>{});await app.close().catch(()=>{});}
 })().catch(error=>{console.error(String(error));process.exitCode=1;});

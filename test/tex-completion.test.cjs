@@ -67,6 +67,28 @@ test('math openers can become environments by replacement or incremental typing'
   assert.equal(partial.text(),'\\begin{align}x\\end{align}');
  }
 });
+test('forwarding wrappers infer remaining arguments through genfrac and custom helper chains',()=>{
+ const definitions='\\DeclareRobustCommand{\\sstirling}{\\genfrac\\{\\}{0pt}{}}\n\\DeclareRobustCommand{\\fstirling}{\\genfrac[]{0pt}{}}\n\\DeclareRobustCommand{\\eulerian}{\\genfrac\\langle\\rangle{0pt}{}}\n\\newcommand{\\triplehelper}[3]{#1#2#3}\n\\newcommand{\\forwarded}{\\triplehelper{fixed}}\n\\newcommand{\\alias}{\\forwarded}\n';
+ for(const name of ['sstirling','fstirling','eulerian','forwarded','alias']){
+  const e=editor(definitions);e.type('\\'+name+'{');assert.ok(e.text().endsWith('\\'+name+'{}{}'));
+  e.type('n');e.view.dispatch(nextTexArgument(e.view.state));e.type('k');
+  assert.ok(e.text().endsWith('\\'+name+'{n}{k}'));
+ }
+});
+test('environments convert back into math delimiters, including typing, nested pairs and history',()=>{
+ for(const open of ['\\[','\\(']){
+  const close=open==='\\['?'\\]':'\\)',start='\\begin{align*}',text=start+'x+1\\end{align*}';
+  const e=editor(text);e.view.dispatch({changes:{from:0,to:start.length,insert:open},annotations:isolateHistory.of('full')});
+  assert.equal(e.text(),open+'x+1'+close);assert.ok(undo(e.view));assert.equal(e.text(),text);assert.ok(redo(e.view));assert.equal(e.text(),open+'x+1'+close);
+  const typed=editor(text);typed.view.dispatch({selection:{anchor:0,head:start.length}});typed.type(open);
+  assert.equal(typed.text(),open+'x+1'+close);
+  const nested=editor('\\begin{equation}\\begin{split}x\\end{split}\\end{equation}');
+  nested.view.dispatch({changes:{from:16,to:29,insert:open}});
+  assert.equal(nested.text(),'\\begin{equation}'+open+'x'+close+'\\end{equation}');
+  const off=editor(text);off.enable(false);off.view.dispatch({changes:{from:0,to:start.length,insert:open}});
+  assert.equal(off.text(),open+'x+1\\end{align*}');
+ }
+});
 test('math conversion respects nested pairs, manual closers, comments and disabled matching',()=>{
  const e=editor('\\[a+\\(b\\)\\]');
  e.view.dispatch({changes:{from:4,to:6,insert:'\\begin{aligned}'}});

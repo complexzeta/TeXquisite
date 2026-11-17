@@ -3,20 +3,20 @@ import {invertedEffects} from '@codemirror/commands';
 import {keymap} from '@codemirror/view';
 import {CommandArguments,multiArgumentCount} from './tex-arguments';
 
-interface Closer {argument?:{group:number;index:number;count:number;opening:number};environment?:{from:number;to:number};mathOpening?:{from:number;to:number;editing?:boolean};sized?:boolean;from:number;to:number;text:string;open:string;}
+interface Closer {argument?:{group:number;index:number;count:number;opening:number};environment?:{from:number;to:number};opening?:{from:number;to:number;editing?:boolean};sized?:boolean;from:number;to:number;text:string;open:string;}
 function mapClosers(values:readonly Closer[],changes:ChangeDesc):Closer[]{
   return values.flatMap(value=>{
     let touched=false;
     changes.iterChangedRanges((from,to)=>{if(from<value.to&&to>value.from||from===to&&from>value.from&&from<value.to)touched=true;});
     const from=changes.mapPos(value.from,1),to=changes.mapPos(value.to,-1);
-    let mathOpening=value.mathOpening;
-    if(mathOpening){
-      const opening=mathOpening;let editing=!!opening.editing;
-      changes.iterChangedRanges((from,to)=>{if(from<opening.to&&to>opening.from||from===to&&from>=opening.from&&from<opening.to)editing=true;});
-      mathOpening={from:changes.mapPos(opening.from,-1),to:changes.mapPos(opening.to,editing?1:-1),editing};
+    let opening=value.opening??(value.environment?{from:value.environment.from-7,to:value.environment.to+1,editing:false}:undefined);
+    if(opening){
+      const prior=opening;let editing=!!prior.editing;
+      changes.iterChangedRanges((from,to)=>{if(from<prior.to&&to>prior.from||from===to&&from>prior.from&&from<prior.to)editing=true;});
+      opening={from:changes.mapPos(prior.from,editing?-1:1),to:changes.mapPos(prior.to,editing?1:-1),editing};
     }
     const argument=value.argument?{...value.argument,group:changes.mapPos(value.argument.group,1),opening:changes.mapPos(value.argument.opening,1)}:undefined;
-    return !touched&&to-from===value.text.length?[{...value,from,to,argument,mathOpening,environment:value.environment?{from:changes.mapPos(value.environment.from,-1),to:changes.mapPos(value.environment.to,1)}:undefined}]:[];
+    return !touched&&to-from===value.text.length?[{...value,from,to,argument,opening,environment:value.environment?{from:changes.mapPos(value.environment.from,-1),to:changes.mapPos(value.environment.to,1)}:undefined}]:[];
   });
 }
 const remember=StateEffect.define<readonly Closer[]>({map:mapClosers});
@@ -43,7 +43,7 @@ function existingEnvironments(text:string):Closer[]{
      const token=match[3];
      if(token==='['||token==='(')stack.push({name:token,from:match.index,to:match.index+2,open:match[0]});
      else if(literal?.name===(token===']'?'[':'(')){
-       stack.pop();values.push({from:match.index,to:match.index+2,text:match[0],open:literal.open,mathOpening:{from:literal.from,to:literal.to}});
+       stack.pop();values.push({from:match.index,to:match.index+2,text:match[0],open:literal.open,opening:{from:literal.from,to:literal.to}});
      }
      continue;
    }
@@ -98,7 +98,7 @@ export function surroundTex(state:EditorState,delimiter:string,enabled=true):Tra
  const right=sized?sizedDelimiters[token]:(ordinary[token]??(token.startsWith('\\')?sizedDelimiters[token]:undefined));
  if(!right)return;
  const left=delimiter+(/^\\[A-Za-z]+$/.test(token)?' ':''),close=(sized?'\\right':'')+right+(/^\\[A-Za-z]+$/.test(right)?' ':''),text=state.doc.sliceString(range.from,range.to),changes=state.changes({from:range.from,to:range.to,insert:left+text+close}),closeFrom=range.from+left.length+text.length;
- return {changes,selection:EditorSelection.range(range.from+left.length,closeFrom),effects:remember.of([...mapClosers(state.field(closers,false)??[],changes),{from:closeFrom,to:closeFrom+close.length,text:close,open:left,sized:!!sized||delimiter.startsWith('\\'),mathOpening:/^\\[\[(]$/.test(delimiter)?{from:range.from,to:range.from+delimiter.length}:undefined}])};
+ return {changes,selection:EditorSelection.range(range.from+left.length,closeFrom),effects:remember.of([...mapClosers(state.field(closers,false)??[],changes),{from:closeFrom,to:closeFrom+close.length,text:close,open:left,sized:!!sized||delimiter.startsWith('\\'),opening:/^\\[\[(]$/.test(delimiter)?{from:range.from,to:range.from+delimiter.length}:undefined}])};
 }
 // This runs in the synchronous input path: source, autosave and typesetting see
 // the opening and closing text in one transaction, never two separate edits.
@@ -142,6 +142,13 @@ export function completeTex(state:EditorState,input:string,enabled=true,signatur
   if(!matching&&!['{','}','$','[','('].includes(input))return plain();
   const line=state.doc.sliceString(state.doc.lineAt(from).from,from),before=line;
   if(comment(line))return plain();
+  if((input==='['||input==='(')&&before.endsWith('\\')&&!escaped(before,before.length-1)){
+    const replacing=known.find(pair=>pair.opening?.editing&&pair.opening.from===from-1&&pair.opening.to===from);
+    if(replacing){
+      const end=input==='['?'\\]':'\\)',changes=state.changes([{from,to,insert:input},{from:replacing.from,to:replacing.to,insert:end}]),closeFrom=changes.mapPos(replacing.from,-1);
+      return {changes,selection:{anchor:from+1},effects:remember.of([...mapClosers(known.filter(pair=>pair!==replacing),changes),{from:closeFrom,to:closeFrom+end.length,text:end,open:'\\'+input,opening:{from:from-1,to:from+1}}])};
+    }
+  }
   if(input==='{'&&!escaped(before,before.length)){
     const command=multiArgumentCount(before,state.doc.sliceString(0,from),signatures);
     if(command&&!escaped(before,command.from)){
@@ -159,7 +166,7 @@ export function completeTex(state:EditorState,input:string,enabled=true,signatur
   const begin=environment&&!escaped(before,before.length-environment[0].length);
   if(begin){
     const end=`\\end{${environment![1]}}`,skip=!!matching;
-    const replacing=known.find(pair=>pair.mathOpening?.editing&&pair.mathOpening.from===from-environment![0].length&&pair.from>=from+Number(skip));
+    const replacing=known.find(pair=>pair.opening?.editing&&pair.opening.from===from-environment![0].length&&pair.from>=from+Number(skip));
     if(replacing){
       const changes=state.changes([...(skip?[]:[{from,to,insert:'}'}]),{from:replacing.from,to:replacing.to,insert:end}]);
       const closeFrom=changes.mapPos(replacing.from,-1);
@@ -182,7 +189,7 @@ export function completeTex(state:EditorState,input:string,enabled=true,signatur
   if(!close)return plain();
   const selected=state.doc.sliceString(from,to),insert=input+selected+close,changes=state.changes({from,to,insert});
   const closeFrom=from+input.length+selected.length;
-  return {changes,selection:range.empty?{anchor:from+1}:EditorSelection.range(from+1,closeFrom),effects:remember.of([...mapClosers(known,changes),{from:closeFrom,to:closeFrom+close.length,text:close,open,mathOpening:open==='\\['||open==='\\('?{from:from-1,to:from+1}:undefined}])};
+  return {changes,selection:range.empty?{anchor:from+1}:EditorSelection.range(from+1,closeFrom),effects:remember.of([...mapClosers(known,changes),{from:closeFrom,to:closeFrom+close.length,text:close,open,opening:open==='\\['||open==='\\('?{from:from-1,to:from+1}:undefined}])};
 }
 
 export function nextTexArgument(state:EditorState,backward=false,enabled=true):TransactionSpec|undefined{
@@ -202,13 +209,16 @@ export function texCompletion(enabled:()=>boolean){return [closers,pendingCloser
   // TeX receive the opener and its corresponding closer together.
   EditorState.transactionFilter.of(tr=>{
     if(!enabled()||!tr.docChanged||tr.effects.some(effect=>effect.is(remember)))return tr;
-    const old=tr.startState.field(closers),mapped=mapClosers(old,tr.changes),edits:{from:number;to:number;insert:string}[]=[],renamed=new Map<Closer,string>();
+    const old=tr.startState.field(closers),mapped=mapClosers(old,tr.changes),edits:{from:number;to:number;insert:string}[]=[],renamed=new Map<Closer,string>(),mathConverted=new Map<Closer,string>();
     for(const pair of mapped){
-      if(pair.mathOpening?.editing){
-        const opening=pair.mathOpening,command=tr.newDoc.sliceString(opening.from,opening.to),match=/^\\begin\{([A-Za-z][\w*@.-]*)\}$/.exec(command);
+      if(pair.opening?.editing){
+        const opening=pair.opening,command=tr.newDoc.sliceString(opening.from,opening.to),match=/^\\begin\{([A-Za-z][\w*@.-]*)\}$/.exec(command);
         if(match){
           pair.environment={from:opening.from+7,to:opening.to-1};
           edits.push({from:pair.from,to:pair.to,insert:'\\end{'+match[1]+'}'});renamed.set(pair,match[1]);
+        }else if(/^\\[\[(]$/.test(command)){
+          const end=command==='\\['?'\\]':'\\)';
+          edits.push({from:pair.from,to:pair.to,insert:end});mathConverted.set(pair,end);
         }
         continue;
       }
@@ -225,8 +235,10 @@ export function texCompletion(enabled:()=>boolean){return [closers,pendingCloser
     edits.sort((a,b)=>a.from-b.from);
     const changes=ChangeSet.of(edits,tr.newDoc.length);
     const values=mapped.flatMap(pair=>{
+      const mathEnd=mathConverted.get(pair);
+      if(mathEnd)return [{...pair,environment:undefined,opening:{from:changes.mapPos(pair.opening!.from,-1),to:changes.mapPos(pair.opening!.to,1)},from:changes.mapPos(pair.from,-1),to:changes.mapPos(pair.to,1),text:mathEnd,open:mathEnd==='\\]'?'\\[':'\\('}];
       const name=renamed.get(pair);
-      if(name!==undefined)return [{...pair,mathOpening:undefined,from:changes.mapPos(pair.from,-1),to:changes.mapPos(pair.to,1),text:'\\end{'+name+'}',open:'\\begin{'+name+'}',environment:{from:changes.mapPos(pair.environment!.from,-1),to:changes.mapPos(pair.environment!.to,1)}}];
+      if(name!==undefined)return [{...pair,opening:undefined,from:changes.mapPos(pair.from,-1),to:changes.mapPos(pair.to,1),text:'\\end{'+name+'}',open:'\\begin{'+name+'}',environment:{from:changes.mapPos(pair.environment!.from,-1),to:changes.mapPos(pair.environment!.to,1)}}];
       return mapClosers([pair],changes);
     });
     return tr.startState.update(tr,{changes,sequential:true,filter:false},{effects:remember.of(values),sequential:true});
