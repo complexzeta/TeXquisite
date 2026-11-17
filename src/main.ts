@@ -134,7 +134,7 @@ const localPreview=new LocalPreview(
     }
     return localMessage({type:'localPage',...candidate,visible:window.isVisible()&&!window.isMinimized(),pdf:new Uint8Array(candidate.pdf),fragmentPdf:candidate.fragmentPdf?new Uint8Array(candidate.fragmentPdf):undefined}).then(result=>{
     const accepted=result===true;
-    if(accepted&&!candidate.recovery&&!candidate.recoveredBasis&&candidate.sourceMatchesDraft&&successfulSource!==undefined&&textHash(successfulSource)===candidate.sourceHash)successfulSources.remember(candidate.root,successfulSource);
+    if(accepted&&(!candidate.sourceFile||candidate.sourceFile===candidate.root)&&!candidate.recovery&&!candidate.recoveredBasis&&candidate.sourceMatchesDraft&&successfulSource!==undefined&&textHash(successfulSource)===candidate.sourceHash)successfulSources.remember(candidate.root,successfulSource);
     // Expensive local calculations can outlast the original idle deadline.
     // Start a fresh idle interval after display instead of immediately launching
     // a cold full worker while the user types or moves to the next block.
