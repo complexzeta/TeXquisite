@@ -14,6 +14,45 @@ test('nested math and typed closers are atomic without duplicates',()=>{
 test('backslash math delimiters close and skip generated characters',()=>{
  for(const [open,close] of [['\\[','\\]'],['\\(','\\)']]){const e=editor();e.type(open);assert.equal(e.text(),open+close);e.type('x'+close);assert.equal(e.text(),open+'x'+close);assert.equal(e.at(),5);}
 });
+test('math openers can become environments by replacement or incremental typing',()=>{
+ for(const open of ['\\[','\\(']){
+  const close=open==='\\['?'\\]':'\\)';
+  const e=editor(open+'x+1'+close);
+  e.view.dispatch({changes:{from:0,to:2,insert:'\\begin{align*}'},annotations:isolateHistory.of('full')});
+  assert.equal(e.text(),'\\begin{align*}x+1\\end{align*}');
+  assert.ok(undo(e.view));assert.equal(e.text(),open+'x+1'+close);
+  assert.ok(redo(e.view));assert.equal(e.text(),'\\begin{align*}x+1\\end{align*}');
+  e.view.dispatch({changes:{from:7,to:13,insert:'equation'}});
+  assert.equal(e.text(),'\\begin{equation}x+1\\end{equation}');
+  const typed=editor(open+'x+1'+close);
+  typed.view.dispatch({selection:{anchor:0,head:2}});
+  typed.type('\\begin{equation}');
+  assert.equal(typed.text(),'\\begin{equation}x+1\\end{equation}');
+  const partial=editor(open+'x'+close);
+  partial.view.dispatch({changes:{from:1,to:2,insert:'begin'},selection:{anchor:6}});
+  partial.type('{align}');
+  assert.equal(partial.text(),'\\begin{align}x\\end{align}');
+ }
+});
+test('math conversion respects nested pairs, manual closers, comments and disabled matching',()=>{
+ const e=editor('\\[a+\\(b\\)\\]');
+ e.view.dispatch({changes:{from:4,to:6,insert:'\\begin{aligned}'}});
+ assert.equal(e.text(),'\\[a+\\begin{aligned}b\\end{aligned}\\]');
+ for(const original of ['% \\[x\\]','\\begin{verbatim}\n\\[x\\]\n\\end{verbatim}']){
+  const x=editor(original),at=original.indexOf('\\[');
+  x.view.dispatch({changes:{from:at,to:at+2,insert:'\\begin{align}'}});
+  assert.ok(x.text().includes('x\\]'));
+ }
+ const off=editor('\\[x\\]');off.enable(false);
+ off.view.dispatch({changes:{from:0,to:2,insert:'\\begin{align}'}});
+ assert.equal(off.text(),'\\begin{align}x\\]');
+ const manual=editor('\\[x\\]');manual.view.dispatch({changes:{from:3,to:5,insert:'\\)'}});
+ manual.view.dispatch({changes:{from:0,to:2,insert:'\\begin{align}'}});
+ assert.equal(manual.text(),'\\begin{align}x\\)');
+ const generated=editor();generated.type('\\[x');
+ generated.view.dispatch({selection:{anchor:0,head:2}});generated.type('\\begin{align}');
+ assert.equal(generated.text(),'\\begin{align}x\\end{align}');
+});
 test('environments nest, support stars, and skip generated ends',()=>{
  const e=editor();e.type('\\begin{align*}');assert.equal(e.text(),'\\begin{align*}\\end{align*}');e.type('\\begin{split}x\\end{split}\\end{align*}');assert.equal(e.text(),'\\begin{align*}\\begin{split}x\\end{split}\\end{align*}');assert.equal(e.at(),e.text().length);
 });

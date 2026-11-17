@@ -2,13 +2,19 @@ import {ChangeSet,ChangeDesc,EditorSelection,EditorState,Prec,StateEffect,StateF
 import {invertedEffects} from '@codemirror/commands';
 import {keymap} from '@codemirror/view';
 
-interface Closer {environment?:{from:number;to:number};sized?:boolean;from:number;to:number;text:string;open:string;}
+interface Closer {environment?:{from:number;to:number};mathOpening?:{from:number;to:number;editing?:boolean};sized?:boolean;from:number;to:number;text:string;open:string;}
 function mapClosers(values:readonly Closer[],changes:ChangeDesc):Closer[]{
   return values.flatMap(value=>{
     let touched=false;
     changes.iterChangedRanges((from,to)=>{if(from<value.to&&to>value.from||from===to&&from>value.from&&from<value.to)touched=true;});
     const from=changes.mapPos(value.from,1),to=changes.mapPos(value.to,-1);
-    return !touched&&to-from===value.text.length?[{...value,from,to,environment:value.environment?{from:changes.mapPos(value.environment.from,-1),to:changes.mapPos(value.environment.to,1)}:undefined}]:[];
+    let mathOpening=value.mathOpening;
+    if(mathOpening){
+      const opening=mathOpening;let editing=!!opening.editing;
+      changes.iterChangedRanges((from,to)=>{if(from<opening.to&&to>opening.from||from===to&&from>=opening.from&&from<opening.to)editing=true;});
+      mathOpening={from:changes.mapPos(opening.from,-1),to:changes.mapPos(opening.to,editing?1:-1),editing};
+    }
+    return !touched&&to-from===value.text.length?[{...value,from,to,mathOpening,environment:value.environment?{from:changes.mapPos(value.environment.from,-1),to:changes.mapPos(value.environment.to,1)}:undefined}]:[];
   });
 }
 const remember=StateEffect.define<readonly Closer[]>({map:mapClosers});
@@ -24,13 +30,21 @@ const pendingCloser=StateField.define<Pending|undefined>({
 });
 function existingEnvironments(text:string):Closer[]{
  const values:Closer[]=[],stack:{name:string;from:number;to:number;open:string}[]=[];
- const commands=/\\(begin|end)\{([A-Za-z][\w*@.-]*)\}|%/g;
+ const commands=/\\(begin|end)\{([A-Za-z][\w*@.-]*)\}|\\([\[\]()])|%/g;
  let match:RegExpExecArray|null;
  while((match=commands.exec(text))){
    if(escaped(text,match.index))continue;
    if(match[0]==='%'){const end=text.indexOf('\n',match.index);if(end<0)break;commands.lastIndex=end+1;continue;}
    const name=match[2],literal=stack.at(-1);
    if(literal&&/^(?:verbatim\*?|Verbatim|lstlisting|minted|comment)$/.test(literal.name)&&!(match[1]==='end'&&name===literal.name))continue;
+   if(match[3]){
+     const token=match[3];
+     if(token==='['||token==='(')stack.push({name:token,from:match.index,to:match.index+2,open:match[0]});
+     else if(literal?.name===(token===']'?'[':'(')){
+       stack.pop();values.push({from:match.index,to:match.index+2,text:match[0],open:literal.open,mathOpening:{from:literal.from,to:literal.to}});
+     }
+     continue;
+   }
    if(match[1]==='begin')stack.push({name,from:match.index+7,to:match.index+match[0].length-1,open:match[0]});
    else {
      const begin=stack.pop();
@@ -46,7 +60,7 @@ const closers=StateField.define<readonly Closer[]>({
     for(const effect of tr.effects)if(effect.is(remember))value=effect.value;
     // Discover complete environments pasted together, without rescanning on
     // each keystroke or reconnecting manually edited closing names.
-    let pasted=false;tr.changes.iterChanges((_a,_b,_c,_d,text)=>{if(text.toString().includes('\\begin{'))pasted=true;});
+    let pasted=false;tr.changes.iterChanges((_a,_b,_c,_d,text)=>{if(/\\(?:begin\{|[\[(])/.test(text.toString()))pasted=true;});
     if(pasted){const seen=new Set(value.map(pair=>pair.from));value=[...value,...existingEnvironments(tr.newDoc.toString()).filter(pair=>!seen.has(pair.from))];}
     return value.filter(pair=>tr.newDoc.sliceString(pair.from,pair.to)===pair.text);
   }
@@ -82,7 +96,7 @@ export function surroundTex(state:EditorState,delimiter:string,enabled=true):Tra
  const right=sized?sizedDelimiters[token]:(ordinary[token]??(token.startsWith('\\')?sizedDelimiters[token]:undefined));
  if(!right)return;
  const left=delimiter+(/^\\[A-Za-z]+$/.test(token)?' ':''),close=(sized?'\\right':'')+right+(/^\\[A-Za-z]+$/.test(right)?' ':''),text=state.doc.sliceString(range.from,range.to),changes=state.changes({from:range.from,to:range.to,insert:left+text+close}),closeFrom=range.from+left.length+text.length;
- return {changes,selection:EditorSelection.range(range.from+left.length,closeFrom),effects:remember.of([...mapClosers(state.field(closers,false)??[],changes),{from:closeFrom,to:closeFrom+close.length,text:close,open:left,sized:!!sized||delimiter.startsWith('\\')}])};
+ return {changes,selection:EditorSelection.range(range.from+left.length,closeFrom),effects:remember.of([...mapClosers(state.field(closers,false)??[],changes),{from:closeFrom,to:closeFrom+close.length,text:close,open:left,sized:!!sized||delimiter.startsWith('\\'),mathOpening:/^\\[\[(]$/.test(delimiter)?{from:range.from,to:range.from+delimiter.length}:undefined}])};
 }
 // This runs in the synchronous input path: source, autosave and typesetting see
 // the opening and closing text in one transaction, never two separate edits.
@@ -130,7 +144,13 @@ export function completeTex(state:EditorState,input:string,enabled=true):Transac
   const begin=environment&&!escaped(before,before.length-environment[0].length);
   if(begin){
     const end=`\\end{${environment![1]}}`,skip=!!matching;
-    if(skip&&known.some(pair=>pair.from===from+1&&pair.text===end))return {selection:{anchor:from+1}};
+    const replacing=known.find(pair=>pair.mathOpening?.editing&&pair.mathOpening.from===from-environment![0].length&&pair.from>=from+Number(skip));
+    if(replacing){
+      const changes=state.changes([...(skip?[]:[{from,to,insert:'}'}]),{from:replacing.from,to:replacing.to,insert:end}]);
+      const closeFrom=changes.mapPos(replacing.from,-1);
+      return {changes,selection:{anchor:from+1},effects:remember.of([...mapClosers(known.filter(pair=>pair!==replacing),changes),{from:closeFrom,to:closeFrom+end.length,text:end,open:environment![0]+'}',environment:{from:from-environment![1].length,to:from}}])};
+    }
+    if(skip&&known.some(pair=>pair.text===end&&(pair.from===from+1||pair.environment?.from===from-environment![1].length&&pair.environment.to===from)))return {selection:{anchor:from+1}};
     const changes=state.changes({from,to,insert:(skip?'':'}')+end});
     // A skipped brace stays on disk. Insert the environment end after it.
     const actual=skip?state.changes({from:from+1,insert:end}):changes;
@@ -147,16 +167,24 @@ export function completeTex(state:EditorState,input:string,enabled=true):Transac
   if(!close)return plain();
   const selected=state.doc.sliceString(from,to),insert=input+selected+close,changes=state.changes({from,to,insert});
   const closeFrom=from+input.length+selected.length;
-  return {changes,selection:range.empty?{anchor:from+1}:EditorSelection.range(from+1,closeFrom),effects:remember.of([...mapClosers(known,changes),{from:closeFrom,to:closeFrom+close.length,text:close,open}])};
+  return {changes,selection:range.empty?{anchor:from+1}:EditorSelection.range(from+1,closeFrom),effects:remember.of([...mapClosers(known,changes),{from:closeFrom,to:closeFrom+close.length,text:close,open,mathOpening:open==='\\['||open==='\\('?{from:from-1,to:from+1}:undefined}])};
 }
 
 export function texCompletion(enabled:()=>boolean){return [closers,pendingCloser,
-  // Mirror only environments created by this completion extension. Both names
-  // change in the same transaction, so history, autosave and TeX see one edit.
+  // Mirror tracked pairs in the same transaction, so history, autosave and
+  // TeX receive the opener and its corresponding closer together.
   EditorState.transactionFilter.of(tr=>{
     if(!enabled()||!tr.docChanged||tr.effects.some(effect=>effect.is(remember)))return tr;
     const old=tr.startState.field(closers),mapped=mapClosers(old,tr.changes),edits:{from:number;to:number;insert:string}[]=[],renamed=new Map<Closer,string>();
     for(const pair of mapped){
+      if(pair.mathOpening?.editing){
+        const opening=pair.mathOpening,command=tr.newDoc.sliceString(opening.from,opening.to),match=/^\\begin\{([A-Za-z][\w*@.-]*)\}$/.exec(command);
+        if(match){
+          pair.environment={from:opening.from+7,to:opening.to-1};
+          edits.push({from:pair.from,to:pair.to,insert:'\\end{'+match[1]+'}'});renamed.set(pair,match[1]);
+        }
+        continue;
+      }
       if(!pair.environment)continue;
       const original=old.find(value=>value.environment&&tr.changes.mapPos(value.from,1)===pair.from);let touched=false;
       if(original?.environment)tr.changes.iterChangedRanges((from,to)=>{if(from<=original.environment!.to&&to>=original.environment!.from)touched=true;});
@@ -171,7 +199,7 @@ export function texCompletion(enabled:()=>boolean){return [closers,pendingCloser
     const changes=ChangeSet.of(edits,tr.newDoc.length);
     const values=mapped.flatMap(pair=>{
       const name=renamed.get(pair);
-      if(name!==undefined)return [{...pair,from:changes.mapPos(pair.from,-1),to:changes.mapPos(pair.to,1),text:'\\end{'+name+'}',open:'\\begin{'+name+'}',environment:{from:changes.mapPos(pair.environment!.from,-1),to:changes.mapPos(pair.environment!.to,1)}}];
+      if(name!==undefined)return [{...pair,mathOpening:undefined,from:changes.mapPos(pair.from,-1),to:changes.mapPos(pair.to,1),text:'\\end{'+name+'}',open:'\\begin{'+name+'}',environment:{from:changes.mapPos(pair.environment!.from,-1),to:changes.mapPos(pair.environment!.to,1)}}];
       return mapClosers([pair],changes);
     });
     return tr.startState.update(tr,{changes,sequential:true,filter:false},{effects:remember.of(values),sequential:true});

@@ -1,0 +1,1 @@
+Windows x64 portable release. With Match pairs enabled, replacing a tracked [ or ( opener with egin{environment} updates its closer to end{environment}. Supports existing document pairs, pasted replacement, incremental typing, nested pairs and undo/redo. The executable is unsigned.
