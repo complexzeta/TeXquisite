@@ -226,7 +226,7 @@ export class LocalPreview{
       }
     },this.slot?.basis.bundle.id!==this.basis?.bundle.id?150:500);this.idleTimer.unref();
   }
-  constructor(private verify:(basis:LocalBasis,pdf:Uint8Array,page:number,fragmentPdf:Uint8Array,fragment:RegionFragment,footprint:{x:number;y:number;width:number;height:number},calibration:LocalCalibration)=>Promise<LocalVerification>,private publish:(candidate:LocalCandidate)=>Promise<boolean>,private fallback:(editId:string,draftError?:{log:string;file:string;sourceHash:string})=>void,private state:(state:string)=>void,private log:(message:string)=>void,private verifyPages?:(basis:LocalBasis,pdf:Uint8Array,span:PageSpan,continuation?:string)=>Promise<boolean>,private placement?:(basis:LocalBasis,page:number,fragmentPdf:Uint8Array,fragment:RegionFragment,calibration:LocalCalibration)=>Promise<LocalVerification>){}
+  constructor(private verify:(basis:LocalBasis,pdf:Uint8Array,page:number,fragmentPdf:Uint8Array,fragment:RegionFragment,footprint:{x:number;y:number;width:number;height:number},calibration:LocalCalibration)=>Promise<LocalVerification>,private publish:(candidate:LocalCandidate,source?:string)=>Promise<boolean>,private fallback:(editId:string,draftError?:{log:string;file:string;sourceHash:string})=>void,private state:(state:string)=>void,private log:(message:string)=>void,private verifyPages?:(basis:LocalBasis,pdf:Uint8Array,span:PageSpan,continuation?:string)=>Promise<boolean>,private placement?:(basis:LocalBasis,page:number,fragmentPdf:Uint8Array,fragment:RegionFragment,calibration:LocalCalibration)=>Promise<LocalVerification>){}
   stop(){this.neutral=undefined;this.editorSource=undefined;this.editorCursor=undefined;this.visits=[];this.disarm();this.verifyingWithOwner=false;this.publishedCompiler=undefined;this.basis=undefined;this.compositionBase=undefined;}
   prepareFullVerification(preserveLocal=false){
     this.cancelIdle();
@@ -802,7 +802,7 @@ export class LocalPreview{
           const outside=slot.basis.recoveryIssues.filter(issue=>issue.file!==slot.basis.options.root||!issue.line||issue.line<firstLine||issue.line>=lastLine);
           candidate.unchangedRecovery=carryRecoveryDiagnostics(outside,slot.basis.options.root,original,request.source,candidate.sourceHash,request.editId);
         }
-        const accepted=await this.publish(candidate);
+        const accepted=await this.publish(candidate,request.fullSource??request.source);
         if(!accepted){
           // Rejecting an approximate repair is not a failure of the last good
           // checkpoint. A corrected next character should still resume it.

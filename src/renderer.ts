@@ -396,6 +396,7 @@ function editorMenuAction(action:string,value?:string){
  if(['commandCompletion','wrapCommands','typingMarker'].includes(action)){void command(()=>editorPreferences({[action]:action==='wrapCommands'?model.wrapCommands===false:!model[action]}));return true;}
  if(action==='sourceFontSize'||action==='sourceLarger'||action==='sourceSmaller'){void command(()=>editorPreferences({sourceFontSize:action==='sourceFontSize'?Number(value):Math.max(10,Math.min(32,(model.sourceFontSize??14)+(action==='sourceLarger'?2:-2)))}));return true;}
  if(['zoomIn','zoomOut','zoomReset'].includes(action)){
+  if(action==='zoomIn'&&scale>=2||action==='zoomOut'&&scale<=.8)return true;
   const values=[.8,1,1.25,1.5,2],next=action==='zoomReset'?1:action==='zoomIn'?values.find(v=>v>scale)??2:[...values].reverse().find(v=>v<scale)??.8;
   const zoom=el<HTMLSelectElement>('zoom');zoom.value=String(next);zoom.dispatchEvent(new Event('change',{bubbles:true}));return true;
  }

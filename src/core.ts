@@ -130,7 +130,7 @@ export class ArtifactStore {
 export interface BuildOptions { focus?:{line:number;column:number}; root: string; engine: string; executable: string; timeoutMs: number; sourceRevision?:number; sourceText?:string; characterMapping?:boolean; sourceFiles?:Record<string,string>; supportFolders?:string[]; editId?:string; automatic?:boolean; }
 export interface DisplayTiming {editId?:string;backend:string;requestToCommitMs:number;recovered?:boolean;}
 export interface LocalBasis {bundle:Bundle;options:BuildOptions;source:string;originalSource?:string;recoveryIssues?:BuildDiagnostic[];compilerSource:string;bodyLine?:number;compilerInput?:(source:string)=>string;project:ResidentContext;pdf:Uint8Array;canBuildAlongside?:()=>boolean;takeCompiler?:()=>ResidentCompiler|undefined;replaceCompiler?:(previous:ResidentCompiler)=>ResidentCompiler|undefined;returnCompiler?:(compiler:ResidentCompiler)=>boolean;claimAutomatic?:(editId:string,source:string,previous?:ResidentCompiler)=>ResidentCompiler|undefined;}
-export interface Viewer { prepare(bundle: Bundle,pdf?:Uint8Array,navigation?:Navigation,displayFocus?:PreviewFocus): Promise<void>; commit(bundle: Bundle,timing?:DisplayTiming): void; discard(bundle: Bundle): void; diagnostic?(issue:BuildDiagnostic):void; problems?(issues:BuildDiagnostic[],editId?:string):void; localBasis?(basis:LocalBasis):void; performance?(report:Record<string,unknown>):void; }
+export interface Viewer { prepare(bundle: Bundle,pdf?:Uint8Array,navigation?:Navigation,displayFocus?:PreviewFocus): Promise<void>; commit(bundle: Bundle,timing?:DisplayTiming,source?:string): void; discard(bundle: Bundle): void; diagnostic?(issue:BuildDiagnostic):void; problems?(issues:BuildDiagnostic[],editId?:string):void; localBasis?(basis:LocalBasis):void; performance?(report:Record<string,unknown>):void; }
 export class BuildController {
   private static protectedDirectories=new Set<string>();
   private static auxiliaryUsers=new Map<string,number>();
@@ -430,7 +430,7 @@ export class BuildController {
       await this.store.commit(bundle,check);
       const committedAt=performance.now();
       this.current=bundle;
-      this.viewer.commit(bundle,{editId:options.editId,backend,requestToCommitMs:committedAt-requestedAt,recovered:!!recoveryIssues.length});
+      this.viewer.commit(bundle,{editId:options.editId,backend,requestToCommitMs:committedAt-requestedAt,recovered:!!recoveryIssues.length},source);
       if(recoveryIssues.length)this.viewer.diagnostic?.(recoveryIssues[0]);
       this.viewer.problems?.([...recoveryIssues,...warnings],options.editId);
       const acceptedBundle=bundle;let localHandoff=false;

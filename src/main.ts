@@ -121,7 +121,7 @@ const localWaiting=new Map<string,{resolve:(ok:LocalVerification)=>void;timer:No
 function localMessage(message:Record<string,unknown>){return new Promise<LocalVerification>(resolve=>{const token=randomUUID(),timer=setTimeout(()=>{localWaiting.delete(token);resolve(false);},15000);localWaiting.set(token,{resolve,timer});send({...message,token});});}
 const localPreview=new LocalPreview(
   (basis,pdf,page,fragmentPdf,fragment,footprint,calibration)=>localMessage({type:'localVerify',root:basis.options.root,baseId:basis.bundle.id,basePdf:new Uint8Array(basis.pdf),pdf:new Uint8Array(pdf),page,fragmentPdf:new Uint8Array(fragmentPdf),fragment,footprint,calibration}),
-  candidate=>{
+  (candidate,successfulSource)=>{
     const timing=candidate.timing as {roundTripMs?:number;typesetMs?:number;reprocessedSourceBytes?:number}|undefined;
     tracePreview({event:'local-output',editId:candidate.editId,layout:candidate.pageOutput?'pages':candidate.flowOutput?'flow':'paragraph',stateChanged:!!candidate.flowOutput?.stateChanged,reusedRecovery:!!candidate.reusedRecovery,sourceMatchesDraft:!!candidate.sourceMatchesDraft,compilerMs:timing?.roundTripMs,typesetMs:timing?.typesetMs,reprocessedSourceBytes:timing?.reprocessedSourceBytes});
     // A successful compiler result can clear diagnostics before GPU/raster
@@ -134,7 +134,7 @@ const localPreview=new LocalPreview(
     }
     return localMessage({type:'localPage',...candidate,visible:window.isVisible()&&!window.isMinimized(),pdf:new Uint8Array(candidate.pdf),fragmentPdf:candidate.fragmentPdf?new Uint8Array(candidate.fragmentPdf):undefined}).then(result=>{
     const accepted=result===true;
-    if(accepted&&!candidate.recovery&&!candidate.recoveredBasis&&candidate.sourceMatchesDraft){const doc=state.docs.find(doc=>doc.path===candidate.root);if(doc&&textHash(doc.text)===candidate.sourceHash)successfulSources.remember(doc.path,doc.text);}
+    if(accepted&&!candidate.recovery&&!candidate.recoveredBasis&&candidate.sourceMatchesDraft&&successfulSource!==undefined&&textHash(successfulSource)===candidate.sourceHash)successfulSources.remember(candidate.root,successfulSource);
     // Expensive local calculations can outlast the original idle deadline.
     // Start a fresh idle interval after display instead of immediately launching
     // a cold full worker while the user types or moves to the next block.
@@ -264,7 +264,7 @@ async function selectRoot(root:string,automaticBuild=true) {
       localPreview.setBasis(basis);const doc=state.docs.find(doc=>doc.path===state.root);
       if(process.env.PERSISTENT_TEX_DISABLE_AUTOMATIC_HANDOFF!=='1'&&doc&&latestEditId&&localPreview.resumeAutomatic(doc.path,doc.text,latestEditId))scheduleFullVerification(latestEditId);
     }},
-    commit:(bundle,timing)=>{if(generation===rootGeneration){previewBackend=timing?.backend;if(previewBackend?.startsWith('Preamble'))previewFallback=undefined;tracePreview({event:'full-committed',backend:previewBackend});currentDiagnostic=undefined;displayed=bundle;const good=state.docs.find(doc=>doc.path===bundle.root);if(good&&!bundle.recovered&&textHash(good.text)===bundle.sourceHash)successfulSources.remember(good.path,good.text);send({type:'commit',id:bundle.id,timing,visible:window.isVisible()&&!window.isMinimized()});}},
+    commit:(bundle,timing,source)=>{if(generation===rootGeneration){previewBackend=timing?.backend;if(previewBackend?.startsWith('Preamble'))previewFallback=undefined;tracePreview({event:'full-committed',backend:previewBackend});currentDiagnostic=undefined;displayed=bundle;if(source!==undefined&&!bundle.recovered&&textHash(source)===bundle.sourceHash)successfulSources.remember(bundle.root,source);send({type:'commit',id:bundle.id,timing,visible:window.isVisible()&&!window.isMinimized()});}},
     discard:bundle=>send({type:'discard',id:bundle.id})
   },s=>{if(generation===rootGeneration)setStatus(s);},appendLog);
   controller=next;
