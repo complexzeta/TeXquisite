@@ -1,0 +1,40 @@
+const {_electron:electron}=require('playwright'),fs=require('node:fs/promises'),path=require('node:path'),assert=require('node:assert/strict'),{createHash}=require('node:crypto');
+const hash=s=>createHash('sha256').update(s).digest('hex');
+(async()=>{
+ const directory=require('./test-artifacts.cjs').testDirectory('quality-of-life'),profile=path.join(directory,'profile'),root=path.join(directory,'main.tex');
+ await fs.mkdir(profile);require('./retained-test-format.cjs').seedProfile(profile);
+ const source='\\documentclass{article}\n\\usepackage{amsmath}\n\\newcommand{\\sstirling}[2]{#1+#2}\n\\begin{document}\n\nMarkerTarget ordinary text with $a+b$.\n\nFollowing text.\n\n\\end{document}\n';
+ await fs.writeFile(root,source);await fs.writeFile(path.join(profile,'session.json'),JSON.stringify({root,active:root,docs:[{path:root,text:source,diskHash:hash(source),dirty:false,eol:'\n'}],onSave:false,liveVersion:2,engine:'pdflatex',latexmk:'latexmk',autoClose:true,previewMode:'lecture',continuousPreview:true,followPreview:false}));
+ const app=await electron.launch({executablePath:process.env.PERSISTENT_TEX_EXECUTABLE,args:[],env:{...process.env,PERSISTENT_TEX_TEST_DATA:profile,PERSISTENT_TEX_TEST_HIDDEN:'1'},timeout:60000});
+ try{
+  const page=await app.firstWindow();await page.locator('.cm-content').waitFor({state:'attached'});
+  await page.evaluate(()=>document.querySelector('#settingsDialog').close());
+  const read=()=>page.locator('.cm-content').evaluate(element=>element.cmTile.root.view.state.doc.toString());
+  const menu=id=>app.evaluate(({Menu,BrowserWindow},id)=>{const item=Menu.getApplicationMenu().getMenuItemById(id);if(!item)throw Error('Menu missing '+id);item.click(item,BrowserWindow.getAllWindows()[0],{});},id);
+  await page.locator('#live').click();
+  await page.waitForFunction(h=>[...document.querySelectorAll('#pages canvas')].some(c=>c.dataset.sourceHash===h),hash(source),{timeout:90000});
+  await page.locator('#live').click();
+  await menu('editorSettings');await page.locator('#prefCommandCompletion').check();await page.locator('#prefTypingMarker').check();await page.locator('#prefSourceFont').fill('18');await page.locator('#applyEditorSettings').click();
+  await page.waitForFunction(()=>getComputedStyle(document.querySelector('.cm-editor')).fontSize==='18px');
+  await menu('sourceLarger');await page.waitForFunction(()=>getComputedStyle(document.querySelector('.cm-editor')).fontSize==='20px');await menu('sourceSmaller');
+  await page.locator('.cm-content').focus();await page.keyboard.press('Control+=');await page.waitForFunction(()=>document.querySelector('#zoom').value==='1.25');await page.keyboard.press('Control+0');
+  const scroll=await page.locator('#pdfViewport').evaluate(e=>e.scrollTop);
+  await page.evaluate(at=>{const v=document.querySelector('.cm-content').cmTile.root.view;v.dispatch({selection:{anchor:at}});v.focus();},source.indexOf('MarkerTarget')+4);
+  await page.locator('.typing-marker').waitFor({state:'attached',timeout:15000});
+  assert.equal(await page.locator('#pdfViewport').evaluate(e=>e.scrollTop),scroll);
+  assert.equal(await page.locator('.typing-marker').evaluate(e=>e.style.left),'-7px');
+  const at=source.indexOf('a+b');await page.evaluate(at=>{const v=document.querySelector('.cm-content').cmTile.root.view;v.dispatch({selection:{anchor:at,head:at+3}});},{at}.at);
+  await menu('wrapCommand');await page.locator('#surroundDelimiter').fill('\\frac');await page.locator('#surroundDelimiter').press('Enter');await page.keyboard.type('c}');
+  assert.ok((await read()).includes('\\frac{a+b}{c}'));
+  await page.keyboard.press('Control+End');await page.keyboard.type('\\sst');
+  await page.locator('.cm-tooltip-autocomplete').waitFor();assert.match(await page.locator('.cm-tooltip-autocomplete').textContent(),/2 arguments/);await page.keyboard.press('Enter');assert.ok((await read()).endsWith('\\sstirling'));
+  const draft=await read();await menu('recoverSuccessfulSource');
+  await page.waitForFunction(text=>document.querySelector('.cm-content').cmTile.root.view.state.doc.toString()===text,source);
+  const recovery=path.join(profile,'recovery'),files=(await fs.readdir(recovery)).filter(name=>name.includes('-before-recovery-'));
+  assert.equal(files.length,1);assert.equal(await fs.readFile(path.join(recovery,files[0]),'utf8'),draft);
+  const state=JSON.parse(await fs.readFile(path.join(profile,'session.json'),'utf8'));
+  assert.equal(state.commandCompletion,true);assert.equal(state.typingMarker,true);assert.equal(state.sourceFontSize,18);
+  assert.ok(state.docs.some(doc=>doc.path===path.join(recovery,files[0])&&doc.text===draft));
+  console.log(JSON.stringify({passed:true,settings:true,wrapping:true,suggestions:true,zoomShortcut:true,fontShortcut:true,marginMarker:true,recovery:true,draftPreserved:true}));
+ }finally{await app.evaluate(({app})=>app.exit(0)).catch(()=>{});await app.close().catch(()=>{});}
+})().catch(error=>{console.error(String(error));process.exitCode=1;});

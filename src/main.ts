@@ -29,9 +29,10 @@ import {formatFingerprint,FORMAT_FINGERPRINT_POLICY} from './format-fingerprint'
 import {probe} from './toolchain';
 import {standaloneTex,previewRootForDocument} from './document-root';
 import {packageArguments} from './tex-package-arguments';
+import {SuccessfulSourceStore} from './successful-source';
 
 interface Doc {path:string;text:string;diskHash:string;dirty:boolean;eol:string;}
-interface State {previewMode?:'lecture'|'document';documentRoots?:Record<string,string>;texBin?:string;toolchainSeen?:boolean;projectSidebar?:boolean;docs:Doc[];active:string;root:string;engine:string;latexmk:string;onSave:boolean;backups?:boolean;liveVersion?:number;supportFolders?:string[];zoom?:number|'fit-width';statusBar?:boolean;panelLayout?:PanelPreferences;autoClose?:boolean;followPreview?:boolean;previewEditing?:boolean;continuousPreview?:boolean;lastCursor?:{file:string;at:number};}
+interface State {commandCompletion?:boolean;wrapCommands?:boolean;typingMarker?:boolean;sourceFontSize?:number;previewMode?:'lecture'|'document';documentRoots?:Record<string,string>;texBin?:string;toolchainSeen?:boolean;projectSidebar?:boolean;docs:Doc[];active:string;root:string;engine:string;latexmk:string;onSave:boolean;backups?:boolean;liveVersion?:number;supportFolders?:string[];zoom?:number|'fit-width';statusBar?:boolean;panelLayout?:PanelPreferences;autoClose?:boolean;followPreview?:boolean;previewEditing?:boolean;continuousPreview?:boolean;lastCursor?:{file:string;at:number};}
 const testData=process.env.PERSISTENT_TEX_TEST_DATA;
 // Retain the established profile location across the TeXquisite rename.
 app.setPath('userData',testData?path.resolve(testData):path.join(app.getPath('appData'),'Persistent TeX'));
@@ -63,6 +64,7 @@ function serializeSave<T>(action:()=>Promise<T>):Promise<T>{
 }
 const waiting=new Map<string,{resolve:()=>void;reject:(e:Error)=>void;timer:NodeJS.Timeout}>();
 const data=()=>app.getPath('userData');
+const successfulSources=new SuccessfulSourceStore(path.join(data(),'recovery','last-successful'));
 let backupStore:BackupStore|undefined,backupFailed=false,backupStatus='Backups are saved every five minutes when source changes.';
 const backups=()=>backupStore??=new BackupStore(path.join(data(),'backups'));
 async function runBackup(manual=false){
@@ -132,6 +134,7 @@ const localPreview=new LocalPreview(
     }
     return localMessage({type:'localPage',...candidate,visible:window.isVisible()&&!window.isMinimized(),pdf:new Uint8Array(candidate.pdf),fragmentPdf:candidate.fragmentPdf?new Uint8Array(candidate.fragmentPdf):undefined}).then(result=>{
     const accepted=result===true;
+    if(accepted&&!candidate.recovery&&!candidate.recoveredBasis&&candidate.sourceMatchesDraft){const doc=state.docs.find(doc=>doc.path===candidate.root);if(doc&&textHash(doc.text)===candidate.sourceHash)successfulSources.remember(doc.path,doc.text);}
     // Expensive local calculations can outlast the original idle deadline.
     // Start a fresh idle interval after display instead of immediately launching
     // a cold full worker while the user types or moves to the next block.
@@ -261,7 +264,7 @@ async function selectRoot(root:string,automaticBuild=true) {
       localPreview.setBasis(basis);const doc=state.docs.find(doc=>doc.path===state.root);
       if(process.env.PERSISTENT_TEX_DISABLE_AUTOMATIC_HANDOFF!=='1'&&doc&&latestEditId&&localPreview.resumeAutomatic(doc.path,doc.text,latestEditId))scheduleFullVerification(latestEditId);
     }},
-    commit:(bundle,timing)=>{if(generation===rootGeneration){previewBackend=timing?.backend;if(previewBackend?.startsWith('Preamble'))previewFallback=undefined;tracePreview({event:'full-committed',backend:previewBackend});currentDiagnostic=undefined;displayed=bundle;send({type:'commit',id:bundle.id,timing,visible:window.isVisible()&&!window.isMinimized()});}},
+    commit:(bundle,timing)=>{if(generation===rootGeneration){previewBackend=timing?.backend;if(previewBackend?.startsWith('Preamble'))previewFallback=undefined;tracePreview({event:'full-committed',backend:previewBackend});currentDiagnostic=undefined;displayed=bundle;const good=state.docs.find(doc=>doc.path===bundle.root);if(good&&!bundle.recovered&&textHash(good.text)===bundle.sourceHash)successfulSources.remember(good.path,good.text);send({type:'commit',id:bundle.id,timing,visible:window.isVisible()&&!window.isMinimized()});}},
     discard:bundle=>send({type:'discard',id:bundle.id})
   },s=>{if(generation===rootGeneration)setStatus(s);},appendLog);
   controller=next;
@@ -429,6 +432,23 @@ async function handle(method:string,args:unknown[]) {
       if(state.lastCursor&&state.docs.some(doc=>doc.path===state.lastCursor!.file)&&Number.isSafeInteger(state.lastCursor.at)&&state.lastCursor.at>=0)localPreview.move(state.lastCursor.file,state.lastCursor.at);
       if(savedRoot)void selectRoot(savedRoot).catch(e=>setStatus(String(e)));
       return {...state,root:savedRoot,toolchain,showToolchainSetup:(!state.toolchainSeen&&!state.docs.length)||!!toolchain&&(!toolchain.ready||!toolchain.fast.available)&&acknowledgedToolchain!==toolchainSignature(toolchain)};
+    }
+    case 'editorPreferences': {
+      const value=args[0] as Partial<State>;
+      if(value.sourceFontSize!==undefined){if(!Number.isInteger(value.sourceFontSize)||value.sourceFontSize<10||value.sourceFontSize>32)throw Error('Choose a source font size between 10 and 32.');state.sourceFontSize=value.sourceFontSize;}
+      for(const key of ['commandCompletion','wrapCommands','typingMarker'] as const)if(typeof value[key]==='boolean')state[key]=value[key];
+      await persist();return {commandCompletion:!!state.commandCompletion,wrapCommands:state.wrapCommands!==false,typingMarker:!!state.typingMarker,sourceFontSize:state.sourceFontSize??14};
+    }
+    case 'recoverSuccessfulSource': {
+      const file=String(args[0]),doc=state.docs.find(doc=>doc.path===file),source=await successfulSources.read(file);
+      if(!doc||source===undefined)throw Error('No successful source has been captured for this file yet.');
+      if(doc.text!==args[1])throw Error('The source changed. Choose recovery again.');
+      if(source===doc.text)throw Error('This source already matches its last successful preview.');
+      const draftText=doc.text,directory=path.join(data(),'recovery'),copy=path.join(directory,path.basename(file,path.extname(file))+'-before-recovery-'+Date.now()+'-'+randomUUID().slice(0,8)+path.extname(file));
+      await fs.mkdir(directory,{recursive:true});await fs.writeFile(copy,draftText,{flag:'wx'});
+      const draft:Doc={path:copy,text:draftText,diskHash:hash(Buffer.from(draftText)),dirty:false,eol:'\n'};
+      state.docs.push(draft);await persist();
+      return {file,source,draft};
     }
     case 'toolchainCheck': return checkToolchain(typeof args[0]==='string'?args[0]:undefined,typeof args[1]==='string'?args[1]:state.engine,typeof args[2]==='string'?args[2]:state.latexmk);
     case 'commandArguments': {
@@ -650,7 +670,7 @@ async function closeWindow() {
       const response=await dialog.showMessageBox(window,{type:'question',buttons:['Keep drafts and close','Cancel'],defaultId:0,cancelId:1,message:'Unsaved edits will be kept as recoverable drafts.',detail:'The original files will not be overwritten.'});
       if(response.response===1)return false;
     }
-    await runBackup();controller?.cancel();closing=true;window.close();return true;
+    await runBackup();await successfulSources.flush().catch(error=>appendLog('Successful source checkpoint could not be saved: '+String(error)+'\n'));controller?.cancel();closing=true;window.close();return true;
   }finally{closeInFlight=false;}
 }
 app.whenReady().then(async()=>{
@@ -699,7 +719,7 @@ app.whenReady().then(async()=>{
   });
   ipcMain.handle('desktop',async(event,method,...args)=>{
     if(event.sender!==window.webContents||event.senderFrame?.url!=='texapp://local/index.html')throw new Error('Untrusted sender.');
-    try{const result=await handle(method,args);if(['initialize','projectSidebar','automaticBackups','statusBar','zoom','panels','autoClose','follow','previewEditing','continuous','previewMode','live','settings'].includes(method))updateAppMenu();return result;}catch(error){if(!['projectSearch','searchLocation','applyProjectReplace','navigateSource','navigateDiagnostic','nativeNavigation','follow'].includes(method))setStatus(error instanceof Error?error.message:String(error));throw error;}
+    try{const result=await handle(method,args);if(['initialize','projectSidebar','automaticBackups','statusBar','zoom','panels','autoClose','follow','previewEditing','continuous','previewMode','live','settings','editorPreferences'].includes(method))updateAppMenu();return result;}catch(error){if(!['projectSearch','searchLocation','applyProjectReplace','navigateSource','navigateDiagnostic','nativeNavigation','follow'].includes(method))setStatus(error instanceof Error?error.message:String(error));throw error;}
   });
   updateAppMenu();
   await window.loadURL('texapp://local/index.html');

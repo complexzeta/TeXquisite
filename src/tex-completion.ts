@@ -1,7 +1,7 @@
 import {ChangeSet,ChangeDesc,EditorSelection,EditorState,Prec,StateEffect,StateField,TransactionSpec} from '@codemirror/state';
 import {invertedEffects} from '@codemirror/commands';
 import {keymap} from '@codemirror/view';
-import {CommandArguments,multiArgumentCount} from './tex-arguments';
+import {CommandArguments,multiArgumentCount,definedArguments,standardArguments} from './tex-arguments';
 
 interface Closer {argument?:{group:number;index:number;count:number;opening:number};environment?:{from:number;to:number};opening?:{from:number;to:number;editing?:boolean};sized?:boolean;from:number;to:number;text:string;open:string;}
 function pairOpening(pair:Closer){return pair.opening??(pair.environment?{from:pair.environment.from-7,to:pair.environment.to+1,editing:false}:undefined);}
@@ -229,6 +229,16 @@ export function nextTexArgument(state:EditorState,backward=false,enabled=true):T
  const next=group.find(pair=>pair.argument!.index===argument.index+(backward?-1:1));
  if(next)return {selection:{anchor:next.argument!.opening+1},scrollIntoView:true};
  if(!backward&&argument.index===argument.count-1)return {selection:{anchor:current.to},scrollIntoView:true};
+}
+
+export function wrapTexCommand(state:EditorState,command:string,signatures:CommandArguments={}):TransactionSpec|undefined{
+ if(state.selection.ranges.length!==1||state.selection.main.empty||!/^\\[A-Za-z@]+$/.test(command))return;
+ const counts={...standardArguments,...signatures,...definedArguments(state.doc.toString(),signatures)},count=counts[command.slice(1)];
+ if(!Number.isInteger(count)||count<1||count>9)return;
+ const range=state.selection.main,prefix={changes:{from:range.from,insert:command},selection:{anchor:range.from+command.length,head:range.to+command.length}};
+ const first=state.update(prefix),result=first.state.update(completeTex(first.state,'{',true,signatures));
+ const next=nextTexArgument(result.state);
+ return {changes:first.changes.compose(result.changes),selection:next?.selection??EditorSelection.cursor(result.state.selection.main.to+1),effects:result.effects};
 }
 
 export function texCompletion(enabled:()=>boolean){return [closers,pendingCloser,

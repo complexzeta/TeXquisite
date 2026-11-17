@@ -206,7 +206,7 @@ export class ContinuousView{
     const canvas=e.canvas!;canvas.getContext('2d')!.drawImage(region,tile.sourceX,tile.sourceY,rect.width,rect.height,rect.x,rect.y,rect.width,rect.height);e.neutral.set(id,rect);e.patched=true;this.observer?.unobserve(e.element);this.restore(position);return canvas;
   }
   revealPosition(page:number,y:number){const e=this.entries.get(page);if(e&&!e.block&&!e.band&&e.coveredBy===undefined)this.reveal(e.element,y);}
-  mark(page:number,box:{x:number;y:number;width:number;height:number},live=false,highlight=true){
+  mark(page:number,box:{x:number;y:number;width:number;height:number},live=false,highlight=true,marginOnly=false){
     const e=this.entries.get(page);if(!e)return false;
     let y=box.y;
     if(!live&&e.block){
@@ -214,13 +214,15 @@ export class ContinuousView{
       if(y>=bottom)y+=(e.block.height-(e.bottom!-e.top!))/factor;
       else if(y+box.height>top)return false;
     }
-    this.host.querySelectorAll('.navigation-marker').forEach(e=>e.remove());
+    this.host.querySelectorAll(marginOnly?'.typing-marker':'.navigation-marker').forEach(e=>e.remove());
     const target=live?e.block:e.element;if(!target)return false;
     const top=live?e.top!/(this.scale*this.ratio)+y:y;
-    if(highlight){const marker=document.createElement('div');marker.className='navigation-marker';
+    if(highlight||marginOnly){const marker=document.createElement('div');marker.className=marginOnly?'typing-marker':'navigation-marker';
       marker.style.cssText=`left:${box.x*this.scale}px;top:${top*this.scale}px;width:${Math.max(4,box.width*this.scale)}px;height:${Math.max(5,box.height*this.scale)}px`;
-      e.element.append(marker);setTimeout(()=>marker.remove(),1200);
+      if(marginOnly)marker.style.cssText='left:'+(e.element.offsetLeft-7)+'px;top:'+(e.element.offsetTop+top*this.scale)+'px;height:'+Math.max(10,box.height*this.scale)+'px';
+      if(marginOnly)this.host.append(marker);else{e.element.append(marker);setTimeout(()=>marker.remove(),1200);}
     }
+    if(marginOnly)return true;
     this.reveal(e.element,top);
     const left=e.element.getBoundingClientRect().left+box.x*this.scale,view=this.viewport.getBoundingClientRect();
     if(left<view.left+24)this.viewport.scrollLeft+=left-view.left-24;else if(left>view.right-24)this.viewport.scrollLeft+=left-view.right+24;

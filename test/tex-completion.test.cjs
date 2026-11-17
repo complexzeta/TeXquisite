@@ -1,7 +1,7 @@
 const {test}=require('node:test'),assert=require('node:assert/strict');
 const {EditorState,Transaction}=require('@codemirror/state');
 const {history,undo,redo,isolateHistory}=require('@codemirror/commands');
-const {completeTex,surroundTex,texCompletion,nextTexArgument}=require('../dist/tex-completion');
+const {completeTex,surroundTex,texCompletion,nextTexArgument,wrapTexCommand}=require('../dist/tex-completion');
 function editor(doc='',at=doc.length){
  let enabled=true;
  const view={state:EditorState.create({doc,selection:{anchor:at},extensions:[history(),texCompletion(()=>enabled)]}),dispatch:spec=>{view.state=spec instanceof Transaction?spec.state:view.state.update(spec).state;}};
@@ -29,6 +29,14 @@ test('multiple command arguments complete and navigate without duplicating brace
   const typed=editor();typed.type('\\'+command+'{a}{b}');
   assert.equal(typed.text(),'\\'+command+'{a}{b}');
  }
+});
+test('command wrapping keeps selected content and puts the caret in the next argument',()=>{
+ const e=editor('a+b');e.view.dispatch({selection:{anchor:0,head:3}});e.view.dispatch(wrapTexCommand(e.view.state,'\\frac'));
+ assert.equal(e.text(),'\\frac{a+b}{}');assert.equal(e.at(),11);
+ e.type('c}');assert.equal(e.text(),'\\frac{a+b}{c}');
+ assert.ok(undo(e.view));assert.ok(undo(e.view));assert.equal(e.text(),'a+b');
+ const single=editor('x');single.view.dispatch({selection:{anchor:0,head:1}});
+ single.view.dispatch(wrapTexCommand(single.view.state,'\\single',{single:1}));assert.equal(single.text(),'\\single{x}');assert.equal(single.at(),single.text().length);
 });
 test('custom argument counts support optional defaults, xparse, nesting, history and disabled completion',()=>{
  for(const definition of ['\\newcommand{\\custom}[3]{#1#2#3}','\\NewDocumentCommand{\\custom}{O{a} m +m m}{#2#3#4}','\\def\\custom#1#2#3{#1#2#3}']){

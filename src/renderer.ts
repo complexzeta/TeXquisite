@@ -14,8 +14,9 @@ import {installToolbar,toolbarButton,toolbarSelect} from './toolbar';
 import {ProjectSidebar} from './project-sidebar';
 import {ProjectSearchUI} from './project-search-ui';
 import {PanelLayout} from './panel-layout';
-import {completeTex,texCompletion,surroundTex} from './tex-completion';
-import type {CommandArguments} from './tex-arguments';
+import {completeTex,texCompletion,surroundTex,wrapTexCommand} from './tex-completion';
+import {CommandArguments,definedArguments,standardArguments} from './tex-arguments';
+import {autocompletion,startCompletion,CompletionContext} from '@codemirror/autocomplete';
 import {imageTex} from './image-paste';
 import {loadPdf,renderCheckedPdfRegion,copyPdfRaster} from './pdf-viewer';
 import {BaselineCache} from './baseline-cache';
@@ -32,6 +33,7 @@ const el=<T extends HTMLElement=HTMLElement>(id:string)=>document.getElementById
 // Record display completion on the stable host: continuous scrolling can retire
 // the candidate canvas before its timing attributes are observed.
 function recordDisplayedFrame(editId:string|undefined,sourceHash:string|undefined,layout:string){
+  void updateTypingMarker();
   if(!editId)return;
   const host=el('pages');host.dataset.displayedFrame=JSON.stringify({id:editId,sourceHash,layout,at:performance.now()});
 }
@@ -339,10 +341,10 @@ document.body.append(surroundBox);
 const surroundInput=surroundBox.querySelector('input')!;
 let surroundSession:{editor:EditorView;file:string;state:EditorState}|undefined;
 function cancelSurround(focus=false){const session=surroundSession;surroundSession=undefined;surroundBox.hidden=true;if(focus&&session&&view===session.editor&&active===session.file)session.editor.focus();}
-function acceptSurround(){
+function acceptSurround(submit=false){
  const session=surroundSession;if(!session)return;
  if(view!==session.editor||active!==session.file||!session.editor.state.doc.eq(session.state.doc)||!session.editor.state.selection.eq(session.state.selection)){cancelSurround();return;}
- const transaction=surroundTex(session.editor.state,surroundInput.value,model.autoClose!==false);
+ const transaction=surroundTex(session.editor.state,surroundInput.value,model.autoClose!==false)||(submit&&model.wrapCommands!==false?wrapTexCommand(session.editor.state,surroundInput.value,argumentSignatures):undefined);
  if(!transaction)return false;
  cancelSurround();inputStartedAt=performance.now();session.editor.dispatch({...transaction,annotations:[Transaction.userEvent.of('input.type'),isolateHistory.of('full')]});session.editor.focus();return true;
 }
@@ -352,13 +354,81 @@ function showSurround(editor:EditorView){
  const box=editor.coordsAtPos(editor.state.selection.main.head);surroundBox.style.left=Math.max(8,Math.min(window.innerWidth-340,box?.left??40))+'px';surroundBox.style.top=Math.max(8,Math.min(window.innerHeight-120,(box?.bottom??60)+6))+'px';surroundBox.hidden=false;surroundInput.focus();surroundInput.setSelectionRange(1,1);
 }
 surroundInput.addEventListener('input',()=>{if(!acceptSurround()&&surroundSession)el('surroundHint').textContent='Correct the delimiter here; your selection is unchanged. Esc cancels.';});
-surroundBox.addEventListener('submit',event=>{event.preventDefault();if(!acceptSurround())el('surroundHint').textContent='Unknown delimiter. Correct it or press Esc to cancel.';});
+surroundBox.addEventListener('submit',event=>{event.preventDefault();if(!acceptSurround(true))el('surroundHint').textContent='Enter a known command or delimiter, or press Esc to cancel.';});
 surroundInput.addEventListener('keydown',event=>{event.stopPropagation();if(event.key==='Escape'){event.preventDefault();cancelSurround(true);}});
 surroundInput.addEventListener('blur',()=>{if(surroundSession)cancelSurround();});
+const editorStyle=document.createElement('style');
+editorStyle.textContent='#editor .cm-editor{font-size:var(--source-font-size,14px)}.typing-marker{position:absolute;width:4px;border-radius:2px;background:#247b9b;pointer-events:none;z-index:5}';
+document.head.append(editorStyle);
+const editorSettings=document.createElement('dialog');editorSettings.id='editorSettingsDialog';
+editorSettings.innerHTML='<form method="dialog"><h2>Editor and lecture settings</h2><label class="check"><input id="prefWrapCommands" type="checkbox">Wrap selections with commands</label><label class="check"><input id="prefCommandCompletion" type="checkbox">Suggest TeX commands and argument counts</label><label class="check"><input id="prefTypingMarker" type="checkbox">Show typing marker in the preview margin</label><label>Source font size<input id="prefSourceFont" type="number" min="10" max="32" step="1"></label><label>Preview zoom<select id="prefPreviewZoom"></select></label><p><button id="prefWrapNow" type="button">Wrap current selection…</button></p><p><button id="prefRecoverNow" type="button">Restore last successful source and keep draft</button></p><div class="dialog-actions"><button value="cancel">Cancel</button><button id="applyEditorSettings" value="default">Apply</button></div></form>';
+document.body.append(editorSettings);
+function applyEditorAppearance(){document.documentElement.style.setProperty('--source-font-size',(model.sourceFontSize??14)+'px');void updateTypingMarker();}
+async function editorPreferences(values:Record<string,unknown>){Object.assign(model,await api.call('editorPreferences',values));applyEditorAppearance();}
+function showEditorSettings(){
+ el<HTMLInputElement>('prefWrapCommands').checked=model.wrapCommands!==false;el<HTMLInputElement>('prefCommandCompletion').checked=!!model.commandCompletion;
+ el<HTMLInputElement>('prefTypingMarker').checked=!!model.typingMarker;el<HTMLInputElement>('prefSourceFont').value=String(model.sourceFontSize??14);
+ const zoom=el<HTMLSelectElement>('prefPreviewZoom');zoom.innerHTML=el('zoom').innerHTML;zoom.value=String(zoomChoice);editorSettings.showModal();
+}
+function wrapSelection(){
+ if(model.wrapCommands===false)throw Error('Enable wrapping in Editor and lecture settings.');
+ if(!view||view.state.selection.main.empty)throw Error('Select the source text to wrap first.');
+ showSurround(view);el('surroundHint').textContent='Enter a command such as \\frac, then press Enter. Delimiters also work. Esc cancels.';
+}
+async function recoverSuccessful(){
+ if(!view||!active)return;await flush();
+ const editor=view,file=active,before=editor.state.doc.toString(),result=await api.call('recoverSuccessfulSource',file,before);
+ if(!model.docs.some((doc:any)=>doc.path===result.draft.path))model.docs.push(result.draft);renderTabs();
+ if(view!==editor||active!==file||editor.state.doc.toString()!==before)throw Error('The source changed while saving its recovery copy. Choose recovery again.');
+ inputStartedAt=performance.now();editor.dispatch({changes:{from:0,to:editor.state.doc.length,insert:result.source},selection:{anchor:Math.min(editor.state.selection.main.head,result.source.length)},annotations:[Transaction.userEvent.of('input.recover'),isolateHistory.of('full')]});editor.focus();
+}
+el('prefWrapNow').onclick=()=>{editorSettings.close();void command(async()=>wrapSelection());};
+el('prefRecoverNow').onclick=()=>{editorSettings.close();void command(recoverSuccessful);};
+el('applyEditorSettings').onclick=event=>{event.preventDefault();void command(async()=>{
+ await editorPreferences({wrapCommands:el<HTMLInputElement>('prefWrapCommands').checked,commandCompletion:el<HTMLInputElement>('prefCommandCompletion').checked,typingMarker:el<HTMLInputElement>('prefTypingMarker').checked,sourceFontSize:Number(el<HTMLInputElement>('prefSourceFont').value)});
+ const zoom=el<HTMLSelectElement>('zoom');zoom.value=el<HTMLSelectElement>('prefPreviewZoom').value;zoom.dispatchEvent(new Event('change',{bubbles:true}));editorSettings.close();
+});};
+function editorMenuAction(action:string,value?:string){
+ if(action==='editorSettings'){showEditorSettings();return true;}
+ if(action==='wrapCommand'){void command(async()=>wrapSelection());return true;}
+ if(action==='recoverSuccessfulSource'){void command(recoverSuccessful);return true;}
+ if(action==='completeCommand'){if(view){view.focus();startCompletion(view);}return true;}
+ if(['commandCompletion','wrapCommands','typingMarker'].includes(action)){void command(()=>editorPreferences({[action]:action==='wrapCommands'?model.wrapCommands===false:!model[action]}));return true;}
+ if(action==='sourceFontSize'||action==='sourceLarger'||action==='sourceSmaller'){void command(()=>editorPreferences({sourceFontSize:action==='sourceFontSize'?Number(value):Math.max(10,Math.min(32,(model.sourceFontSize??14)+(action==='sourceLarger'?2:-2)))}));return true;}
+ if(['zoomIn','zoomOut','zoomReset'].includes(action)){
+  const values=[.8,1,1.25,1.5,2],next=action==='zoomReset'?1:action==='zoomIn'?values.find(v=>v>scale)??2:[...values].reverse().find(v=>v<scale)??.8;
+  const zoom=el<HTMLSelectElement>('zoom');zoom.value=String(next);zoom.dispatchEvent(new Event('change',{bubbles:true}));return true;
+ }
+ return false;
+}
+let typingMarkerToken=0;
+async function updateTypingMarker(){
+ const token=++typingMarkerToken;el('pages').querySelectorAll('.typing-marker').forEach(node=>node.remove());
+ if(!model.typingMarker||!view)return;
+ const editor=view,file=active,text=editor.state.doc.toString(),at=editor.state.selection.main.head,line=editor.state.doc.lineAt(at).number;
+ const nearest=(locations:FlowLocation[])=>locations.filter(g=>g.at<=text.length&&editor.state.doc.lineAt(g.at).number===line).sort((a,b)=>Math.abs(a.at-at)-Math.abs(b.at-at))[0];
+ let page:number|undefined,glyph:{x:number;y:number;width:number;height:number}|undefined,live=false;
+ if(liveFlow?.file===file&&liveFlow.text===text){page=liveFlow.page;glyph=nearest(liveFlow.locations);live=true;}
+ else{const pages=currentLivePages();if(pages?.file===file&&pages.text===text){for(const entry of pages.pages){const found=nearest(entry.locations);if(found){page=entry.page;glyph=found;break;}}}
+  else if(current?.navigation&&!current.navigation.nativeInputs&&await matchesSource(current.navigation,file,text)){const row=forwardPosition(current.navigation,file,text,at,pageNumber);if(row){page=row[2];glyph={x:row[3],y:row[4],width:row[5],height:row[6]};}}
+ }
+ if(token!==typingMarkerToken||view!==editor||active!==file||!model.typingMarker||!glyph||page===undefined)return;
+ if(model.continuousPreview){continuousView.mark(page,glyph,live,false,true);return;}
+ if(page!==current?.page)return;
+ const marker=document.createElement('div');marker.className='typing-marker';marker.style.cssText='left:-7px;top:'+glyph.y*scale+'px;height:'+Math.max(10,glyph.height*scale)+'px';el('pages').append(marker);
+}
+function commandCompletions(context:CompletionContext){
+ if(!model.commandCompletion&&!context.explicit)return null;
+ const match=context.matchBefore(/\\[A-Za-z@]*/);if(!match)return null;
+ const line=context.state.doc.lineAt(context.pos).text;
+ if(/(^|[^\\])%/.test(line.slice(0,context.pos-context.state.doc.lineAt(context.pos).from)))return null;
+ const commands={...standardArguments,...argumentSignatures,...definedArguments(context.state.doc.toString(),argumentSignatures)};
+ return {from:match.from,options:Object.entries(commands).filter(([name,count])=>/^[A-Za-z@]+$/.test(name)&&count>=0&&count<=9).map(([name,count])=>({label:'\\'+name,type:'function',detail:count+' argument'+(count===1?'':'s')})),validFor:/^\\[A-Za-z@]*$/};
+}
 function createState(text:string){
  let pointer:{id:number;x:number;y:number}|undefined,pointerGeneration=0;
  const textHit=(event:PointerEvent,editor:EditorView)=>{const line=event.target instanceof Element?event.target.closest('.cm-line'):undefined;if(!line||!editor.contentDOM.contains(line))return false;const range=document.createRange();range.selectNodeContents(line);return [...range.getClientRects()].some(r=>r.width>0&&event.clientX>=r.left&&event.clientX<=r.right&&event.clientY>=r.top&&event.clientY<=r.bottom);};
- return EditorState.create({doc:text,extensions:[basicSetup,lintGutter(),StreamLanguage.define(stex),texCompletion(()=>model.autoClose!==false),EditorView.lineWrapping,
+ return EditorState.create({doc:text,extensions:[basicSetup,lintGutter(),StreamLanguage.define(stex),texCompletion(()=>model.autoClose!==false),autocompletion({override:[commandCompletions]}),EditorView.lineWrapping,
   EditorView.domEventHandlers({beforeinput(event,editor){
     markInput();
     const input=event as InputEvent;
@@ -375,6 +445,7 @@ function createState(text:string){
   },pointerdown(event,editor){pointerGeneration++;pointer=event.button===0&&textHit(event,editor)?{id:event.pointerId,x:event.clientX,y:event.clientY}:undefined;return false;},pointerup(event,editor){const start=pointer;pointer=undefined;if(!start||start.id!==event.pointerId||!textHit(event,editor)||Math.abs(start.x-event.clientX)>4||Math.abs(start.y-event.clientY)>4){pointerGeneration++;renderRecoveryNotice();return false;}if(model.continuousPreview&&!suppressFollow){const generation=++pointerGeneration,doc=editor.state.doc,at=editor.state.selection.main.head;cancelAnimationFrame(followFrame);followFrame=requestAnimationFrame(()=>{if(generation===pointerGeneration&&view===editor&&editor.state.doc===doc&&editor.state.selection.main.head===at)void locateSource(true).catch(e=>{el('navState').textContent=String(e);});});}return false;},scroll(){renderRecoveryNotice();return false;},wheel(){pointer=undefined;pointerGeneration++;return false;},paste(event){if(imagePasteEvent(event))return true;markInput();return false;},cut(){markInput();return false;}}),EditorView.updateListener.of(update=>{
   if(applyingProjectReplace)return;
   if(update.docChanged||update.selectionSet){if(surroundSession)cancelSurround();navigationToken++;if(!previewApplying&&previewSession)endPreview();}
+  if(update.docChanged||update.selectionSet)void updateTypingMarker();
   if(update.docChanged){
     refreshArgumentSignatures(update.state.doc.toString());
     diagnosticTracker.changed(active,at=>update.changes.mapPos(Math.min(at,update.startState.doc.length),1),update.state.doc);
@@ -1104,7 +1175,7 @@ api.on(async message=>{
     return;
   }
   if(message.type==='backupStatus'){el('backupStatus').textContent=message.text;el('backupWarning').hidden=true;el('backupWarning').querySelector('span')!.textContent=message.text;backupIssue=message.error?message.text:undefined;renderRecoveryNotice();return;}
-  if(message.type==='menuAction'){const {action,value}=message;if(action==='copyPerformanceReport'){void command(()=>api.call('copyPerformanceReport'));return;}if(action==='browseBackups'){void command(showBackups);return;}if(action==='backupNow'){void command(backupNow);return;}if(action==='automaticBackups'){void command(async()=>{model.backups=await api.call('automaticBackups',model.backups===false);el<HTMLInputElement>('automaticBackups').checked=model.backups;});return;}if(action==='pasteImage'){void command(()=>pasteImage());return;}if(['zoom','panelLayout','layoutMode','previewMode'].includes(action)){const select=el<HTMLSelectElement>(action);if(select.value===value)return;select.value=value;select.dispatchEvent(new Event('change',{bubbles:true}));}else if(action.startsWith('math-'))document.querySelector<HTMLButtonElement>(`[data-math="${action.slice(5)}"]`)?.click();else document.getElementById(action)?.click();return;}
+  if(message.type==='menuAction'){const {action,value}=message;if(editorMenuAction(action,value))return;if(action==='copyPerformanceReport'){void command(()=>api.call('copyPerformanceReport'));return;}if(action==='browseBackups'){void command(showBackups);return;}if(action==='backupNow'){void command(backupNow);return;}if(action==='automaticBackups'){void command(async()=>{model.backups=await api.call('automaticBackups',model.backups===false);el<HTMLInputElement>('automaticBackups').checked=model.backups;});return;}if(action==='pasteImage'){void command(()=>pasteImage());return;}if(['zoom','panelLayout','layoutMode','previewMode'].includes(action)){const select=el<HTMLSelectElement>(action);if(select.value===value)return;select.value=value;select.dispatchEvent(new Event('change',{bubbles:true}));}else if(action.startsWith('math-'))document.querySelector<HTMLButtonElement>(`[data-math="${action.slice(5)}"]`)?.click();else document.getElementById(action)?.click();return;}
   if(message.type==='cacheCleanup')el('cacheStatus').textContent=message.text;
   if(message.type==='root'){model.root=message.root;renderTabs();}
   if(message.type==='saved'){
@@ -1241,4 +1312,4 @@ api.on(async message=>{
     await api.call('close');
   });
 });
-model=await api.call('initialize');zoomChoice=model.zoom==='fit-width'?'fit-width':[.8,1,1.25,1.5,2].includes(model.zoom)?model.zoom:1;el<HTMLSelectElement>('zoom').value=String(zoomChoice);if(typeof zoomChoice==='number')scale=zoomChoice;zoomLabel();panelLayout.restore(model.panelLayout);renderEditor();scheduleFit(true);renderToolchain(model.toolchain,true);if(model.showToolchainSetup)el('settings').click();
+model=await api.call('initialize');applyEditorAppearance();zoomChoice=model.zoom==='fit-width'?'fit-width':[.8,1,1.25,1.5,2].includes(model.zoom)?model.zoom:1;el<HTMLSelectElement>('zoom').value=String(zoomChoice);if(typeof zoomChoice==='number')scale=zoomChoice;zoomLabel();panelLayout.restore(model.panelLayout);renderEditor();scheduleFit(true);renderToolchain(model.toolchain,true);if(model.showToolchainSetup)el('settings').click();
