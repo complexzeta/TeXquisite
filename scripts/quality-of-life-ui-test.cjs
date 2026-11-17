@@ -17,9 +17,10 @@ const hash=s=>createHash('sha256').update(s).digest('hex');
   await page.waitForFunction(()=>document.querySelector('#live').getAttribute('aria-pressed')==='true');
   await page.locator('#live').click();await page.waitForFunction(()=>document.querySelector('#live').getAttribute('aria-pressed')==='false');
   stage='settings';console.log(stage);await menu('editorSettings');await page.locator('#prefCommandCompletion').check();await page.locator('#prefTypingMarker').check();await page.locator('#prefSourceFont').fill('18');await page.locator('#applyEditorSettings').click();
-  await page.waitForFunction(()=>getComputedStyle(document.querySelector('.cm-editor')).fontSize==='18px');
-  await menu('sourceLarger');await page.waitForFunction(()=>getComputedStyle(document.querySelector('.cm-editor')).fontSize==='20px');await menu('sourceSmaller');
-  await page.locator('.cm-content').focus();await page.keyboard.press('Control+=');await page.waitForFunction(()=>document.querySelector('#zoom').value==='1.25');await page.keyboard.press('Control+0');
+  stage='source font';console.log(stage);await page.waitForFunction(()=>getComputedStyle(document.querySelector('.cm-editor')).fontSize==='18px');
+  await menu('sourceLarger');await page.waitForFunction(()=>getComputedStyle(document.querySelector('.cm-editor')).fontSize==='20px');await menu('sourceSmaller');await page.waitForFunction(()=>getComputedStyle(document.querySelector('.cm-editor')).fontSize==='18px');
+  stage='zoom';console.log(stage);assert.equal(await app.evaluate(({Menu})=>Menu.getApplicationMenu().getMenuItemById('zoomIn').accelerator),'CmdOrCtrl+=');
+  await menu('zoomIn');await page.waitForFunction(()=>document.querySelector('#zoom').value==='1.25');await menu('zoomReset');await page.waitForFunction(()=>document.querySelector('#zoom').value==='1');
   stage='marker';console.log(stage);const scroll=await page.locator('#pdfViewport').evaluate(e=>e.scrollTop);
   await page.evaluate(at=>{const v=document.querySelector('.cm-content').cmTile.root.view;v.dispatch({selection:{anchor:at}});v.focus();},source.indexOf('MarkerTarget')+4);
   await page.locator('.typing-marker').waitFor({state:'attached',timeout:15000});
@@ -38,5 +39,5 @@ const hash=s=>createHash('sha256').update(s).digest('hex');
   assert.equal(state.commandCompletion,true);assert.equal(state.typingMarker,true);assert.equal(state.sourceFontSize,18);
   assert.ok(state.docs.some(doc=>doc.path===path.join(recovery,files[0])&&doc.text===draft));
   console.log(JSON.stringify({passed:true,settings:true,wrapping:true,suggestions:true,zoomShortcut:true,fontShortcut:true,marginMarker:true,recovery:true,draftPreserved:true}));
- }catch(error){console.error(JSON.stringify({stage,ui:await page?.evaluate(()=>({status:document.querySelector('#status')?.textContent,preview:document.querySelector('#previewState')?.textContent,log:document.querySelector('#log')?.textContent?.slice(-10000),live:document.querySelector('#live')?.getAttribute('aria-pressed'),canvases:[...document.querySelectorAll('canvas')].map(c=>({...c.dataset,width:c.width}))})).catch(()=>null)}));throw error;}finally{await app.evaluate(({app})=>app.exit(0)).catch(()=>{});await app.close().catch(()=>{});}
+ }catch(error){console.error(JSON.stringify({stage,ui:await page?.evaluate(()=>({font:getComputedStyle(document.querySelector('.cm-editor')).fontSize,zoom:document.querySelector('#zoom')?.value,status:document.querySelector('#status')?.textContent,preview:document.querySelector('#previewState')?.textContent,log:document.querySelector('#log')?.textContent?.slice(-10000),live:document.querySelector('#live')?.getAttribute('aria-pressed'),canvases:[...document.querySelectorAll('canvas')].map(c=>({...c.dataset,width:c.width}))})).catch(()=>null)}));throw error;}finally{await app.evaluate(({app})=>app.exit(0)).catch(()=>{});await app.close().catch(()=>{});}
 })().catch(error=>{console.error(String(error));process.exitCode=1;});
