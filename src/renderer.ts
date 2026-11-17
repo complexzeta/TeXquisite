@@ -366,7 +366,10 @@ function createState(text:string){
     // editor's native path handle IME, composition, paste and replacement input.
     if(!event.cancelable||input.inputType!=='insertText'||input.isComposing||editor.composing||!input.data)return false;
     event.preventDefault();
-    if(input.data==='\\'&&model.autoClose!==false&&!editor.state.selection.main.empty&&editor.state.selection.ranges.length===1){showSurround(editor);return true;}
+    if(input.data==='\\'&&model.autoClose!==false&&!editor.state.selection.main.empty&&editor.state.selection.ranges.length===1){
+      const selection=editor.state.selection.main,selected=editor.state.doc.sliceString(selection.from,selection.to);
+      if(selected!=='\\['&&selected!=='\\('){showSurround(editor);return true;}
+    }
     editor.dispatch({...completeTex(editor.state,input.data,model.autoClose!==false,argumentSignatures),annotations:Transaction.userEvent.of('input.type'),scrollIntoView:true});
     return true;
   },pointerdown(event,editor){pointerGeneration++;pointer=event.button===0&&textHit(event,editor)?{id:event.pointerId,x:event.clientX,y:event.clientY}:undefined;return false;},pointerup(event,editor){const start=pointer;pointer=undefined;if(!start||start.id!==event.pointerId||!textHit(event,editor)||Math.abs(start.x-event.clientX)>4||Math.abs(start.y-event.clientY)>4){pointerGeneration++;renderRecoveryNotice();return false;}if(model.continuousPreview&&!suppressFollow){const generation=++pointerGeneration,doc=editor.state.doc,at=editor.state.selection.main.head;cancelAnimationFrame(followFrame);followFrame=requestAnimationFrame(()=>{if(generation===pointerGeneration&&view===editor&&editor.state.doc===doc&&editor.state.selection.main.head===at)void locateSource(true).catch(e=>{el('navState').textContent=String(e);});});}return false;},scroll(){renderRecoveryNotice();return false;},wheel(){pointer=undefined;pointerGeneration++;return false;},paste(event){if(imagePasteEvent(event))return true;markInput();return false;},cut(){markInput();return false;}}),EditorView.updateListener.of(update=>{
